@@ -216,13 +216,9 @@ jobs:
 
   gitleaks:
     name: Gitleaks check
-<<<<<<< HEAD
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     # Only run for base repo, not forks
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
-=======
-    runs-on: ubuntu-latest
->>>>>>> main
     steps:
       - name: Checkout code
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
