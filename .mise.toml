@@ -1,0 +1,75 @@
+# mise configuration for Deepnote Toolkit development environment
+# Install mise: https://mise.jdx.dev/getting-started.html
+# Then run: mise install
+
+[tools]
+python = "3.12"
+java = "temurin-11"
+poetry = "2.2.0"
+
+[tasks.setup]
+description = "Set up development environment"
+run = """
+poetry install --with dev --all-extras
+poetry self add 'poethepoet[poetry_plugin]'
+poetry poe setup-hooks
+echo "✅ Development environment ready!"
+"""
+
+[tasks.test]
+description = "Run unit tests (without coverage by default)"
+run = """
+#!/bin/bash
+# Pass all arguments to nox, including --coverage flag if provided
+poetry run nox -s unit -- "$@"
+"""
+
+[tasks."test:coverage"]
+description = "Run unit tests with coverage"
+env = { COVERAGE = "true" }
+run = "poetry run nox -s unit"
+
+[tasks."test:quick"]
+description = "Run tests quickly without nox/coverage overhead"
+run = """
+#!/bin/bash
+# Usage: mise run test:quick tests/unit/test_file.py
+# Usage: mise run test:quick tests/unit/test_file.py::TestClass::test_method -v
+poetry run pytest "$@"
+"""
+
+[tasks.test-docker]
+description = "Run docker-based tests with coverage"
+run = "./bin/test-local"
+
+[tasks.lint]
+description = "Run linters"
+run = """
+poetry run black .
+poetry run flake8 .
+poetry run isort .
+"""
+
+[tasks.build]
+description = "Build Python wheel package"
+run = """
+#!/bin/bash
+set -e
+
+# Ensure dynamic versioning plugin is installed
+poetry self add 'poetry-dynamic-versioning[plugin]>=1.4.0' 2>/dev/null || true
+
+# Build the wheel
+echo "Building wheel with Poetry..."
+poetry build --format wheel
+
+# Get version and wheel info
+VERSION=$(poetry version --short)
+WHEEL=$(ls -t dist/*.whl | head -n1)
+WHEEL_NAME=$(basename "$WHEEL")
+WHEEL_PATH=$(realpath "$WHEEL")
+
+echo "✓ Built wheel: $WHEEL_NAME"
+echo "✓ Version: $VERSION"
+echo "✓ Path: $WHEEL_PATH"
+"""

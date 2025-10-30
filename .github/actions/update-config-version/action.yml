@@ -1,0 +1,250 @@
+name: 'Update Config Version'
+description: 'Updates version in app-config and ops repositories using octopilot'
+inputs:
+  env:
+    description: 'Environment name (staging/production)'
+    required: true
+  version_key:
+    description: 'YAML path to the version key'
+    required: true
+  values_yaml:
+    # Added this multi-file support because of app-config repo setup
+    description: 'Path(s) to the values.yaml file(s) - one per line for multiple files'
+    required: true
+  merge:
+    description: 'Whether to merge the PR automatically (true/false)'
+    required: true
+  version:
+    description: 'Version value to set'
+    required: true
+  github_token:
+    description: 'GitHub token for authentication'
+    required: true
+  branch:
+    description: 'Target branch name'
+    required: true
+  target_repo:
+    description: 'Target repository name'
+    required: true
+runs:
+  using: 'composite'
+  steps:
+    - name: Install octopilot
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # Download octopilot binary
+        OCTOPILOT_VERSION="1.12.36"
+        OCTOPILOT_REPO="dailymotion-oss/octopilot"
+        OCTOPILOT_URL="https://github.com/${OCTOPILOT_REPO}/releases/download/v${OCTOPILOT_VERSION}/octopilot_${OCTOPILOT_VERSION}_linux_amd64"
+        CHECKSUMS_URL="https://github.com/${OCTOPILOT_REPO}/releases/download/v${OCTOPILOT_VERSION}/octopilot_${OCTOPILOT_VERSION}_checksums.txt"
+
+        echo "Downloading octopilot v${OCTOPILOT_VERSION}..."
+        curl -fsSL "${OCTOPILOT_URL}" -o octopilot
+
+        echo "Downloading checksums file..."
+        curl -fsSL "${CHECKSUMS_URL}" -o checksums.txt
+
+        # Verify checksum
+        echo "Verifying checksum..."
+        EXPECTED_CHECKSUM=$(grep "octopilot_${OCTOPILOT_VERSION}_linux_amd64" checksums.txt | awk '{print $1}')
+
+        if [ -z "$EXPECTED_CHECKSUM" ]; then
+          echo "ERROR: Could not find checksum for linux_amd64 binary in checksums.txt"
+          cat checksums.txt
+          exit 1
+        fi
+
+        ACTUAL_CHECKSUM=$(sha256sum octopilot | awk '{print $1}')
+
+        if [ "$ACTUAL_CHECKSUM" != "$EXPECTED_CHECKSUM" ]; then
+          echo "ERROR: Checksum verification failed!"
+          echo "Expected: $EXPECTED_CHECKSUM"
+          echo "Got:      $ACTUAL_CHECKSUM"
+          exit 1
+        fi
+
+        echo "✓ Checksum verified successfully"
+
+        # Install octopilot
+        sudo mv octopilot /usr/local/bin/octopilot
+        sudo chmod +x /usr/local/bin/octopilot
+
+        # Verify installation
+        octopilot --version
+
+    - name: Update version using octopilot
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        INPUT_ENV: ${{ inputs.env }}
+        INPUT_TARGET_REPO: ${{ inputs.target_repo }}
+        INPUT_BRANCH: ${{ inputs.branch }}
+        INPUT_MERGE: ${{ inputs.merge }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_VERSION_KEY: ${{ inputs.version_key }}
+        INPUT_VALUES_YAML: ${{ inputs.values_yaml }}
+        GITHUB_SERVER_URL: ${{ github.server_url }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
+        GITHUB_RUN_ID: ${{ github.run_id }}
+        GITHUB_SHA: ${{ github.sha }}
+        GITHUB_ACTOR: ${{ github.actor }}
+      run: |
+        set -euo pipefail
+
+        # Input validation
+        ENV="${INPUT_ENV}"
+        TARGET_REPO_NAME="${INPUT_TARGET_REPO}"
+        BRANCH="${INPUT_BRANCH}"
+        MERGE="${INPUT_MERGE}"
+        VERSION_VALUE="${INPUT_VERSION}"
+        VERSION_KEY="${INPUT_VERSION_KEY}"
+
+        # Validate environment (staging or production only)
+        if [[ ! "$ENV" =~ ^(staging|production)$ ]]; then
+          echo "ERROR: Invalid environment: $ENV"
+          echo "Environment must be 'staging' or 'production'"
+          exit 1
+        fi
+
+        # Validate target repository name (alphanumeric and hyphens only)
+        if [[ ! "$TARGET_REPO_NAME" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+          echo "ERROR: Invalid target repository name: $TARGET_REPO_NAME"
+          exit 1
+        fi
+
+        # Validate branch name (no special characters that could cause issues)
+        if [[ ! "$BRANCH" =~ ^[a-zA-Z0-9/_.-]+$ ]]; then
+          echo "ERROR: Invalid branch name: $BRANCH"
+          exit 1
+        fi
+
+        # Validate merge flag (true or false only)
+        if [[ ! "$MERGE" =~ ^(true|false)$ ]]; then
+          echo "ERROR: Invalid merge value: $MERGE"
+          echo "Merge must be 'true' or 'false'"
+          exit 1
+        fi
+
+        # Validate version format (semver or commit SHA)
+        if [[ ! "$VERSION_VALUE" =~ ^(v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?|[0-9a-f]{7,40})$ ]]; then
+          echo "ERROR: Invalid version format: $VERSION_VALUE"
+          echo "Version must be semantic version (e.g., 1.2.3, v1.2.3) or commit SHA"
+          exit 1
+        fi
+
+        # Validate version key format (YAML path)
+        if [[ ! "$VERSION_KEY" =~ ^\.?[a-zA-Z0-9_.]+$ ]]; then
+          echo "ERROR: Invalid version key format: $VERSION_KEY"
+          exit 1
+        fi
+
+        # Set additional variables
+        export ENV
+        export RELEASE_NAME="deepnote-toolkit"
+        export VERSION_KEY
+        export VERSION_VALUE
+        export TARGET_REPO_NAME
+        export VALUES_YAML="${INPUT_VALUES_YAML}"
+        export ORG_NAME="deepnote"
+        export SOURCE_REPO_NAME="deepnote-toolkit"
+        export GIT_URL="https://github.com/${ORG_NAME}/${SOURCE_REPO_NAME}"
+
+        # Validate GitHub username format
+        ACTOR="${GITHUB_ACTOR}"
+        if [[ ! "$ACTOR" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{0,38}$ ]]; then
+          echo "ERROR: Invalid GitHub username format: $ACTOR"
+          echo "GitHub usernames must be 1-39 characters, alphanumeric and hyphens only"
+          exit 1
+        fi
+
+        # Commit body with GitHub Actions info
+        git_commit_body="Bump ${ENV} ${RELEASE_NAME} to ${VERSION_VALUE}
+        GitHub Actions: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+        GitHub: ${GIT_URL}/commit/${GITHUB_SHA}"
+
+        # Convert multiline input to array
+        readarray -t FILES_ARRAY <<< "$VALUES_YAML"
+
+        # Remove empty lines and trim whitespace (using safe bash parameter expansion)
+        YAML_FILES=()
+        for file in "${FILES_ARRAY[@]}"; do
+          # Trim leading whitespace
+          file="${file#"${file%%[![:space:]]*}"}"
+          # Trim trailing whitespace
+          file="${file%"${file##*[![:space:]]}"}"
+
+          # Skip empty lines
+          if [ -z "$file" ]; then
+            continue
+          fi
+
+          # Validate file path format (no path traversal, must end in .yaml or .yml)
+          if [[ "$file" =~ \.\. ]]; then
+            echo "ERROR: Path traversal detected in file path: $file"
+            exit 1
+          fi
+
+          if [[ ! "$file" =~ ^[a-zA-Z0-9/_.-]+\.(yaml|yml)$ ]]; then
+            echo "ERROR: Invalid file path format: $file"
+            echo "File paths must be alphanumeric with /, _, ., - and end in .yaml or .yml"
+            exit 1
+          fi
+
+          YAML_FILES+=("$file")
+        done
+
+        # Validate we have at least one file
+        if [ ${#YAML_FILES[@]} -eq 0 ]; then
+          echo "ERROR: No YAML files provided"
+          exit 1
+        fi
+
+        octopilot_args=(
+          "--repo"
+          "${ORG_NAME}/${TARGET_REPO_NAME}(merge=${MERGE},branch=${BRANCH})"
+        )
+
+        # Add updates for all files
+        for file in "${YAML_FILES[@]}"; do
+          octopilot_args+=(
+            "--update"
+            "yq(file=${file},expression='(${VERSION_KEY} = strenv(VERSION_VALUE))')"
+          )
+        done
+
+        octopilot_args+=(
+          "--git-commit-title"
+          "Release on ${ENV}: ${RELEASE_NAME} updated to ${VERSION_VALUE}"
+          "--git-commit-body"
+          "${git_commit_body}"
+          "--git-commit-footer"
+          "Generated by [Octopilot](https://github.com/dailymotion-oss/octopilot) in [GitHub Action](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})"
+          "--git-author-name"
+          "${ACTOR}"
+          "--git-committer-name"
+          "deepnote-bot"
+          "--git-branch-prefix"
+          "releases-${RELEASE_NAME}/"
+          "--pr-labels"
+          "update-${RELEASE_NAME}"
+          "--pr-title"
+          "Update ${RELEASE_NAME} to ${VERSION_VALUE} on ${ENV}"
+          "--pr-title-update-operation"
+          "replace"
+          "--pr-body"
+          "${git_commit_body}"
+          "--pr-body-update-operation"
+          "prepend"
+          "--pr-merge-method"
+          "rebase"
+          "--strategy"
+          "recreate"
+          "--log-level=trace"
+          "--output-results"
+          "octopilot-output.json"
+          "--fail-on-error"
+        )
+
+        octopilot "${octopilot_args[@]}"

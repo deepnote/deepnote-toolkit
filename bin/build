@@ -1,0 +1,66 @@
+#!/bin/bash
+
+set -ex
+
+if [ -z "$TOOLKIT_VERSION" ]
+then
+      echo "env TOOLKIT_VERSION not provided"
+      exit 1
+fi
+
+if [ -z "$PYTHON_VERSION" ]
+then
+      echo "env PYTHON_VERSION not provided"
+      exit 1
+fi
+
+IMAGE_NAME="deepnote/deepnote-toolkit-builder:$PYTHON_VERSION-$TOOLKIT_VERSION"
+TMP_BUILD_PATH="/tmp/toolkit-builds-$(date +%s)"
+
+docker build \
+  -t $IMAGE_NAME \
+  -f ./dockerfiles/builder/builder.Dockerfile \
+  --progress plain \
+  --build-arg PY_VERSION="$PYTHON_VERSION" \
+  .
+
+# This command writes a python venv folder plus jupyter config to $build_path.
+# We use this to run the tests later.
+docker run \
+  -v "$HOME/.cache/pip":/root/.cache/pip \
+  -v "$(pwd)":/deepnote-toolkit \
+  -v $TMP_BUILD_PATH:$TMP_BUILD_PATH \
+  -e POETRY_INSTALL_ARGS="--without dev,license-check --no-cache" \
+  -e INSTALL_TOOLKIT_PACKAGE="true" \
+  -e GENERATE_CONSTRAINTS_FILE="true" \
+  -e PREFIX="$TMP_BUILD_PATH/kernel-libs" \
+   $IMAGE_NAME
+
+
+docker run \
+  -v "$HOME/.cache/pip":/root/.cache/pip \
+  -v "$(pwd)":/deepnote-toolkit \
+  -v $TMP_BUILD_PATH:$TMP_BUILD_PATH \
+  -e POETRY_INSTALL_ARGS="--extras server --without dev,license-check --no-cache" \
+  -e INSTALL_TOOLKIT_PACKAGE="false" \
+  -e GENERATE_CONSTRAINTS_FILE="false" \
+  -e PREFIX="$TMP_BUILD_PATH/server-libs" \
+   $IMAGE_NAME
+
+docker run \
+  -v "$(pwd)":/deepnote-toolkit \
+  -v $TMP_BUILD_PATH:$TMP_BUILD_PATH \
+  $IMAGE_NAME \
+  bash -c "mkdir -p \"$TMP_BUILD_PATH/deepnote_core\" && cp -r ./deepnote_core/resources \"$TMP_BUILD_PATH/deepnote_core\"/ && tar -cf ./dist/python$PYTHON_VERSION.tar -C $TMP_BUILD_PATH . && rm -rf \"$TMP_BUILD_PATH\"/*"
+
+
+docker run \
+  -v "$(pwd)":/deepnote-toolkit \
+  -v $TMP_BUILD_PATH:$TMP_BUILD_PATH \
+  $IMAGE_NAME \
+  bash -euxo pipefail -c '
+    ziproot=$(mktemp -d)
+    cp -r installer deepnote_core "$ziproot"/
+    python -m zipapp "$ziproot" -m "installer.__main__:main" -o dist/installer.zip
+    rm -rf "$ziproot"
+  '

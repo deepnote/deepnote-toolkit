@@ -1,0 +1,26 @@
+{
+  "editor.defaultFormatter": "ms-python.black-formatter",
+  "[markdown]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "always"
+    }
+  },
+  "editor.tabSize": 4,
+  "editor.insertSpaces": true,
+  "isort.args": ["--profile", "black"],
+  "cSpell.words": [
+    "IPYTHONDIR",
+    "mountpoint",
+    "PYTHONUNBUFFERED",
+    "Streamlit",
+    "succesfully"
+  ],
+  "python.analysis.extraPaths": [
+    "./installer"
+  ]
+}

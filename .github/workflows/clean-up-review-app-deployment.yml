@@ -1,0 +1,69 @@
+name: Clean up review app deployment
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  close-app-config-pr:
+    name: Close corresponding PR in app-config repo
+    runs-on: ubicloud-standard-2
+    # Only run for internal PRs (not from forks)
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Validate PR number
+        env:
+          PR_NUMBER_INPUT: ${{ github.event.pull_request.number }}
+        run: |
+          PR_NUMBER="${PR_NUMBER_INPUT}"
+          if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "::error::Invalid PR number format: $PR_NUMBER"
+            exit 1
+          fi
+          echo "Validated PR number: $PR_NUMBER"
+          echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_ENV
+
+      - name: Close App Config PR
+        env:
+          GITHUB_TOKEN: ${{ secrets.DEEPNOTE_BOT_USER_TOKEN }}
+        run: |
+          echo "PR #${PR_NUMBER} was closed, looking for corresponding app-config PR..."
+
+          echo "Searching for open PRs in deepnote/app-config with 'ra-${PR_NUMBER}' in title..."
+
+          # Get the PR details using gh pr list with search filter
+          pr_data=$(gh pr list --repo deepnote/app-config --state open --search "ra-${PR_NUMBER}" --json number,title,url,headRefName --limit 1)
+
+          if [ $? -ne 0 ]; then
+            echo "ERROR: Failed to search PRs: $pr_data"
+            exit 1
+          fi
+
+          app_config_pr=$(echo "$pr_data" | jq -r '.[0].number // empty' 2>/dev/null)
+          branch_name=$(echo "$pr_data" | jq -r '.[0].headRefName // empty' 2>/dev/null)
+
+          if [ -n "$app_config_pr" ] && [ "$app_config_pr" != "empty" ]; then
+            echo "Found app-config PR #${app_config_pr} on branch '${branch_name}', closing it..."
+
+            # Close the PR in the app-config repo
+            if gh pr close "$app_config_pr" --repo deepnote/app-config --comment "Auto-closing as corresponding PR https://github.com/deepnote/deepnote-toolkit/pull/${PR_NUMBER} was closed."; then
+              echo "Successfully closed app-config PR #${app_config_pr}"
+
+              # Delete the branch if it's not a protected branch (main, develop, etc.)
+              if [ -n "$branch_name" ] && [ "$branch_name" != "null" ] && [ "$branch_name" != "empty" ] && [ "$branch_name" != "main" ] && [ "$branch_name" != "develop" ] && [ "$branch_name" != "master" ]; then
+                echo "Deleting branch '${branch_name}'..."
+                if gh api --method DELETE "/repos/deepnote/app-config/git/refs/heads/${branch_name}" 2>/dev/null; then
+                  echo "Successfully deleted branch '${branch_name}'"
+                else
+                  echo "WARNING: Failed to delete branch '${branch_name}' (it may have been already deleted or protected)"
+                fi
+              else
+                echo "Skipping branch deletion (protected branch or branch name not found)"
+              fi
+            else
+              echo "ERROR: Failed to close app-config PR #${app_config_pr}"
+              exit 1
+            fi
+          else
+            echo "No matching app-config PR found for ra-${PR_NUMBER}"
+          fi

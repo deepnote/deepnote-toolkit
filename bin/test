@@ -1,0 +1,75 @@
+#!/bin/bash
+
+set -Eeuo pipefail
+
+# Enable debug tracing only if explicitly requested
+if [ -n "${TRACE:-}" ] || [ -n "${DEBUG:-}" ]; then
+  set -x
+fi
+
+if [ -z "$TOOLKIT_VERSION" ]; then
+  echo "Error: TOOLKIT_VERSION is not set" 1>&2
+  exit 1
+fi
+
+if [ -z "$TEST_TYPE" ]; then
+  echo "Error: TEST_TYPE is not set" 1>&2
+  exit 1
+fi
+
+if [ "$TEST_TYPE" = "integration" ]; then
+  if [ -z "$TOOLKIT_INDEX_URL" ]; then
+    echo "Error: TOOLKIT_INDEX_URL is not set" 1>&2
+    exit 1
+  fi
+  if [ -z "$INSTALLER_BUNDLE_PATH" ]; then
+    echo "Error: INSTALLER_BUNDLE_PATH is not set" 1>&2
+    exit 1
+  fi
+fi
+
+if [ -n "${PYTHON_VERSION:-}" ]; then
+  NOX_SESSION="-p ${PYTHON_VERSION}"
+else
+  NOX_SESSION=""
+fi
+
+echo "Building docker-image to run toolkit-tests in..."
+docker build -t deepnote/deepnote-toolkit-tester -f ./dockerfiles/test.Dockerfile .
+echo "Done."
+
+echo "Running tests now..."
+# Use a local cache directory to avoid permission issues
+mkdir -p .cache/pip
+docker run \
+  -v "$(pwd)/.cache/pip":/tmp/pip-cache \
+  -v "$(pwd)":/deepnote-toolkit \
+  -e TOOLKIT_VERSION="$TOOLKIT_VERSION" \
+  -e TOOLKIT_INDEX_URL="${TOOLKIT_INDEX_URL:-}" \
+  -e INSTALLER_BUNDLE_PATH="${INSTALLER_BUNDLE_PATH:-}" \
+  -e COVERAGE_ENABLED="${COVERAGE_ENABLED:-true}" \
+  -e CI="${CI:-}" \
+  -e PIP_CACHE_DIR=/tmp/pip-cache \
+  -p 5678:5678 \
+  --net="host" \
+  -w /deepnote-toolkit \
+  --rm \
+    deepnote/deepnote-toolkit-tester nox --force-color -e $TEST_TYPE $NOX_SESSION -- "$@"
+
+# Generate local coverage report (only outside of CI)
+if [ "${COVERAGE_ENABLED:-true}" = "true" ] && [ "${CI:-}" != "true" ]; then
+  echo "Generating coverage reports..."
+  docker run \
+    -v "$(pwd)":/deepnote-toolkit \
+    -w /deepnote-toolkit \
+    --rm \
+      deepnote/deepnote-toolkit-tester nox --force-color -e coverage_report
+  
+  echo "Coverage report available at: htmlcov/index.html"
+fi
+
+# In CI, just list the coverage files that were created
+if [ "${CI:-}" = "true" ]; then
+  echo "Coverage files created (if any):"
+  ls -la .coverage* coverage*.* 2>/dev/null || echo "No coverage files found"
+fi

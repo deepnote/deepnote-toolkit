@@ -1,0 +1,41 @@
+# CODEOWNERS - Pattern examples:
+
+# *.js @user # All .js files
+
+# path/ @team # Directory and subdirectories
+
+# path/file.ts @user # Specific file
+
+# *\*/logs/ @team # Any logs directory
+
+# docs/\* @user # Files in docs/ (not subdirs)
+
+# Order matters - last match wins
+
+# scripts/ @doctocat @octocat
+
+# Go-to-market Team ownership
+
+# NOTE: very broad match, putting it first so later more specific directives
+# can overwrite parts of it
+deepnote_toolkit/ @deepnote/gtm
+deepnote_toolkit/chart/ @OlegWock
+deepnote_toolkit/ocelots/ @OlegWock
+
+# Platform Team ownership
+
+.github/actions/* @deepnote/platform
+.github/workflows/* @deepnote/platform
+installer/ @deepnote/platform
+dockerfiles/ @deepnote/platform
+configs/ @deepnote/platform
+bin/ @deepnote/platform
+deepnote_toolkit/set_notebook_path.py @deepnote/platform
+
+# AI Team ownership
+
+deepnote_toolkit/notebook_functions.py @jankuca
+
+# CTO ownership
+
+CODEOWNERS @deepnote/cto @deepnote/platform

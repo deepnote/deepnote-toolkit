@@ -1,0 +1,52 @@
+name: 'Upload bundle artifacts to S3'
+description: 'Upload artifacts to S3 bucket'
+inputs:
+  python_version:
+    description: 'Python version for the artifacts'
+    required: true
+  toolkit_version:
+    description: 'Toolkit version or "latest"'
+    required: true
+  bucket:
+    description: 'S3 bucket name'
+    required: true
+  aws_role_arn:
+    description: 'AWS role ARN'
+    required: true
+  aws_region:
+    description: 'AWS region'
+    default: 'us-east-1'
+
+runs:
+  using: "composite"
+
+  steps:
+    - name: Configure AWS
+      uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
+      with:
+        role-to-assume: ${{ inputs.aws_role_arn }}
+        aws-region: ${{ inputs.aws_region }}
+        role-session-name: github-actions-session
+
+    - name: Upload to S3
+      shell: bash
+      env:
+        S3_BUCKET: ${{ inputs.bucket }}
+        TOOLKIT_VERSION: ${{ inputs.toolkit_version }}
+        PYTHON_VERSION: ${{ inputs.python_version }}
+      run: |
+        set -euo pipefail
+
+        BASE_PATH="s3://${S3_BUCKET}/deepnote-toolkit/${TOOLKIT_VERSION}"
+
+        # Upload Python-specific files
+        aws s3 cp "dist/python${PYTHON_VERSION}.tar" "${BASE_PATH}/" --acl public-read --no-progress
+        aws s3 cp "dist/constraints${PYTHON_VERSION}.txt" "${BASE_PATH}/" --acl public-read --no-progress
+
+        # Upload shared files only from Python 3.9
+        if [ "${PYTHON_VERSION}" = "3.9" ]; then
+          [ -f dist/installer.zip ] && aws s3 cp dist/installer.zip "${BASE_PATH}/" --acl public-read --no-progress
+          aws s3 sync dist/ "${BASE_PATH}/" --exclude "*" --include "*.whl" --acl public-read
+        fi
+
+        echo "✅ Uploaded to ${BASE_PATH}"

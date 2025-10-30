@@ -1,0 +1,75 @@
+#!/bin/bash
+
+set -ex
+
+SCRIPT_DIR="$(dirname "$(realpath "$0")")"
+# Function to clean up background process
+cleanup() {
+    echo "Cleaning up..."
+    if [[ -n "$bg_pid" ]]; then
+        kill "$bg_pid"
+    fi
+}
+
+# Trap EXIT signal to run cleanup function
+trap cleanup EXIT
+
+export TOOLKIT_VERSION="local-build"
+export PYTHON_VERSION=${PYTHON_VERSION:-"3.9"}
+export COVERAGE_ENABLED=${COVERAGE_ENABLED:-"true"}
+
+if [ "${COVERAGE_ENABLED:-true}" = "true" ]; then
+    echo "Running unit tests with coverage..."
+else
+    echo "Running unit tests..."
+fi
+export TEST_TYPE="unit"
+
+if [ "${COVERAGE_ENABLED:-true}" = "true" ]; then
+    "$SCRIPT_DIR/test" "$@"
+    
+    # Open coverage report if available (only outside CI)
+    if [ "${CI:-}" != "true" ] && [ -f "htmlcov/index.html" ]; then
+        echo "Opening coverage report..."
+        if command -v python &> /dev/null; then
+            python -m webbrowser "htmlcov/index.html" 2>/dev/null || true
+        elif command -v xdg-open &> /dev/null; then
+            xdg-open htmlcov/index.html
+        elif command -v open &> /dev/null; then
+            open htmlcov/index.html
+        elif command -v start &> /dev/null; then
+            start htmlcov/index.html
+        else
+            echo "Coverage report available at: htmlcov/index.html"
+        fi
+    fi
+else
+    "$SCRIPT_DIR/test" "$@"
+fi
+
+echo "Unit tests done."
+
+
+# echo "Building now..."
+# # should be ideally at deepnote-toolkit/0.1.0
+# "$SCRIPT_DIR/build"
+# echo "Building done."
+
+# echo "Serving bundle in the background..."
+# TMP_TEST_PATH="/tmp/toolkit-integration-tests-$(date +%s)"
+# mkdir -p $TMP_TEST_PATH/deepnote-toolkit/$TOOLKIT_VERSION
+# cp ./dist/python$PYTHON_VERSION.tar $TMP_TEST_PATH/deepnote-toolkit/$TOOLKIT_VERSION
+# cp ./dist/installer.zip $TMP_TEST_PATH/deepnote-toolkit/$TOOLKIT_VERSION
+# cd $TMP_TEST_PATH && python -m http.server 8000 &
+
+# # Capture the PID of the background process
+# bg_pid=$!
+# trap 'kill $bg_pid 2> /dev/null' EXIT
+
+
+# echo "Running integration tests now..."
+# export TOOLKIT_INDEX_URL="http://localhost:8000"
+# export INSTALLER_BUNDLE_PATH="/deepnote-toolkit/$TOOLKIT_VERSION/installer.zip"
+# export TEST_TYPE="integration"
+# "$SCRIPT_DIR/test"
+# echo "Unit integration done."

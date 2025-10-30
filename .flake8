@@ -1,0 +1,9 @@
+[flake8]
+max-line-length = 100
+# This tells flake8 to only select error codes that start with E (PEP8 errors) and F (PyFlakes errors). It excludes warnings (W) and complexity checks (C).
+select = E,F
+extend-ignore = E203, E266, E501, W503
+exclude = .git,__pycache__,.nox,docs/source/conf.py,old,build,dist,configs/ipython/profile_default/ipython_config.py,.venv,.poetry
+per-file-ignores =
+    # imported but unused
+    __init__.py: F401

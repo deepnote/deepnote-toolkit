@@ -1,0 +1,57 @@
+name: 'Build Python Wheel'
+description: 'Build a Python wheel package using Poetry with dynamic versioning'
+
+outputs:
+  wheel-name:
+    description: 'Name of the built wheel file'
+    value: ${{ steps.build.outputs.wheel-name }}
+  version:
+    description: 'Package version'
+    value: ${{ steps.build.outputs.version }}
+  wheel-path:
+    description: 'Full path to the wheel file'
+    value: ${{ steps.build.outputs.wheel-path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Build wheel and extract metadata
+      id: build
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # Ensure dynamic versioning plugin is installed
+        poetry self add 'poetry-dynamic-versioning[plugin]>=1.4.0' 2>/dev/null || true
+
+        # Remove any pre-existing artifacts to avoid publishing stale wheels
+        rm -rf dist
+        mkdir -p dist
+
+        # Build the wheel
+        echo "Building wheel with Poetry..."
+        poetry build --format wheel
+
+        # Get version and wheel info
+        VERSION=$(poetry version --short)
+        WHEEL_COUNT=$(find dist -maxdepth 1 -name '*.whl' | wc -l | tr -d ' ')
+        if [ "$WHEEL_COUNT" -ne 1 ]; then
+          echo "ERROR: Expected exactly 1 wheel, found ${WHEEL_COUNT}"
+          ls -la dist/
+          exit 1
+        fi
+        WHEEL=$(find dist -maxdepth 1 -name '*.whl' -print -quit)
+        WHEEL_NAME=$(basename "$WHEEL")
+        WHEEL_PATH=$(realpath "$WHEEL")
+
+        # Output to GitHub Actions
+        {
+          echo "wheel-name=${WHEEL_NAME}"
+          echo "version=${VERSION}"
+          echo "wheel-path=${WHEEL_PATH}"
+        } >> "$GITHUB_OUTPUT"
+
+        # Display results
+        echo "✓ Built wheel: $WHEEL_NAME"
+        echo "✓ Version: $VERSION"
+        echo "✓ Path: $WHEEL_PATH"

@@ -1,0 +1,529 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '[0-9]*.[0-9]*.[0-9]*'
+      - '[0-9]*.[0-9]*.[0-9]*-*'
+  pull_request:
+    types:
+      - opened
+      - synchronize
+
+env:
+  AWS_REGION: us-east-1
+  AWS_STAGING_BUCKET: deepnote-staging-runtime-artifactory
+  AWS_PRODUCTION_BUCKET: deepnote-compute-dependencies
+  POETRY_VERSION: "2.2.0"
+  POETRY_VIRTUALENVS_CREATE: true
+  POETRY_VIRTUALENVS_IN_PROJECT: true
+  POETRY_INSTALLER_PARALLEL: true
+  JUPYTER_FOR_LOCAL_PYTHON_VERSION: "3.9"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-push-artifacts:
+    name: Build and push artifacts for Python ${{ matrix.python_version }}
+    runs-on: ubicloud-standard-2
+    # Only run for base repo, not forks
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        python_version: ["3.9", "3.10", "3.11", "3.12"]
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        with:
+          username: deepnotebot
+          password: ${{ secrets.DOCKERHUB_PASS }}
+
+      - name: Export version
+        id: version
+        uses: ./.github/actions/export-version
+
+      - name: Validate tag format
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          echo "Validating tag: $TAG_NAME"
+
+          if [[ ! "$TAG_NAME" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "ERROR: Invalid tag format: $TAG_NAME"
+            echo "Tags must follow semantic versioning: x.y.z or x.y.z-prerelease"
+            exit 1
+          fi
+
+          echo "✓ Tag format is valid"
+
+      - name: Cache pip and poetry
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cache/pip/http
+            ~/.cache/pip/http-v2
+            ~/.cache/pip/wheels
+            ~/.cache/pypoetry
+          key: ${{ github.event.pull_request.head.repo.full_name || github.repository }}-pip_and_poetry_${{ matrix.python_version }}_${{ hashFiles('poetry.lock') }}
+
+      - name: Extract libs from image
+        env:
+          TOOLKIT_VERSION: ${{ steps.version.outputs.VERSION }}
+          PYTHON_VERSION: ${{ matrix.python_version }}
+        run: |
+          set -euo pipefail
+          ./bin/build
+
+      # STAGING UPLOAD
+      - name: Upload to staging
+        uses: ./.github/actions/upload-bundle-artifacts
+        with:
+          python_version: ${{ matrix.python_version }}
+          toolkit_version: ${{ steps.version.outputs.VERSION }}
+          bucket: ${{ env.AWS_STAGING_BUCKET }}
+          aws_role_arn: ${{ secrets.AWS_STAGING_ROLE_ARN }}
+
+      # PRODUCTION UPLOADS (only on tags)
+      - name: Upload to production (versioned)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: ./.github/actions/upload-bundle-artifacts
+        with:
+          python_version: ${{ matrix.python_version }}
+          toolkit_version: ${{ steps.version.outputs.VERSION }}
+          bucket: ${{ env.AWS_PRODUCTION_BUCKET }}
+          aws_role_arn: ${{ secrets.AWS_PRODUCTION_ROLE_ARN }}
+
+      - name: Upload to production (latest)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: ./.github/actions/upload-bundle-artifacts
+        with:
+          python_version: ${{ matrix.python_version }}
+          toolkit_version: latest
+          bucket: ${{ env.AWS_PRODUCTION_BUCKET }}
+          aws_role_arn: ${{ secrets.AWS_PRODUCTION_ROLE_ARN }}
+
+  build-and-push-artifacts-status:
+    name: All artifacts pushed
+    runs-on: ubicloud-standard-2
+    needs: build-and-push-artifacts
+    # Only run if the build job ran (i.e., not for forks)
+    if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request')
+    steps:
+      - name: Check matrix job results
+        env:
+          BUILD_RESULT: ${{ needs.build-and-push-artifacts.result }}
+        run: |
+          result="${BUILD_RESULT}"
+          if [[ $result == "success" ]]; then
+            echo "All matrix jobs succeeded"
+            exit 0
+          elif [[ $result == "cancelled" ]]; then
+            echo "Matrix jobs were cancelled"
+            exit 1
+          else
+            echo "One or more matrix jobs failed: $result"
+            exit 1
+          fi
+
+  publish-python-package:
+    name: Publish Python package
+    runs-on: ubicloud-standard-2
+    # Only run for base repo, not forks
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    outputs:
+      version: ${{ steps.build.outputs.version }}
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        id: setup-python
+        with:
+          python-version: "3.11"
+
+      - name: Load cached Poetry installation
+        id: cached-poetry
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.local
+          key: ${{ github.event.pull_request.head.repo.full_name || github.repository }}-poetry-${{ steps.setup-python.outputs.python-version }}-poetry${{ env.POETRY_VERSION }}
+
+      - name: Install Poetry
+        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
+        if: steps.cached-poetry.outputs.cache-hit != 'true'
+        with:
+          version: ${{ env.POETRY_VERSION }}
+          virtualenvs-create: ${{ env.POETRY_VIRTUALENVS_CREATE }}
+          virtualenvs-in-project: ${{ env.POETRY_VIRTUALENVS_IN_PROJECT }}
+          installer-parallel: ${{ env.POETRY_INSTALLER_PARALLEL }}
+
+      - name: Build wheel package
+        id: build
+        uses: ./.github/actions/build-wheel
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        with:
+          role-to-assume: ${{ secrets.AWS_STAGING_ROLE_ARN }}
+          role-session-name: github-actions-session
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Upload to S3
+        id: s3
+        env:
+          AWS_S3_PATH: s3://${{ env.AWS_STAGING_BUCKET }}/deepnote-toolkit-packages
+          WHEEL_PATH: ${{ steps.build.outputs.wheel-path }}
+          BUILD_VERSION: ${{ steps.build.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ ! -f "$WHEEL_PATH" ]; then
+            echo "Error: Wheel file not found at: $WHEEL_PATH"
+            ls -la dist/ || echo "dist/ directory not found"
+            exit 1
+          fi
+
+          # Script automatically writes to $GITHUB_OUTPUT (s3_url and http_url)
+          ./scripts/upload_wheel_to_s3.sh \
+            "$WHEEL_PATH" \
+            "$BUILD_VERSION" \
+            "${AWS_S3_PATH}"
+
+      - name: Publish summary
+        env:
+          PIP_VERSION: ${{ steps.build.outputs.version }}
+          WHEEL_NAME: ${{ steps.build.outputs.wheel-name }}
+          HTTP_URL: ${{ steps.s3.outputs.http_url }}
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+          ### Python package
+          - Version: \`${PIP_VERSION}\`
+          - Wheel: \`${WHEEL_NAME}\`
+          - Install:
+            \`\`\`bash
+            pip install "deepnote-toolkit @ ${HTTP_URL}"
+            \`\`\`
+          EOF
+
+      - name: PR comment
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          PKG_VERSION: ${{ steps.build.outputs.version }}
+          PKG_WHEEL: ${{ steps.build.outputs.wheel-name }}
+          PKG_URL: ${{ steps.s3.outputs.http_url }}
+        with:
+          script: |
+            const marker = "<!-- toolkit-package -->";
+            const version = process.env.PKG_VERSION;
+            const wheel = process.env.PKG_WHEEL;
+            const installCmd = `pip install "deepnote-toolkit @ ${process.env.PKG_URL}"`;
+            const commentBody = `${marker}\n\n` +
+              "📦 **Python package built successfully!**\n\n" +
+              `- Version: \`${version}\`\n` +
+              `- Wheel: \`${wheel}\`\n` +
+              "- Install:\n" +
+              "  ```bash\n" +
+              `  ${installCmd}\n` +
+              "  ```";
+
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                comment_id: existing.id,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: commentBody
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: commentBody
+              });
+            }
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: python-package-${{ steps.build.outputs.version || 'unknown' }}
+          path: dist/
+
+  publish-to-pypi:
+    name: Publish to PyPI
+    runs-on: ubicloud-standard-2
+    needs: publish-python-package
+    # Only run for base repo when a new tag is created
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: pypi
+      url: https://pypi.org/project/deepnote-toolkit/
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4
+        with:
+          name: python-package-${{ needs.publish-python-package.outputs.version }}
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+        with:
+          verbose: false
+
+  deploy-review-app:
+    name: Deploy review app
+    runs-on: ubicloud-standard-2
+    needs: build-and-push-artifacts-status
+    # Only run for base repo PRs, not forks
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          persist-credentials: false
+
+      - name: Export version
+        id: version
+        uses: ./.github/actions/export-version
+
+      - name: Trigger GitHub Action for review app config
+        env:
+          GITHUB_TOKEN: ${{ secrets.DEEPNOTE_BOT_USER_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: |
+          BRANCH_NAME="ra-${PR_NUMBER}"
+          ACTOR="${GITHUB_ACTOR}"
+
+          if [[ ! "$ACTOR" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]{0,38}$ ]]; then
+            echo "ERROR: Invalid GitHub username format: $ACTOR"
+            echo "GitHub usernames must be 1-39 characters, alphanumeric and hyphens only"
+            exit 1
+          fi
+
+          echo "Triggering GitHub Action deploy-review-app.yml with parameters:"
+          echo "  review_app_id: $BRANCH_NAME"
+          echo "  deepnote_toolkit_version: $VERSION"
+          echo "  author: $ACTOR"
+
+          gh workflow run deploy-review-app.yml \
+            --repo deepnote/app-config \
+            --field review_app_id="$BRANCH_NAME" \
+            --field deepnote_toolkit_version="$VERSION" \
+            --field author="$ACTOR" \
+            --field repo="deepnote-toolkit"
+
+          echo "GitHub Action triggered successfully"
+
+  jupyter-for-local:
+    name: Jupyter for local
+    runs-on: ubicloud-standard-2
+    needs: build-and-push-artifacts-status
+    # Only run for base repo, not forks
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        with:
+          username: deepnotebot
+          password: ${{ secrets.DOCKERHUB_PASS }}
+
+      - name: Export version
+        id: version
+        uses: ./.github/actions/export-version
+
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
+        with:
+          role-to-assume: ${{ secrets.AWS_STAGING_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: github-actions-session
+
+      - name: Download Python ${PYTHON_VERSION} artifacts
+        env:
+          STAGING_BUCKET: ${{ env.AWS_STAGING_BUCKET }}
+          PYTHON_VER: ${{ env.JUPYTER_FOR_LOCAL_PYTHON_VERSION }}
+        run: |
+          set -euo pipefail
+
+          aws s3 cp "s3://${STAGING_BUCKET}/deepnote-toolkit/${VERSION}/python${PYTHON_VER}.tar" "/tmp/dist${PYTHON_VER}/python${PYTHON_VER}.tar"
+          aws s3 cp "s3://${STAGING_BUCKET}/deepnote-toolkit/${VERSION}/installer.zip" "/tmp/dist${PYTHON_VER}/installer.zip"
+
+      - name: Build jupyter-for-local docker image
+        run: |
+          docker build \
+            --progress plain \
+            --build-arg "FROM_PYTHON_TAG=3.9" \
+            --build-arg "BUNDLE_PATH=./" \
+            --tag deepnote/jupyter-for-local:${VERSION} \
+            -f dockerfiles/jupyter-for-local/Dockerfile /tmp/dist3.9/
+
+      - name: Push jupyter-for-local image
+        run: |
+          docker push deepnote/jupyter-for-local:${VERSION}
+
+  build-toolkit-cluster-cache:
+    name: Build toolkit cluster cache
+    runs-on: ubicloud-standard-2
+    needs: build-and-push-artifacts-status
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    env:
+      PYTHON_VERSIONS: "3.9,3.10,3.11,3.12"
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        with:
+          username: deepnotebot
+          password: ${{ secrets.DOCKERHUB_PASS }}
+
+      - name: Export version
+        id: version
+        uses: ./.github/actions/export-version
+
+      - name: Build toolkit-cache docker image
+        env:
+          PYTHON_VERS: ${{ env.PYTHON_VERSIONS }}
+        run: |
+          docker build \
+            --progress plain \
+            --build-arg "PYTHON_VERSIONS=${PYTHON_VERS}" \
+            --build-arg "RELEASE_NAME=${VERSION}" \
+            --tag deepnote/toolkit-cache-downloader:${VERSION} \
+            ./dockerfiles/cache-downloader
+
+      - name: Push toolkit-cache image
+        run: |
+          docker push deepnote/toolkit-cache-downloader:${VERSION}
+
+  release-staging:
+    name: Release staging
+    runs-on: ubicloud-standard-2
+    needs: build-toolkit-cluster-cache
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          persist-credentials: false
+
+      - name: Export version
+        id: version
+        uses: ./.github/actions/export-version
+
+      - name: Update ops repo single-tenant staging version
+        uses: ./.github/actions/update-config-version
+        with:
+          env: staging
+          version_key: .deepnoteConfig.DEEPNOTE_TOOLKIT_VERSION
+          values_yaml: charts/deepnote/env/single-tenant-staging-values.yaml
+          merge: true
+          target_repo: ops
+          branch: master
+          version: ${{ env.VERSION }}
+          github_token: ${{ secrets.DEEPNOTE_BOT_USER_TOKEN }}
+
+      - name: Update app-config repo multi-tenant staging version
+        uses: ./.github/actions/update-config-version
+        with:
+          env: staging
+          version_key: .deepnote.deepnoteConfig.DEEPNOTE_TOOLKIT_VERSION
+          values_yaml: |
+            env/dev-ue1/staging/deepnote/helm/values.yaml
+            env/dev-ue1/values-ra.yaml
+          merge: true
+          target_repo: app-config
+          branch: main
+          version: ${{ env.VERSION }}
+          github_token: ${{ secrets.DEEPNOTE_BOT_USER_TOKEN }}
+
+  release-production:
+    name: Release production
+    runs-on: ubicloud-standard-2
+    needs: build-toolkit-cluster-cache
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          persist-credentials: false
+
+      - name: Export version
+        id: version
+        uses: ./.github/actions/export-version
+
+      - name: Update production version
+        uses: ./.github/actions/update-config-version
+        with:
+          env: production
+          version_key: .deepnoteConfig.DEEPNOTE_TOOLKIT_VERSION
+          values_yaml: charts/deepnote/chart/values.yaml
+          merge: false
+          target_repo: ops
+          branch: master
+          version: ${{ env.VERSION }}
+          github_token: ${{ secrets.DEEPNOTE_BOT_USER_TOKEN }}
+
+      - name: Update app-config repo multi-tenant production version
+        uses: ./.github/actions/update-config-version
+        with:
+          env: production
+          version_key: .deepnote.deepnoteConfig.DEEPNOTE_TOOLKIT_VERSION
+          values_yaml: env/prod-ue1/prod/deepnote/helm/values.yaml
+          merge: false
+          target_repo: app-config
+          branch: main
+          version: ${{ env.VERSION }}
+          github_token: ${{ secrets.DEEPNOTE_BOT_USER_TOKEN }}

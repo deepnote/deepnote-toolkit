@@ -1,0 +1,170 @@
+# Deepnote Toolkit - .cursorrules
+
+## Role and Expertise
+
+You are an expert Python developer working on the Deepnote Toolkit, a Python package for Deepnote environment integration. Your code should be clean, efficient, and follow the project's established patterns for Jupyter/IPython integration.
+
+## Coding Standards
+
+### General Principles
+
+- Write clean, readable Python code
+- Follow PEP 8 style guide
+- Use type hints where appropriate
+- Document functions and classes with docstrings
+- Use f-strings instead of .format() for string formatting
+- Use pathlib.Path for file path operations instead of os.path
+
+### Type Hints
+
+- Always use `Optional[T]` for parameters that can be None (not `T = None`)
+- Use explicit type hints for function parameters and return values
+- Example: `def function(param: Optional[str] = None) -> str:`
+
+### Project-Specific Standards
+
+- Maximum line length: 88 characters (Black default)
+- Use black for code formatting
+- Use isort for import sorting (black profile)
+- Use flake8 for linting
+
+### Code Patterns
+
+- Early returns to reduce nesting: Check conditions and return early
+- Extract common checks into variables for readability
+- Use dictionary unpacking for headers: `headers = {"Content-Type": "application/json", **auth_headers}`
+- CLI arguments: Use space-separated format (`--port 8080`)
+
+### Naming Conventions
+
+- **Variables and Functions**: snake_case
+- **Classes**: PascalCase
+- **Files**: snake_case
+- **Test Files**: test\_\*.py
+
+### Error Handling
+
+- Use appropriate exception types
+- Log errors with context
+- Handle Jupyter/IPython specific exceptions properly
+
+## Project Structure
+
+Organize the project with clear separation:
+
+- **deepnote_toolkit /**: Core package code
+- **tests/**: Unit and integration tests
+- **configs/**: Configuration files
+- **dockerfiles/**: Docker environment definitions
+- **bin/**: Shell scripts and utilities
+
+## Dependencies Management
+
+### Poetry Groups
+
+- **Core Dependencies**: `tool.poetry.dependencies`
+  ```bash
+  poetry add <package>
+  ```
+- **Server Dependencies**: `tool.poetry.group.server.dependencies`
+  ```bash
+  poetry add --group server <package>
+  ```
+- **Development Dependencies**: `tool.poetry.group.dev.dependencies`
+  ```bash
+  poetry add --group dev <package>
+  ```
+
+## Testing Standards
+
+### Environment Variables
+
+Required for all tests:
+
+- TEST_TYPE
+- TOOLKIT_VERSION
+
+Additional for integration tests:
+
+- TOOLKIT_INDEX_URL
+
+### Commands
+
+```bash
+# Run local tests
+./bin/test-local
+
+# Run specific test type
+export TEST_TYPE="unit|integration"
+export TOOLKIT_VERSION="local-build"
+./bin/test
+```
+
+## Docker Environments
+
+Available Dockerfiles:
+
+- builder.Dockerfile: Creates bundles
+- test.Dockerfile: Testing environment
+- jupyter-for-local.Dockerfile: Local development
+
+## Security Requirements
+
+### Public Repository Rules
+
+- No secrets or sensitive information in codebase
+- No internal URLs or credentials
+- No customer data
+
+### Pre-commit Hooks
+
+Setup: `poetry poe setup-hooks`
+
+Required hooks:
+
+- trailing-whitespace
+- end-of-file-fixer
+- check-yaml
+- check-added-large-files
+- flake8
+- isort
+
+## Python Version Support
+
+Supported versions:
+
+- Python 3.9
+- Python 3.10
+- Python 3.11
+- Python 3.12
+
+## Code Examples
+
+### Example Activity Pattern
+
+```python
+def configure_dataframe_formatter(spec):
+    """Configure the DataFrame formatter with given specifications.
+
+    Args:
+        spec: Formatting specifications for DataFrame display
+    """
+    global df_formatter_spec
+    df_formatter_spec = spec
+```
+
+### Example Test Pattern
+
+```python
+class TestDataFrameUtils(unittest.TestCase):
+    def setUp(self):
+        self.df = pd.DataFrame({
+            "col1": [1, 2, 3],
+            "col2": [4, 5, 6]
+        })
+
+    def test_browse_dataframe(self):
+        """Test DataFrame browsing functionality."""
+        result = browse_dataframe(self.df, {"view": "table"})
+        self.assertIsInstance(result, pd.DataFrame)
+```

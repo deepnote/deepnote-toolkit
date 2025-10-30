@@ -1,0 +1,21 @@
+name: 'Export Version'
+description: 'Exports VERSION environment variable based on git ref'
+outputs:
+  version:
+    description: 'The version string'
+    value: ${{ steps.export-version.outputs.version }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Create VERSION env variable
+      id: export-version
+      shell: bash
+      run: |
+        if [[ -n "$GITHUB_REF_NAME" && "$GITHUB_REF_TYPE" == "tag" ]]; then
+          VERSION=$GITHUB_REF_NAME
+        else
+          VERSION="$(git rev-parse --short HEAD)"
+        fi
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Version is set to: $VERSION"

@@ -1,0 +1,470 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types:
+      - opened
+      - synchronize
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  POETRY_VERSION: "2.2.0"
+  POETRY_VIRTUALENVS_CREATE: true
+  POETRY_VIRTUALENVS_IN_PROJECT: true
+  POETRY_INSTALLER_PARALLEL: true
+
+jobs:
+  spell-check:
+    name: Spell Check
+    runs-on: ubicloud-standard-2
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        id: setup-python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
+        with:
+          version: ${{ env.POETRY_VERSION }}
+          virtualenvs-create: ${{ env.POETRY_VIRTUALENVS_CREATE }}
+          virtualenvs-in-project: ${{ env.POETRY_VIRTUALENVS_IN_PROJECT }}
+          installer-parallel: ${{ env.POETRY_INSTALLER_PARALLEL }}
+
+      - name: Cache dependencies
+        id: cache-deps
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .venv
+          key: venv-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
+          restore-keys: |
+            venv-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ steps.setup-python.outputs.python-version }}-
+
+      - name: Install dependencies
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        run: poetry install --no-interaction --no-root --with dev
+
+      - name: Run spell check
+        run: poetry run codespell
+
+  format:
+    name: Format
+    runs-on: ubicloud-standard-2
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        id: setup-python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
+        with:
+          version: ${{ env.POETRY_VERSION }}
+          virtualenvs-create: ${{ env.POETRY_VIRTUALENVS_CREATE }}
+          virtualenvs-in-project: ${{ env.POETRY_VIRTUALENVS_IN_PROJECT }}
+          installer-parallel: ${{ env.POETRY_INSTALLER_PARALLEL }}
+
+      - name: Cache dependencies
+        id: cache-deps
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .venv
+          key: venv-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
+          restore-keys: |
+            venv-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ steps.setup-python.outputs.python-version }}-
+
+      - name: Install dependencies
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        run: poetry install --no-interaction --no-root --with dev
+
+      - name: Check formatting with black
+        run: poetry run black . --check
+
+      - name: Check linting with flake8
+        run: poetry run flake8 .
+
+  license-check:
+    name: License Check
+    # This only checks production dependencies inclusive of the dev deps that are actually prod deps (see pyproject.toml).
+    runs-on: ubicloud-standard-2
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        id: setup-python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
+        with:
+          version: ${{ env.POETRY_VERSION }}
+          virtualenvs-create: ${{ env.POETRY_VIRTUALENVS_CREATE }}
+          virtualenvs-in-project: ${{ env.POETRY_VIRTUALENVS_IN_PROJECT }}
+          installer-parallel: ${{ env.POETRY_INSTALLER_PARALLEL }}
+
+      - name: Install production dependencies
+        run: |
+          # Install production dependencies plus packages needed for license checking
+          poetry install --no-interaction --no-root --only main --with license-check
+
+      - name: Install pip-licenses
+        run: poetry run python -m pip install pip-licenses
+
+      - name: Check licenses
+        run: |
+          # Generate license reports
+          poetry run pip-licenses --format=markdown --order=license > licenses.md
+          poetry run pip-licenses --format=json > licenses.json
+
+          # Display in logs and step summary
+          cat licenses.md
+          echo "## License Report" >> $GITHUB_STEP_SUMMARY
+          cat licenses.md >> $GITHUB_STEP_SUMMARY
+
+          # Only allow licenses compatible with Apache 2.0 (allowlist approach)
+          # Ignored packages either have UNKNOWN licenses or not distributed
+          poetry run pip-licenses --allow-only "Apache;MIT;BSD;ISC;Unlicense;CC0;Public Domain;Python Software Foundation;Mozilla Public License 2.0;GNU Library or Lesser General Public License (LGPL)" --partial-match --ignore-packages arro3-core click dependency-groups Flask jeepney jupyter_core MarkupSafe more-itertools pymssql PyMySQL SecretStorage sqlalchemy-spanner typing-extensions typing-inspection urllib3
+
+          echo "✅ All licenses are compatible with Apache 2.0"
+
+      - name: Upload license report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: license-report
+          path: |
+            licenses.md
+            licenses.json
+
+  mypy:
+    name: Typecheck - ${{ matrix.python-version }}
+    runs-on: ubicloud-standard-2
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+      with:
+        persist-credentials: false
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install Poetry
+      uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
+      with:
+        version: ${{ env.POETRY_VERSION }}
+        virtualenvs-create: ${{ env.POETRY_VIRTUALENVS_CREATE }}
+        virtualenvs-in-project: ${{ env.POETRY_VIRTUALENVS_IN_PROJECT }}
+        installer-parallel: ${{ env.POETRY_INSTALLER_PARALLEL }}
+
+    - name: Cache dependencies
+      id: cache-deps
+      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+      with:
+        path: .venv
+        key: venv-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
+        restore-keys: |
+          venv-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ matrix.python-version }}-
+
+    - name: Install dependencies
+      if: steps.cache-deps.outputs.cache-hit != 'true'
+      run: poetry install --no-interaction --no-root --with dev
+
+    - name: Install project
+      run: poetry install --no-interaction
+
+    - name: Run mypy
+      run: |
+        poetry run mypy deepnote_toolkit/ --show-error-codes --no-error-summary
+
+    - name: Run mypy on specific modules (if main check fails)
+      if: failure()
+      run: |
+        echo "Main mypy check failed. Running on individual modules for detailed output:"
+        for module in deepnote_toolkit/*.py; do
+          if [ -f "$module" ]; then
+            echo "Checking $module..."
+            poetry run mypy "$module" --show-error-codes || true
+          fi
+        done
+
+  gitleaks:
+    name: Gitleaks check
+    runs-on: ubicloud-standard-2
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  semgrep:
+    name: Static Analysis
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 3
+
+    env:
+      SEMGREP_BASELINE_REF: ${{ github.base_ref || 'main' }}
+      SEMGREP_RULES: .semgrep/rules.yml
+      SEMGREP_REPO_NAME: ${{ github.repository }}
+      SEMGREP_REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+
+    container:
+      image: returntocorp/semgrep
+
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Run Semgrep scan
+        run: semgrep ci
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+  qlty:
+    name: Qlty Check
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 3
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          persist-credentials: false
+
+      - name: Install qlty
+        uses: qltysh/qlty-action/install@6bfd5815fe4171d7a566362f24d75e8454909d2a
+
+      - name: Run qlty check
+        run: qlty check
+
+      - name: Run qlty code smells analysis
+        run: qlty smells
+
+  tests-unit:
+    name: Test - Python ${{ matrix.python-version }}
+    runs-on: ubicloud-standard-2
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          persist-credentials: false
+
+      - name: Export version
+        id: version
+        uses: ./.github/actions/export-version
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up Java 11
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
+      - name: Load cached Poetry installation
+        id: cached-poetry
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.local
+          key: poetry-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ matrix.python-version }}-poetry${{ env.POETRY_VERSION }}
+
+      - name: Install Poetry
+        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
+        if: steps.cached-poetry.outputs.cache-hit != 'true'
+        with:
+          version: ${{ env.POETRY_VERSION }}
+          virtualenvs-create: ${{ env.POETRY_VIRTUALENVS_CREATE }}
+          virtualenvs-in-project: ${{ env.POETRY_VIRTUALENVS_IN_PROJECT }}
+          installer-parallel: ${{ env.POETRY_INSTALLER_PARALLEL }}
+
+      - name: Cache dependencies
+        id: cache-deps
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .venv
+          key: venv-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
+          restore-keys: |
+            venv-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ matrix.python-version }}-
+
+      - name: Install dependencies
+        if: steps.cache-deps.outputs.cache-hit != 'true'
+        run: poetry install --no-interaction --no-root --with dev
+
+      - name: Install project
+        run: poetry install --no-interaction --only-root
+
+      - name: Run unit tests
+        id: test-unit
+        env:
+          TOOLKIT_VERSION: ${{ steps.version.outputs.VERSION }}
+          PYTHON_VERSION: ${{ matrix.python-version }}
+          COVERAGE_FILE: coverage/.coverage.${{ matrix.python-version }}
+        run: |
+          set -euo pipefail
+
+          # Create coverage directory
+          mkdir -p coverage
+
+          # Run tests with coverage
+          poetry run pytest tests/unit \
+            --cov=deepnote_toolkit \
+            --cov=installer \
+            --cov=deepnote_core \
+            --cov-branch \
+            --cov-report=term-missing:skip-covered \
+            --cov-report=xml:coverage/coverage-${PYTHON_VERSION}.xml \
+            --cov-report=json:coverage/coverage-${PYTHON_VERSION}.json \
+            --junitxml=junit.xml \
+            -o junit_family=legacy
+
+          # Check if coverage file was generated
+          if [ -f "coverage/.coverage.${PYTHON_VERSION}" ]; then
+            echo "coverage_generated=true" >> $GITHUB_OUTPUT
+            echo "Coverage files found:"
+            ls -la coverage/
+          else
+            echo "coverage_generated=false" >> $GITHUB_OUTPUT
+            echo "Warning: No coverage file generated"
+          fi
+
+      - name: Upload test results to Codecov (these are results not coverage reports)
+        if: ${{ !cancelled() }}
+        uses: codecov/test-results-action@47f89e9acb64b76debcd5ea40642d25a4adced9f # v1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: python-${{ matrix.python-version }}
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          slug: deepnote/deepnote-toolkit
+          files: ./coverage/coverage-${{ matrix.python-version }}.xml
+          fail_ci_if_error: ${{ github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' }}
+
+      - name: Per-version coverage summary
+        if: steps.test-unit.outputs.coverage_generated == 'true'
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
+        run: |
+          echo "## Python ${PYTHON_VERSION} Coverage" >> $GITHUB_STEP_SUMMARY
+          poetry run coverage report --data-file=coverage/.coverage.${PYTHON_VERSION} --format=markdown >> $GITHUB_STEP_SUMMARY
+  audit-prod:
+    name: Audit - Production
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        id: setup-python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
+        with:
+          version: ${{ env.POETRY_VERSION }}
+          virtualenvs-create: ${{ env.POETRY_VIRTUALENVS_CREATE }}
+          virtualenvs-in-project: ${{ env.POETRY_VIRTUALENVS_IN_PROJECT }}
+          installer-parallel: ${{ env.POETRY_INSTALLER_PARALLEL }}
+
+      - name: Install poetry-plugin-export
+        run: poetry self add poetry-plugin-export
+
+      - name: Run audit for production dependencies
+        run: |
+          poetry export --without dev -f requirements.txt -o /tmp/requirements-prod.txt
+
+      - uses: pypa/gh-action-pip-audit@f1c3022531130da3984dbdfb2786f6e1cba15556 # latest release (v1.1.0 doesn't contain `disable-pip`)
+        with:
+          inputs: /tmp/requirements-prod.txt
+          require-hashes: true
+          disable-pip: true
+          # PYSEC-2023-121 (CVE-2022-4899 / GHSA-5c9c-6x87-f9vm)
+          # * incorrectly flags zstd versions >= 1.5.4.0 as vulnerable to CVE-2022-4899
+          # * see https://github.com/pypa/advisory-database/blob/main/vulns/zstd/PYSEC-2023-121.yaml (our version ranges are outside of reported versions)
+          ignore-vulns: &ignore-vulns |
+            PYSEC-2023-121
+
+  audit-all:
+    name: Audit - All
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        id: setup-python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
+        with:
+          version: ${{ env.POETRY_VERSION }}
+          virtualenvs-create: ${{ env.POETRY_VIRTUALENVS_CREATE }}
+          virtualenvs-in-project: ${{ env.POETRY_VIRTUALENVS_IN_PROJECT }}
+          installer-parallel: ${{ env.POETRY_INSTALLER_PARALLEL }}
+
+      - name: Install poetry-plugin-export
+        run: poetry self add poetry-plugin-export
+
+      - name: Run audit for all dependencies
+        run: |
+          poetry export -f requirements.txt -o /tmp/requirements-all.txt
+
+      - uses: pypa/gh-action-pip-audit@f1c3022531130da3984dbdfb2786f6e1cba15556 # latest release (v1.1.0 doesn't contain `disable-pip`)
+        with:
+          inputs: /tmp/requirements-all.txt
+          require-hashes: true
+          disable-pip: true
+          ignore-vulns: *ignore-vulns

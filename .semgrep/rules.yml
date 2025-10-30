@@ -1,0 +1,310 @@
+rules:
+  # SQL Injection Prevention
+  - id: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
+    patterns:
+      - pattern-either:
+          - pattern: $CONN.execute($QUERY, ...)
+          - pattern: $CONN.exec_driver_sql($QUERY, ...)
+      - pattern-not: $CONN.execute("...", ...)
+      - pattern-not: $CONN.exec_driver_sql("...", ...)
+    message: |
+      Detected possible SQL injection. User input is being used to construct a SQL query without parameterization.
+      This could lead to SQL injection if the variable is user-controlled. Use parameterized queries instead.
+    languages:
+      - python
+    severity: ERROR
+    metadata:
+      category: security
+      technology:
+        - sqlalchemy
+      cwe:
+        - "CWE-89: Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"
+      owasp:
+        - A03:2021 - Injection
+      confidence: MEDIUM
+      likelihood: MEDIUM
+      impact: HIGH
+      subcategory:
+        - vuln
+      vulnerability_class:
+        - SQL Injection
+
+  # Hardcoded Secrets Detection
+  - id: python.lang.security.audit.hardcoded-password.hardcoded-password
+    patterns:
+      - pattern-either:
+          - pattern: $VAR = "..."
+          - pattern: $VAR = '...'
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: (?i)(password|passwd|pwd|secret|token|api_key|apikey|access_key|private_key)
+      - metavariable-analysis:
+          metavariable: $VAR
+          analyzer: entropy
+    message: |
+      Potential hardcoded password or secret detected. Hardcoded secrets in code can be easily discovered
+      and lead to security breaches. Use environment variables or secure secret management instead.
+    languages:
+      - python
+    severity: WARNING
+    metadata:
+      category: security
+      cwe:
+        - 'CWE-798: Use of Hard-coded Credentials'
+      owasp:
+        - A07:2021 - Identification and Authentication Failures
+      confidence: MEDIUM
+      likelihood: LOW
+      impact: MEDIUM
+      subcategory:
+        - audit
+      vulnerability_class:
+        - Hard-coded Secrets
+
+  # Command Injection Prevention
+  - id: python.lang.security.audit.dangerous-subprocess-use.dangerous-subprocess-use
+    patterns:
+      - pattern-either:
+          - pattern: subprocess.$METHOD($CMD, shell=True, ...)
+          - pattern: os.system($CMD)
+          - pattern: os.popen($CMD, ...)
+      - pattern-not: subprocess.$METHOD("...", shell=True, ...)
+      - pattern-not: os.system("...")
+      - pattern-not: os.popen("...", ...)
+    message: |
+      Detected subprocess call with shell=True or os.system/os.popen with non-literal command.
+      This could lead to command injection if user input is included. Avoid shell=True and use
+      a list of arguments instead, or ensure input is properly sanitized.
+    languages:
+      - python
+    severity: ERROR
+    metadata:
+      category: security
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      owasp:
+        - A03:2021 - Injection
+      confidence: MEDIUM
+      likelihood: MEDIUM
+      impact: HIGH
+      subcategory:
+        - vuln
+      vulnerability_class:
+        - Command Injection
+
+  # Insecure Deserialization
+  - id: python.lang.security.audit.dangerous-pickle-use.dangerous-pickle-use
+    patterns:
+      - pattern-either:
+          - pattern: pickle.loads($DATA)
+          - pattern: pickle.load($FILE)
+          - pattern: dill.loads($DATA)
+          - pattern: dill.load($FILE)
+      - pattern-not: pickle.loads("...")
+      - pattern-not: pickle.load(open("...", ...))
+    message: |
+      Detected use of pickle.loads() or pickle.load() with potentially untrusted data.
+      Pickle deserialization can lead to arbitrary code execution if the data is attacker-controlled.
+      Consider using safer serialization formats like JSON.
+    languages:
+      - python
+    severity: WARNING
+    metadata:
+      category: security
+      cwe:
+        - 'CWE-502: Deserialization of Untrusted Data'
+      owasp:
+        - A08:2021 - Software and Data Integrity Failures
+      confidence: MEDIUM
+      likelihood: MEDIUM
+      impact: HIGH
+      subcategory:
+        - vuln
+      vulnerability_class:
+        - Insecure Deserialization
+
+  # Path Traversal Prevention
+  - id: python.lang.security.audit.path-traversal.path-traversal
+    patterns:
+      - pattern-either:
+          - pattern: open($PATH, ...)
+          - pattern: pathlib.Path($PATH)
+      - pattern-not: open("...", ...)
+      - pattern-not: pathlib.Path("...")
+      - metavariable-pattern:
+          metavariable: $PATH
+          patterns:
+            - pattern-either:
+                - pattern: $X + $Y
+                - pattern: f"...{$VAR}..."
+                - pattern: '"...".format(...)'
+    message: |
+      Detected file operation with potentially user-controlled path. This could lead to path traversal
+      vulnerabilities where attackers can access files outside the intended directory. Validate and
+      sanitize file paths, and use os.path.abspath() and os.path.commonprefix() to ensure paths stay
+      within expected boundaries.
+    languages:
+      - python
+    severity: WARNING
+    metadata:
+      category: security
+      cwe:
+        - 'CWE-22: Improper Limitation of a Pathname to a Restricted Directory'
+      owasp:
+        - A01:2017 - Injection
+      confidence: LOW
+      likelihood: MEDIUM
+      impact: MEDIUM
+      subcategory:
+        - audit
+      vulnerability_class:
+        - Path Traversal
+
+  # Weak Cryptography
+  - id: python.lang.security.audit.insecure-hash-function.insecure-hash-function
+    patterns:
+      - pattern-either:
+          - pattern: hashlib.md5(...)
+          - pattern: hashlib.sha1(...)
+      - pattern-not-inside: |
+          # ... git ...
+    message: |
+      Detected use of insecure hash function (MD5 or SHA1). These hash functions are cryptographically
+      broken and should not be used for security purposes. Use SHA256 or stronger hash functions instead.
+    languages:
+      - python
+    severity: WARNING
+    metadata:
+      category: security
+      cwe:
+        - 'CWE-327: Use of a Broken or Risky Cryptographic Algorithm'
+      owasp:
+        - A02:2021 - Cryptographic Failures
+      confidence: HIGH
+      likelihood: MEDIUM
+      impact: MEDIUM
+      subcategory:
+        - vuln
+      vulnerability_class:
+        - Insecure Hashing Algorithm
+
+  # SSRF Prevention
+  - id: python.requests.security.ssrf.ssrf-requests
+    patterns:
+      - pattern-either:
+          - pattern: requests.$METHOD($URL, ...)
+          - pattern: requests.request(..., $URL, ...)
+      - pattern-not: requests.$METHOD("...", ...)
+      - pattern-not: requests.request(..., "...", ...)
+      - metavariable-pattern:
+          metavariable: $URL
+          patterns:
+            - pattern-either:
+                - pattern: $X + $Y
+                - pattern: f"...{$VAR}..."
+                - pattern: '"...".format(...)'
+    message: |
+      Detected HTTP request with potentially user-controlled URL. This could lead to Server-Side Request
+      Forgery (SSRF) where attackers can make the server send requests to internal resources or arbitrary
+      external URLs. Validate and whitelist allowed URLs/domains.
+    languages:
+      - python
+    severity: WARNING
+    metadata:
+      category: security
+      cwe:
+        - 'CWE-918: Server-Side Request Forgery (SSRF)'
+      owasp:
+        - A10:2021 - Server-Side Request Forgery
+      confidence: LOW
+      likelihood: MEDIUM
+      impact: HIGH
+      subcategory:
+        - audit
+      vulnerability_class:
+        - SSRF
+
+  # Debug Mode in Production
+  - id: python.flask.security.audit.debug-enabled.debug-enabled
+    patterns:
+      - pattern-either:
+          - pattern: $APP.run(..., debug=True, ...)
+          - pattern: |
+              $APP.debug = True
+              ...
+              $APP.run(...)
+    message: |
+      Detected Flask application running with debug=True. Debug mode should never be enabled in production
+      as it can expose sensitive information and allow arbitrary code execution through the debugger.
+    languages:
+      - python
+    severity: ERROR
+    metadata:
+      category: security
+      cwe:
+        - 'CWE-489: Active Debug Code'
+      owasp:
+        - A05:2021 - Security Misconfiguration
+      confidence: HIGH
+      likelihood: HIGH
+      impact: HIGH
+      subcategory:
+        - vuln
+      vulnerability_class:
+        - Improper Platform Usage
+
+  # Unsafe YAML Loading
+  - id: python.lang.security.audit.dangerous-yaml-load.dangerous-yaml-load
+    patterns:
+      - pattern-either:
+          - pattern: yaml.load($DATA, ...)
+          - pattern: yaml.unsafe_load($DATA, ...)
+      - pattern-not: yaml.load($DATA, Loader=yaml.SafeLoader, ...)
+      - pattern-not: yaml.load($DATA, Loader=yaml.BaseLoader, ...)
+    message: |
+      Detected use of yaml.load() without SafeLoader. This can lead to arbitrary code execution if
+      the YAML data is attacker-controlled. Use yaml.safe_load() or yaml.load() with SafeLoader instead.
+    languages:
+      - python
+    severity: ERROR
+    metadata:
+      category: security
+      cwe:
+        - 'CWE-502: Deserialization of Untrusted Data'
+      owasp:
+        - A08:2021 - Software and Data Integrity Failures
+      confidence: HIGH
+      likelihood: MEDIUM
+      impact: HIGH
+      subcategory:
+        - vuln
+      vulnerability_class:
+        - Insecure Deserialization
+
+  # Eval Usage
+  - id: python.lang.security.audit.dangerous-eval-use.dangerous-eval-use
+    patterns:
+      - pattern-either:
+          - pattern: eval($CODE)
+          - pattern: exec($CODE)
+      - pattern-not: eval("...")
+      - pattern-not: exec("...")
+    message: |
+      Detected use of eval() or exec() with non-literal input. This can lead to arbitrary code execution
+      if the input is attacker-controlled. Avoid using eval/exec, or ensure input is strictly validated.
+    languages:
+      - python
+    severity: ERROR
+    metadata:
+      category: security
+      cwe:
+        - 'CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code'
+      owasp:
+        - A03:2021 - Injection
+      confidence: HIGH
+      likelihood: MEDIUM
+      impact: HIGH
+      subcategory:
+        - vuln
+      vulnerability_class:
+        - Code Injection
