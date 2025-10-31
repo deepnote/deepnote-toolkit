@@ -40,26 +40,23 @@ pip install deepnote-toolkit[server]
 ```
 
 
-## Local development quickstart
+## CLI quickstart
 
-To run Toolkit locally via Poetry during development use:
+To run Toolkit locally after installation use:
 
 ```bash
-# Install the package with server components
-poetry install --with server
+# show all available commands
+deepnote-toolkit --help
 
-# Run the CLI to see available commands
-poetry run deepnote-toolkit --help
+# start Jupyter server on default port (8888)
+deepnote-toolkit server
 
-# Start Jupyter server on default port (8888)
-poetry run deepnote-toolkit server
+# start with custom configuration
+deepnote-toolkit server --jupyter-port 9000
 
-# Start servers with custom configuration
-poetry run deepnote-toolkit server --jupyter-port 9000
-
-# View/modify configuration
-poetry run deepnote-toolkit config show
-poetry run deepnote-toolkit config set server.jupyter_port 9000
+# view and modify configuration
+deepnote-toolkit config show
+deepnote-toolkit config set server.jupyter_port 9000
 ```
 
 **Security Note**: The CLI will warn if Jupyter runs without authentication. For local development only. Set `DEEPNOTE_JUPYTER_TOKEN` for shared environments.
