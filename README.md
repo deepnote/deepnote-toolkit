@@ -1,7 +1,5 @@
 <div align="center">
 
-# Deepnote Toolkit
-
 ![Deepnote Toolkit cover image](./docs/_assets/deepnote-toolkit-cover-image.png)
 
 [Website](https://deepnote.com/?utm_source=github&utm_medium=github&utm_campaign=github&utm_content=readme_main) • [Docs](https://deepnote.com/docs?utm_source=github&utm_medium=github&utm_campaign=github&utm_content=readme_main) • [Blog](https://deepnote.com/blog?utm_source=github&utm_medium=github&utm_campaign=github&utm_content=readme_main) • [X](https://x.com/DeepnoteHQ) • [Examples](https://deepnote.com/explore?utm_source=github&utm_medium=github&utm_campaign=github&utm_content=readme_main) • [Community](https://github.com/deepnote/deepnote/discussions)
@@ -29,6 +27,7 @@ It is responsible for starting and managing servers (Jupyter, Streamlit, LSP), a
 Although Deepnote Toolkit can be run as a Python package via the CLI, we highly recommend trying Deepnote via the VS Code extension or registering for the SaaS version at [deepnote.com](https://deepnote.com).
 
 To start Deepnote Toolkit locally, first install it via `pip` or your favorite package manager:
+
 ```sh
 pip install deepnote-toolkit
 ```
