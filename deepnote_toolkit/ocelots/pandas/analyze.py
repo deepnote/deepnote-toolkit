@@ -78,20 +78,26 @@ def _get_histogram(pd_series):
             # let's drop infinite values because they break histograms
             np_array = np.array(pd_series.replace([np.inf, -np.inf], np.nan).dropna())
 
+        # Check if array is empty after dropping NaN/NaT values
+        if len(np_array) == 0:
+            return None
+
         y, bins = np.histogram(np_array, bins=10)
         return [
             {"bin_start": bins[i], "bin_end": bins[i + 1], "count": count.item()}
             for i, count in enumerate(y)
         ]
-    except ValueError as e:
+    except (ValueError, IndexError) as e:
         # NumPy 2.2+ raises "Too many bins for data range" when:
         # - Data range is zero (all values identical), or
         # - For integer data, bin width would be < 1.0, or
         # - Floating point precision prevents creating finite-sized bins at large scales
         # Numpy implementation: https://github.com/numpy/numpy/blob/e7a123b2d3eca9897843791dd698c1803d9a39c2/numpy/lib/_histograms_impl.py#L454
-        if "Too many bins for data range" in str(e):
+        # IndexError can occur in NumPy 2.x with edge cases involving large integers or datetime conversions
+        if isinstance(e, ValueError) and "Too many bins for data range" in str(e):
             return None
-        raise
+        # For IndexError or other ValueError cases, return None to gracefully handle edge cases
+        return None
 
 
 def _calculate_min_max(column):
