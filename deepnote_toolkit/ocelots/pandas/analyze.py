@@ -83,9 +83,15 @@ def _get_histogram(pd_series):
             {"bin_start": bins[i], "bin_end": bins[i + 1], "count": count.item()}
             for i, count in enumerate(y)
         ]
-    except IndexError:
-        # numpy bug https://github.com/numpy/numpy/issues/8627
-        return None
+    except ValueError as e:
+        # NumPy 2.2+ raises "Too many bins for data range" when:
+        # - Data range is zero (all values identical), or
+        # - For integer data, bin width would be < 1.0, or
+        # - Floating point precision prevents creating finite-sized bins at large scales
+        # Numpy implementation: https://github.com/numpy/numpy/blob/e7a123b2d3eca9897843791dd698c1803d9a39c2/numpy/lib/_histograms_impl.py#L454
+        if "Too many bins for data range" in str(e):
+            return None
+        raise
 
 
 def _calculate_min_max(column):

@@ -3,7 +3,7 @@ import os
 from nox import session
 
 
-@session(python=["3.9", "3.10", "3.11", "3.12"], reuse_venv=True)
+@session(python=["3.9", "3.10", "3.11", "3.12", "3.13"], reuse_venv=True)
 def unit(session):
     """Run unit tests. Coverage is disabled by default, use --coverage to enable."""
 
@@ -67,7 +67,7 @@ def unit(session):
     )
 
 
-@session(python=["3.9", "3.10", "3.11", "3.12"], reuse_venv=True)
+@session(python=["3.9", "3.10", "3.11", "3.12", "3.13"], reuse_venv=True)
 def integration(session):
     """Run integration tests. Coverage is disabled by default, use --coverage to enable."""
     # Validate required environment variables
