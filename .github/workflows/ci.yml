@@ -47,9 +47,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .venv
-          key: venv-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
-          restore-keys: |
-            venv-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ steps.setup-python.outputs.python-version }}-
+          key: venv-v2-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('poetry.lock') }}
 
       - name: Install dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'
@@ -85,9 +83,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .venv
-          key: venv-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
-          restore-keys: |
-            venv-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ steps.setup-python.outputs.python-version }}-
+          key: venv-v2-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('poetry.lock') }}
 
       - name: Install dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'
@@ -188,9 +184,7 @@ jobs:
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: .venv
-        key: venv-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
-        restore-keys: |
-          venv-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ matrix.python-version }}-
+        key: venv-v2-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
 
     - name: Install dependencies
       if: steps.cache-deps.outputs.cache-hit != 'true'
@@ -326,9 +320,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .venv
-          key: venv-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ matrix.python-version }}-${{ hashFiles('**/poetry.lock') }}
-          restore-keys: |
-            venv-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ matrix.python-version }}-
+          key: venv-v2-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
 
       - name: Install dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'
