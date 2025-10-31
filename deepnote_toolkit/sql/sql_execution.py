@@ -470,7 +470,7 @@ def _build_params_for_trino_oauth(params):
     if not oauth_token:
         raise Exception("TRINO_OAUTH_TOKEN environment variable is not set")
 
-    auth = trino.auth.BearerAuthentication(oauth_token)
+    auth = trino.auth.JWTAuthentication(oauth_token)
 
     result_params = params.copy()
     connect_args = result_params.get("connect_args", {})
