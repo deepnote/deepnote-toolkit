@@ -24,7 +24,7 @@ It is responsible for starting and managing servers (Jupyter, Streamlit, LSP), a
 
 ## Installation
 
-Although Deepnote Toolkit can be run as a Python package via the CLI, we highly recommend trying Deepnote via the VS Code extension or registering for the SaaS version at [deepnote.com](https://deepnote.com).
+Although Deepnote Toolkit can be run as a Python package via the CLI, we highly recommend first trying Deepnote via our [OSS offerings](https://github.com/deepnote/deepnote) including our VS Code, Cursor and Windsurf extensions or registering for the SaaS version at [deepnote.com](https://deepnote.com).
 
 To start Deepnote Toolkit locally, first install it via `pip` or your favorite package manager:
 
