@@ -93,6 +93,7 @@ deepnote-toolkit config set server.jupyter_port 9000
 The project uses nox for testing across multiple Python versions (3.9-3.12) in Docker containers.
 
 **Quick testing with mise:**
+
 ```bash
 mise run test                    # Run unit tests
 mise run test:coverage           # Run with coverage
@@ -100,6 +101,7 @@ mise run test:quick tests/unit/  # Fast testing without nox overhead
 ```
 
 **Using nox directly:**
+
 ```bash
 poetry run nox -s unit                      # Run unit tests
 poetry run nox -s unit -- --coverage        # With coverage
@@ -107,6 +109,7 @@ poetry run nox -s unit -- tests/unit/test_file.py  # Specific file
 ```
 
 **Using Docker:**
+
 ```bash
 ./bin/test-local                            # Run all tests
 ./bin/test-local tests/unit/test_file.py   # Specific file
@@ -171,6 +174,6 @@ Apache License 2.0 - See [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-**Built with 💙 by the Deepnote team**
+Built with 💙 by the Deepnote team
 
 </div>
