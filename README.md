@@ -62,7 +62,7 @@ deepnote-toolkit config set server.jupyter_port 9000
 
 ## Contributing
 
-For more details on how to set up the local development environment and contribute, 
+For more details on how to set up the local development environment and contribute,
 see [contributing guide](./CONTRIBUTING.md).
 
 ## License
