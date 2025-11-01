@@ -1,6 +1,6 @@
 <div align="center">
 
-![Deepnote Toolkit cover image](./docs/_assets/deepnote-toolkit-cover-image.png)
+![Deepnote Toolkit cover image](https://landing-assets.deepnote.com/deepnote-toolkit-cover-image.png)
 
 [Website](https://deepnote.com/?utm_source=github&utm_medium=github&utm_campaign=github&utm_content=readme_main) • [Docs](https://deepnote.com/docs?utm_source=github&utm_medium=github&utm_campaign=github&utm_content=readme_main) • [Blog](https://deepnote.com/blog?utm_source=github&utm_medium=github&utm_campaign=github&utm_content=readme_main) • [X](https://x.com/DeepnoteHQ) • [Examples](https://deepnote.com/explore?utm_source=github&utm_medium=github&utm_campaign=github&utm_content=readme_main) • [Community](https://github.com/deepnote/deepnote/discussions)
 
