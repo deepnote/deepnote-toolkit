@@ -407,6 +407,27 @@ def _to_int(x):
     return int(x) if x else None
 
 
+def _get_type_name(v):
+    """
+    Get the normalized type name for a variable with backwards compatibility.
+
+    In Python 3.13, NumPy's bool_ type may report as 'bool' instead of 'bool_'.
+    This function ensures we always return 'bool_' for NumPy bool types to maintain
+    compatibility with older Python versions.
+    """
+    # Check for NumPy bool_ type first (most reliable check)
+    # This handles the case where Python 3.13 reports np.bool_ as 'bool'
+    try:
+        if np is not None and isinstance(v, np.bool_):
+            return "bool_"
+    except (AttributeError, TypeError):
+        # If numpy types change or there's an issue with the comparison
+        pass
+
+    # Fall back to standard type name
+    return type(v).__name__
+
+
 def _get_variable_dict_entry(var_name, v):
     try:
         shape = _get_shape(v)
@@ -415,7 +436,7 @@ def _get_variable_dict_entry(var_name, v):
         underlying_data_type = _get_underlying_data_type(v)
         var_result = {
             "varName": var_name,
-            "varType": type(v).__name__,
+            "varType": _get_type_name(v),
             "varSize": _to_int(_get_size(v)),
             "varShape": shape,
             "varContent": _get_content(v),
