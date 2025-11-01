@@ -367,6 +367,14 @@ jobs:
             echo "Warning: No coverage file generated"
           fi
 
+      - name: Per-version coverage summary
+        if: steps.test-unit.outputs.coverage_generated == 'true'
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
+        run: |
+          echo "## Python ${PYTHON_VERSION} Coverage" >> $GITHUB_STEP_SUMMARY
+          poetry run coverage report --data-file=coverage/.coverage.${PYTHON_VERSION} --format=markdown >> $GITHUB_STEP_SUMMARY
+
       - name: Upload test results to Codecov (these are results not coverage reports)
         if: ${{ !cancelled() }}
         uses: codecov/test-results-action@47f89e9acb64b76debcd5ea40642d25a4adced9f # v1
@@ -382,13 +390,6 @@ jobs:
           files: ./coverage/coverage-${{ matrix.python-version }}.xml
           fail_ci_if_error: ${{ github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' }}
 
-      - name: Per-version coverage summary
-        if: steps.test-unit.outputs.coverage_generated == 'true'
-        env:
-          PYTHON_VERSION: ${{ matrix.python-version }}
-        run: |
-          echo "## Python ${PYTHON_VERSION} Coverage" >> $GITHUB_STEP_SUMMARY
-          poetry run coverage report --data-file=coverage/.coverage.${PYTHON_VERSION} --format=markdown >> $GITHUB_STEP_SUMMARY
   audit-prod:
     name: Audit - Production
     runs-on: ubuntu-latest
