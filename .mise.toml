@@ -3,7 +3,7 @@
 # Then run: mise install
 
 [tools]
-python = "3.12"
+python = "3.13"
 java = "temurin-17"
 poetry = "2.2.0"
 
