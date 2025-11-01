@@ -322,6 +322,10 @@ jobs:
           path: .venv
           key: venv-v2-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
 
+      - name: Add venv to PATH
+        if: steps.cache-deps.outputs.cache-hit == 'true'
+        run: echo "${{ github.workspace }}/.venv/bin" >> $GITHUB_PATH
+
       - name: Install dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'
         run: poetry install --no-interaction --no-root --with dev
