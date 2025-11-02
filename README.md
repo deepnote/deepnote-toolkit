@@ -1,6 +1,7 @@
-![Deepnote Toolkit cover image](deepnote-toolkit-cover-image.png)
 
 <div align="center">
+
+![Deepnote Toolkit cover image](/assets/deepnote-toolkit-cover-image.png)
 
 [![CI](https://github.com/deepnote/deepnote-toolkit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/deepnote/deepnote-toolkit/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/deepnote/deepnote-toolkit/graph/badge.svg?token=JCRUJP2BB9)](https://codecov.io/gh/deepnote/deepnote-toolkit)
@@ -12,7 +13,7 @@
 
 # Deepnote Toolkit
 
-The Deepnote Toolkit is a Python package that powers the [Deepnote notebook environment](https://github.com/deepnote/deepnote/). It provides the essential functionality that runs in user workspaces, enabling interactive data science workflows with SQL, visualizations, and integrations.
+The Deepnote Toolkit is a Python package that powers the [Deepnote notebook environment](https://github.com/deepnote/deepnote/). It provides the essential functionality that runs in user workspaces, enabling interactive data science workflows with SQL, visualizations, and integrations. 
 
 
 ## Installation
@@ -174,6 +175,6 @@ Apache License 2.0 - See [LICENSE](LICENSE) for details.
 
 <div align="center">
 
-Built with 💙 by the Deepnote team
+Built with 💙 by the data-driven team
 
 </div>
