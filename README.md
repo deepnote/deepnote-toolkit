@@ -62,6 +62,7 @@ deepnote-toolkit config set server.jupyter_port 9000
 **Security note**: The CLI will warn if Jupyter runs without authentication. For local development only. Set `DEEPNOTE_JUPYTER_TOKEN` for shared environments.
 
 ## Need help?
+
 - Join our [Community](https://github.com/deepnote/deepnote/discussions)!
 - [Open an issue](https://github.com/deepnote/deepnote-toolkit/issues) for bug reports or feature requests
 - Check out our [documentation](https://deepnote.com/docs)
