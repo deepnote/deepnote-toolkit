@@ -1,6 +1,6 @@
 <div align="center">
 
-![Deepnote Toolkit cover image](./assets/deepnote-toolkit-cover-image.png)
+![Deepnote cover image](./assets/deepnote-cover-image.png)
 
 [![CI](https://github.com/deepnote/deepnote-toolkit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/deepnote/deepnote-toolkit/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/deepnote/deepnote-toolkit/graph/badge.svg?token=JCRUJP2BB9)](https://codecov.io/gh/deepnote/deepnote-toolkit)
