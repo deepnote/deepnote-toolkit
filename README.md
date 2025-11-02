@@ -2,8 +2,6 @@
 
 ![Deepnote Toolkit cover image](./assets/deepnote-toolkit-cover-image.png)
 
-[Website](https://deepnote.com/?utm_source=github&utm_medium=github&utm_campaign=github&utm_content=readme_main) • [Docs](https://deepnote.com/docs?utm_source=github&utm_medium=github&utm_campaign=github&utm_content=readme_main) • [Blog](https://deepnote.com/blog?utm_source=github&utm_medium=github&utm_campaign=github&utm_content=readme_main) • [X](https://x.com/DeepnoteHQ) • [Examples](https://deepnote.com/explore?utm_source=github&utm_medium=github&utm_campaign=github&utm_content=readme_main) • [Community](https://github.com/deepnote/deepnote/discussions)
-
 [![CI](https://github.com/deepnote/deepnote-toolkit/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/deepnote/deepnote-toolkit/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/deepnote/deepnote-toolkit/graph/badge.svg?token=JCRUJP2BB9)](https://codecov.io/gh/deepnote/deepnote-toolkit)
 
@@ -63,22 +61,21 @@ deepnote-toolkit config set server.jupyter_port 9000
 
 **Security note**: The CLI will warn if Jupyter runs without authentication. For local development only. Set `DEEPNOTE_JUPYTER_TOKEN` for shared environments.
 
+## Need help?
+- Join our [Community](https://github.com/deepnote/deepnote/discussions)!
+- [Open an issue](https://github.com/deepnote/deepnote-toolkit/issues) for bug reports or feature requests
+- Check out our [documentation](https://deepnote.com/docs)
+- Learn how to report security vulnerabilities via [security](SECURITY.md)
+- Want a low-code experience? Visit [Deepnote Cloud](https://deepnote.com) together with Deepnote AI agent
+
 ## Contributing
 
 For more details on how to set up the local development environment and contribute,
 see [contributing guide](./CONTRIBUTING.md).
 
-## Support
-
-- **Documentation**: [deepnote.com/docs](https://deepnote.com/docs)
-- **Issues**: [GitHub Issues](https://github.com/deepnote/deepnote-toolkit/issues)
-- **Community**: [GitHub Discussions](https://github.com/deepnote/deepnote/discussions)
-- **Security**: See [security guideline](SECURITY.md) for reporting vulnerabilities
-
-
-<hr>
+---
 <div align="center">
 
-Built with 💙 by the data-driven team
+Built with 💙
 
 </div>
