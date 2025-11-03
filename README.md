@@ -10,6 +10,8 @@
 
 </div>
 
+# Deepnote Toolkit: SQL, charts, and notebook utilities
+
 Deepnote Toolkit powers [Deepnote Cloud](https://deepnote.com) and [Deepnote Open Source](https://github.com/deepnote/deepnote).
 It starts and manages Jupyter, Streamlit, and LSP servers, and provides runtime integrations for fast and reliable experience.
 
