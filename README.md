@@ -17,7 +17,7 @@ It starts and manages Jupyter, Streamlit, and LSP servers, and provides runtime 
 
 ## Features
 
-- **First-class SQL authoring and execution** without overhead of database connectors and SDKs (all supported integrations with data warehouses, databases, cloud storages, and many other tools are listed in [documentation](https://deepnote.com/docs?utm_source=github&utm_medium=github&utm_campaign=github&utm_content=readme_main))
+- **First-class SQL authoring and execution** without overhead of database connectors and SDKs (all supported integrations with data warehouses, databases, cloud storages, and many other tools listed in [documentation](https://deepnote.com/docs?utm_source=github&utm_medium=github&utm_campaign=github&utm_content=readme_main))
 - **Visualize data with chart blocks**, using Vega, along with additional support for Altair and Plotly
 - Native **Deepnote component library** including beautiful `DataFrame` rendering and interactive inputs
 - **Python kernel with curated set of libraries preinstalled**, allowing you to focus on work instead of fighting with Python dependencies
