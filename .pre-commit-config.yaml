@@ -11,13 +11,13 @@ repos:
     hooks:
       - id: flake8
         name: flake8
-        entry: poetry run flake8 -j auto
+        entry: mise exec -- poetry run flake8 -j auto
         language: system
         types: [python]
 
       - id: isort
         name: isort
-        entry: poetry run isort
+        entry: mise exec -- poetry run isort
         language: system
         types: [python]
         args: ["--filter-files"]

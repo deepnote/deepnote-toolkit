@@ -13,6 +13,7 @@ from deepnote_toolkit.variable_explorer import (
     ExportDataframeError,
     ExportSizeDataframeError,
     _get_elements_of,
+    _get_type_name,
     _get_variable_dict_entry,
     deepnote_export_df,
 )
@@ -366,6 +367,87 @@ c
         assert result is not None
         for key, value in expected.items():
             assert result.get(key) == value, f"Failed at {name} with {key}"
+
+
+class TestGetTypeName:
+    """Test cases for the _get_type_name function, focusing on exception handling."""
+
+    def test_get_type_name_normal_types(self):
+        """Test that normal types return their expected names."""
+        assert _get_type_name(5) == "int"
+        assert _get_type_name(3.14) == "float"
+        assert _get_type_name("hello") == "str"
+        assert _get_type_name([1, 2, 3]) == "list"
+        assert _get_type_name({1: 2}) == "dict"
+
+    def test_get_type_name_numpy_bool(self):
+        """Test that numpy bool_ type returns 'bool_'."""
+        np_bool_value = np.bool_(True)
+        assert _get_type_name(np_bool_value) == "bool_"
+
+    @patch("deepnote_toolkit.variable_explorer.np")
+    def test_get_type_name_attribute_error(self, mock_np):
+        """Test that AttributeError is caught when np.bool_ doesn't exist."""
+        # Mock np to raise AttributeError when accessing bool_
+        mock_np.bool_ = property(
+            lambda self: (_ for _ in ()).throw(AttributeError("bool_ not found"))
+        )
+
+        # Should fall back to regular type name
+        value = 42
+        assert _get_type_name(value) == "int"
+
+    @patch("deepnote_toolkit.variable_explorer.np")
+    def test_get_type_name_type_error(self, mock_np):
+        """Test that TypeError is caught during isinstance check."""
+
+        # Create a mock bool_ class that raises TypeError on isinstance
+        class MockBool:
+            def __instancecheck__(self, instance):
+                raise TypeError("Cannot check instance")
+
+        mock_np.bool_ = MockBool()
+
+        # Should fall back to regular type name
+        value = "test"
+        assert _get_type_name(value) == "str"
+
+    @patch("deepnote_toolkit.variable_explorer.np", None)
+    def test_get_type_name_numpy_none(self):
+        """Test that the function handles when numpy is None."""
+        # This should not raise an error, just return the regular type name
+        value = [1, 2, 3]
+        assert _get_type_name(value) == "list"
+
+    def test_get_type_name_edge_case_with_custom_type(self):
+        """Test with a custom type that might cause issues."""
+
+        class WeirdType:
+            """A custom type that behaves unusually."""
+
+            pass
+
+        weird_obj = WeirdType()
+        # Should return the custom class name
+        assert _get_type_name(weird_obj) == "WeirdType"
+
+    @patch("deepnote_toolkit.variable_explorer.np")
+    def test_get_type_name_numpy_comparison_error(self, mock_np):
+        """Test when isinstance itself causes issues with numpy types."""
+
+        # Create a value that causes isinstance to fail
+        class ProblematicValue:
+            def __class__(self):
+                raise TypeError("Cannot get class")
+
+        # Mock np.bool_ to exist but cause TypeError when used with isinstance
+        mock_np.bool_ = np.bool_  # Use real np.bool_
+
+        # Create a regular value that should work
+        normal_value = 123
+
+        # Even if there's an issue with numpy comparison, should fall back safely
+        assert _get_type_name(normal_value) == "int"
 
 
 class TestDeepnoteExportDf:

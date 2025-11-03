@@ -158,7 +158,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
 
     steps:
     - name: Checkout code
@@ -277,7 +277,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
     steps:
       - name: Checkout code
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
@@ -293,11 +293,11 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Set up Java 11
+      - name: Set up Java 17
         uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00 # v4
         with:
           distribution: 'temurin'
-          java-version: '11'
+          java-version: '17'
 
       - name: Load cached Poetry installation
         id: cached-poetry
@@ -321,6 +321,10 @@ jobs:
         with:
           path: .venv
           key: venv-v2-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
+
+      - name: Add venv to PATH
+        if: steps.cache-deps.outputs.cache-hit == 'true'
+        run: echo "${{ github.workspace }}/.venv/bin" >> $GITHUB_PATH
 
       - name: Install dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'
@@ -363,6 +367,14 @@ jobs:
             echo "Warning: No coverage file generated"
           fi
 
+      - name: Per-version coverage summary
+        if: steps.test-unit.outputs.coverage_generated == 'true'
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
+        run: |
+          echo "## Python ${PYTHON_VERSION} Coverage" >> $GITHUB_STEP_SUMMARY
+          poetry run coverage report --data-file=coverage/.coverage.${PYTHON_VERSION} --format=markdown >> $GITHUB_STEP_SUMMARY
+
       - name: Upload test results to Codecov (these are results not coverage reports)
         if: ${{ !cancelled() }}
         uses: codecov/test-results-action@47f89e9acb64b76debcd5ea40642d25a4adced9f # v1
@@ -378,13 +390,6 @@ jobs:
           files: ./coverage/coverage-${{ matrix.python-version }}.xml
           fail_ci_if_error: ${{ github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' }}
 
-      - name: Per-version coverage summary
-        if: steps.test-unit.outputs.coverage_generated == 'true'
-        env:
-          PYTHON_VERSION: ${{ matrix.python-version }}
-        run: |
-          echo "## Python ${PYTHON_VERSION} Coverage" >> $GITHUB_STEP_SUMMARY
-          poetry run coverage report --data-file=coverage/.coverage.${PYTHON_VERSION} --format=markdown >> $GITHUB_STEP_SUMMARY
   audit-prod:
     name: Audit - Production
     runs-on: ubuntu-latest

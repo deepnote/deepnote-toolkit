@@ -1,6 +1,6 @@
 # Contributing
 
-All contributions are highly appreciated! 
+All contributions are highly appreciated!
 Start by [forking the repository](https://github.com/deepnote/deepnote-toolkit/fork) on GitHub and setting up Deepnote Toolkit for local development.
 
 ## Local development setup
@@ -13,17 +13,17 @@ Start by [forking the repository](https://github.com/deepnote/deepnote-toolkit/f
 2. Run setup:
 
     ```bash
-    mise install        # Installs Python 3.12 and Java 11
+    mise install        # Installs Python 3.12 and Java 17
     mise run setup      # Installs dependencies and pre-commit hooks
     ```
 
 #### Option 2: Manual setup
 
 1. Install poetry: [Installation](https://python-poetry.org/docs/#installation)
-2. Install Java 11 (required for PySpark tests):
-    - macOS: `brew install openjdk@11`
-    - Ubuntu/Debian: `sudo apt-get install openjdk-11-jdk`
-    - RHEL/Fedora: `sudo dnf install java-11-openjdk-devel`
+2. Install Java 17 (required for PySpark tests):
+    - macOS: `brew install openjdk@17`
+    - Ubuntu/Debian: `sudo apt-get install openjdk-17-jdk`
+    - RHEL/Fedora: `sudo dnf install java-17-openjdk-devel`
 3. Set up venv for development package:
 
     ```bash
