@@ -232,6 +232,12 @@ class PysparkImplementation:
             StructField,
         )
 
+        def binary_to_string_repr(binary_data: Optional[bytearray]) -> Optional[str]:
+            """Convert binary data to Python string representation (e.g., b'hello')."""
+            if binary_data is None:
+                return None
+            return str(bytes(binary_data))
+
         def select_column(field: StructField) -> Column:
             col = F.col(field.name)
             # Numbers are already JSON-serialise, except Decimal
@@ -240,11 +246,11 @@ class PysparkImplementation:
             ):
                 return col
 
-            # We slice binary field before encoding to avoid encoding potentially big blob. Round slicing to
-            # 4 bytes to avoid breaking multi-byte sequences
+            # We slice binary field before converting to string representation
             if isinstance(field.dataType, BinaryType):
                 sliced = F.substring(F.col(field.name), 1, keep_bytes)
-                return F.base64(sliced)
+                binary_udf = F.udf(binary_to_string_repr, StringType())
+                return binary_udf(sliced)
 
             # String just needs to be trimmed
             if isinstance(field.dataType, StringType):
