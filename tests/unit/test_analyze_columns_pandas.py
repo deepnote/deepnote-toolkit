@@ -334,6 +334,34 @@ class TestAnalyzeColumnsHistogram(unittest.TestCase):
         self.assertIsNotNone(result[0].stats.histogram)
         self.assertEqual(len(result[0].stats.histogram), 10)
 
+    def test_histogram_large_integer_edge_case(self):
+        """Test histogram with very large integers that might cause IndexError."""
+        # Large integers that might cause edge cases in NumPy histogram
+        large_values = [10**15, 10**15 + 1, 10**15 + 2]
+        df = pd.DataFrame({"col1": large_values})
+        result = analyze_columns(df)
+
+        # Should handle gracefully without crashing
+        self.assertIsNotNone(result[0].stats)
+
+    def test_histogram_single_unique_value_int(self):
+        """Test histogram with a single unique integer value (zero range)."""
+        df = pd.DataFrame({"col1": [100] * 50})
+        result = analyze_columns(df)
+
+        # Should handle zero data range gracefully
+        self.assertIsNotNone(result[0].stats)
+        self.assertEqual(result[0].stats.unique_count, 1)
+
+    def test_histogram_single_unique_value_float(self):
+        """Test histogram with a single unique float value (zero range)."""
+        df = pd.DataFrame({"col1": [3.14159] * 50})
+        result = analyze_columns(df)
+
+        # Should handle zero data range gracefully
+        self.assertIsNotNone(result[0].stats)
+        self.assertEqual(result[0].stats.unique_count, 1)
+
 
 class TestAnalyzeColumnsPerformanceBudget(unittest.TestCase):
     def test_within_budget_all_columns_analyzed(self):
@@ -489,6 +517,28 @@ class TestAnalyzeColumnsMinMax(unittest.TestCase):
         self.assertIsNotNone(result[0].stats.max)
         self.assertTrue("2020-01-01" in result[0].stats.min)
         self.assertTrue("2020-01-05" in result[0].stats.max)
+
+    def test_min_max_non_comparable_objects(self):
+        """Test TypeError/ValueError handling."""
+        # Create a column with non-comparable objects that pass numeric check
+        # Using object dtype with mixed incomparable types
+        df = pd.DataFrame({"col1": pd.array([{"a": 1}, {"b": 2}, {"c": 3}], dtype=object)})
+        result = analyze_columns(df)
+
+        # Should handle the error gracefully and return None for min/max
+        self.assertIsNone(result[0].stats.min)
+        self.assertIsNone(result[0].stats.max)
+
+    def test_min_max_object_dtype_non_numeric(self):
+        """Test explicit non-numeric object dtype."""
+        df = pd.DataFrame({"col1": pd.array(["x", "y", "z"], dtype=object)})
+        result = analyze_columns(df)
+
+        # Non-numeric dtype should return None for min/max
+        self.assertIsNone(result[0].stats.min)
+        self.assertIsNone(result[0].stats.max)
+        # Should have categories instead
+        self.assertIsNotNone(result[0].stats.categories)
 
 
 class TestAnalyzeColumnsMultipleTypes(unittest.TestCase):
