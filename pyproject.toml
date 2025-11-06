@@ -176,7 +176,8 @@ dev = [
     "poetry-dynamic-versioning>=1.4.0,<2.0.0",
     "twine>=6.1.0,<7.0.0",
     "codespell>=2.3.0,<3.0.0",
-    "pytest-subtests>=0.15.0,<0.16.0"
+    "pytest-subtests>=0.15.0,<0.16.0",
+    "python-dotenv>=1.2.1,<2.0.0"
 ]
 license-check = [
     # Dependencies needed for license checking that aren't in main production dependencies

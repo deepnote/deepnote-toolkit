@@ -176,3 +176,5 @@ deepnote-lib/.DS_Store
 
 # mise
 .mise.local.toml
+
+.env
