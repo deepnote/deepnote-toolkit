@@ -303,9 +303,7 @@ class TestTrinoParamStyleAutoDetection(TestCase):
             }
         )
 
-        execute_sql_with_connection_json(
-            "SELECT * FROM test_table", sql_alchemy_json
-        )
+        execute_sql_with_connection_json("SELECT * FROM test_table", sql_alchemy_json)
 
         # Verify compile_sql_query was called with 'qmark' param_style
         mocked_compile_sql_query.assert_called_once()
@@ -334,9 +332,7 @@ class TestTrinoParamStyleAutoDetection(TestCase):
             }
         )
 
-        execute_sql_with_connection_json(
-            "SELECT * FROM test_table", sql_alchemy_json
-        )
+        execute_sql_with_connection_json("SELECT * FROM test_table", sql_alchemy_json)
 
         # Verify compile_sql_query was called with None param_style
         mocked_compile_sql_query.assert_called_once()
@@ -367,9 +363,7 @@ class TestTrinoParamStyleAutoDetection(TestCase):
             }
         )
 
-        execute_sql_with_connection_json(
-            "SELECT * FROM test_table", sql_alchemy_json
-        )
+        execute_sql_with_connection_json("SELECT * FROM test_table", sql_alchemy_json)
 
         # Verify compile_sql_query was called with 'pyformat', NOT 'qmark'
         mocked_compile_sql_query.assert_called_once()
@@ -398,9 +392,7 @@ class TestTrinoParamStyleAutoDetection(TestCase):
             }
         )
 
-        execute_sql_with_connection_json(
-            "SELECT * FROM test_table", sql_alchemy_json
-        )
+        execute_sql_with_connection_json("SELECT * FROM test_table", sql_alchemy_json)
 
         # Verify compile_sql_query was called with None param_style
         # because "trino+rest" doesn't match "trino" in the dictionary
@@ -429,7 +421,7 @@ class TestTrinoParamStyleAutoDetection(TestCase):
             }
         )
 
-        result = execute_sql_with_connection_json(
+        execute_sql_with_connection_json(
             "SELECT * FROM test_table WHERE id = {{ user_id }}",
             sql_alchemy_json,
         )
