@@ -1,5 +1,3 @@
-import base64
-
 import numpy as np
 import pandas as pd
 from packaging.requirements import Requirement
@@ -8,8 +6,12 @@ from deepnote_toolkit.ocelots.constants import MAX_STRING_CELL_LENGTH
 
 
 def safe_convert_to_string(value):
-    if isinstance(value, bytes):
-        return base64.b64encode(value).decode("ascii")
+    """
+    Safely convert a value to string, handling cases where str() might fail.
+
+    Note: For bytes, this returns Python's standard string representation (e.g., b'hello')
+    rather than base64 encoding, which is more human-readable.
+    """
     try:
         return str(value)
     except Exception:

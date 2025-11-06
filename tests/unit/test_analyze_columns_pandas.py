@@ -280,17 +280,17 @@ class TestAnalyzeColumnsCategories(unittest.TestCase):
         )
         result = analyze_columns(df)
 
-        base64_hello = "aGVsbG8="
+        str_hello = "b'hello'"
         self.assertIsNotNone(result[0].stats)
         self.assertEqual(result[0].stats.unique_count, 4)
         self.assertIsNotNone(result[0].stats.categories)
         self.assertEqual(len(result[0].stats.categories), 3)
         category_names = [cat["name"] for cat in result[0].stats.categories]
-        self.assertIn(base64_hello, category_names)
+        self.assertIn(str_hello, category_names)
         hello_count = next(
             cat["count"]
             for cat in result[0].stats.categories
-            if cat["name"] == base64_hello
+            if cat["name"] == str_hello
         )
         self.assertEqual(hello_count, 2)
         has_others = any("others" in cat["name"] for cat in result[0].stats.categories)
@@ -522,7 +522,9 @@ class TestAnalyzeColumnsMinMax(unittest.TestCase):
         """Test TypeError/ValueError handling."""
         # Create a column with non-comparable objects that pass numeric check
         # Using object dtype with mixed incomparable types
-        df = pd.DataFrame({"col1": pd.array([{"a": 1}, {"b": 2}, {"c": 3}], dtype=object)})
+        df = pd.DataFrame(
+            {"col1": pd.array([{"a": 1}, {"b": 2}, {"c": 3}], dtype=object)}
+        )
         result = analyze_columns(df)
 
         # Should handle the error gracefully and return None for min/max
