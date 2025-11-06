@@ -14,6 +14,7 @@ def render_jinja_sql_template(template, param_style=None):
     Args:
         template (str): The Jinja SQL template to render.
         param_style (str, optional): The parameter style to use. Defaults to "pyformat".
+            Common styles: "qmark" (?), "format" (%s), "pyformat" (%(name)s)
 
     Returns:
         str: The rendered SQL query.
@@ -21,6 +22,8 @@ def render_jinja_sql_template(template, param_style=None):
 
     escaped_template = _escape_jinja_template(template)
 
+    # Default to pyformat for backwards compatibility
+    # Note: Some databases like Trino require "qmark" or "format" style
     jinja_sql = JinjaSql(
         param_style=param_style if param_style is not None else "pyformat"
     )
