@@ -6,6 +6,11 @@ import numpy as np
 import pandas as pd
 
 from deepnote_toolkit.ocelots.constants import DEEPNOTE_INDEX_COLUMN
+from deepnote_toolkit.ocelots.pandas.utils import (
+    is_numeric_or_temporal,
+    is_type_datetime_or_timedelta,
+    safe_convert_to_string,
+)
 from deepnote_toolkit.ocelots.types import ColumnsStatsRecord, ColumnStats
 
 
@@ -24,7 +29,10 @@ def _get_categories(np_array):
     # special treatment for empty values
     num_nans = pandas_series.isna().sum().item()
 
-    counter = Counter(pandas_series.dropna().astype(str))
+    try:
+        counter = Counter(pandas_series.dropna().astype(str))
+    except (TypeError, UnicodeDecodeError, AttributeError):
+        counter = Counter(pandas_series.dropna().apply(safe_convert_to_string))
 
     max_items = 3
     if num_nans > 0:
@@ -46,33 +54,9 @@ def _get_categories(np_array):
     return [{"name": name, "count": count} for name, count in categories]
 
 
-def _is_type_numeric(dtype):
-    """
-    Returns True if dtype is numeric, False otherwise
-
-    Numeric means either a number (int, float, complex) or a datetime or timedelta.
-    It means e.g. that a range of these values can be plotted on a histogram.
-    """
-
-    # datetime doesn't play nice with np.issubdtype, so we need to check explicitly
-    if pd.api.types.is_datetime64_any_dtype(dtype) or pd.api.types.is_timedelta64_dtype(
-        dtype
-    ):
-        return True
-
-    try:
-        return np.issubdtype(dtype, np.number)
-    except TypeError:
-        # np.issubdtype crashes on categorical column dtype, and also on others, e.g. geopandas types
-        return False
-
-
 def _get_histogram(pd_series):
     try:
-        if pd.api.types.is_datetime64_any_dtype(
-            pd_series
-        ) or pd.api.types.is_timedelta64_dtype(pd_series):
-            # convert datetime or timedelta to an integer so that a histogram can be created
+        if is_type_datetime_or_timedelta(pd_series):
             np_array = np.array(pd_series.dropna().astype(int))
         else:
             # let's drop infinite values because they break histograms
@@ -104,11 +88,15 @@ def _calculate_min_max(column):
     """
     Calculate min and max values for a given column.
     """
-    if _is_type_numeric(column.dtype):
+    if not is_numeric_or_temporal(column.dtype):
+        return None, None
+
+    try:
         min_value = str(min(column.dropna())) if len(column.dropna()) > 0 else None
         max_value = str(max(column.dropna())) if len(column.dropna()) > 0 else None
         return min_value, max_value
-    return None, None
+    except (TypeError, ValueError):
+        return None, None
 
 
 def analyze_columns(
@@ -167,7 +155,7 @@ def analyze_columns(
             unique_count=_count_unique(column), nan_count=column.isnull().sum().item()
         )
 
-        if _is_type_numeric(column.dtype):
+        if is_numeric_or_temporal(column.dtype):
             min_value, max_value = _calculate_min_max(column)
             columns[i].stats.min = min_value
             columns[i].stats.max = max_value
@@ -187,7 +175,7 @@ def analyze_columns(
     for i in range(max_columns_to_analyze, len(df.columns)):
         # Ignore columns that are not numeric
         column = df.iloc[:, i]
-        if not _is_type_numeric(column.dtype):
+        if not is_numeric_or_temporal(column.dtype):
             continue
 
         column_name = columns[i].name
