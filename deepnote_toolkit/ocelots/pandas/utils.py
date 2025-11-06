@@ -1,8 +1,19 @@
+import base64
+
 import numpy as np
 import pandas as pd
 from packaging.requirements import Requirement
 
 from deepnote_toolkit.ocelots.constants import MAX_STRING_CELL_LENGTH
+
+
+def safe_convert_to_string(value):
+    if isinstance(value, bytes):
+        return base64.b64encode(value).decode("ascii")
+    try:
+        return str(value)
+    except Exception:
+        return "<unconvertible>"
 
 
 # like fillna, but only fills NaT (not a time) values in datetime columns with the specified value
@@ -76,7 +87,7 @@ def deduplicate_columns(df):
 # Cast dataframe contents to strings and trim them to avoid sending too much data
 def cast_objects_to_string(df):
     def to_string_truncated(elem):
-        elem_string = str(elem)
+        elem_string = safe_convert_to_string(elem)
         return (
             (elem_string[: MAX_STRING_CELL_LENGTH - 1] + "…")
             if len(elem_string) > MAX_STRING_CELL_LENGTH
@@ -84,25 +95,30 @@ def cast_objects_to_string(df):
         )
 
     for column in df:
-        if not _is_type_number(df[column].dtype):
+        if not is_type_numeric(df[column].dtype):
             # if the dtype is not a number, we want to convert it to string and truncate
             df[column] = df[column].apply(to_string_truncated)
 
     return df
 
 
-def _is_type_number(dtype):
+def is_type_datetime_or_timedelta(series_or_dtype):
     """
-    Returns True if dtype is a number, False otherwise. Datetime and timedelta will return False.
-
-    The primary intent of this is to recognize a value that will converted to a JSON number during serialization.
+    Returns True if the series or dtype is datetime or timedelta, False otherwise.
     """
+    return pd.api.types.is_datetime64_any_dtype(
+        series_or_dtype
+    ) or pd.api.types.is_timedelta64_dtype(series_or_dtype)
 
-    if pd.api.types.is_datetime64_any_dtype(dtype) or pd.api.types.is_timedelta64_dtype(
-        dtype
-    ):
-        # np.issubdtype(dtype, np.number) returns True for timedelta, which we don't want
-        return False
+
+def is_type_numeric(dtype):
+    """
+    Returns True if dtype is numeric, False otherwise
+
+    Numeric means either a number (int, float, complex) or a datetime or timedelta.
+    """
+    if is_type_datetime_or_timedelta(dtype):
+        return True
 
     try:
         return np.issubdtype(dtype, np.number)

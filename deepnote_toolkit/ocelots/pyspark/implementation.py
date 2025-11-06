@@ -243,7 +243,7 @@ class PysparkImplementation:
             # We slice binary field before encoding to avoid encoding potentially big blob. Round slicing to
             # 4 bytes to avoid breaking multi-byte sequences
             if isinstance(field.dataType, BinaryType):
-                sliced = F.substring(field, 1, keep_bytes)
+                sliced = F.substring(F.col(field.name), 1, keep_bytes)
                 return F.base64(sliced)
 
             # String just needs to be trimmed

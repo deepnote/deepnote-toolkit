@@ -261,12 +261,14 @@ testing_dataframes = {
                     datetime.datetime(2023, 1, 1, 12, 0, 0),
                     datetime.datetime(2023, 1, 2, 12, 0, 0),
                 ],
+                "binary": [b"hello", b"world"],
             }
         ),
         "pyspark_schema": pst.StructType(
             [
                 pst.StructField("list", pst.ArrayType(pst.IntegerType()), True),
                 pst.StructField("datetime", pst.TimestampType(), True),
+                pst.StructField("binary", pst.BinaryType(), True),
             ]
         ),
     },

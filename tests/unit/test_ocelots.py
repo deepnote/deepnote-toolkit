@@ -1,3 +1,4 @@
+import base64
 import io
 import unittest
 import warnings
@@ -181,6 +182,9 @@ class TestDataFrame(unittest.TestCase):
         first_row = df.to_records(mode="json")[0]
         self.assertEqual(first_row["list"], "[1, 2, 3]")
         self.assertEqual(first_row["datetime"], "2023-01-01 12:00:00")
+
+        expected_hello = base64.b64encode(b"hello").decode("ascii")
+        self.assertEqual(first_row["binary"], expected_hello)
 
     @_test_with_all_backends(testing_dataframes["many_rows_10k"])
     def test_analyze_columns(self, df: DataFrame):
