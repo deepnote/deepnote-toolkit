@@ -232,11 +232,21 @@ class PysparkImplementation:
             StructField,
         )
 
-        def binary_to_string_repr(binary_data: Optional[bytearray]) -> Optional[str]:
-            """Convert binary data to Python string representation (e.g., b'hello')."""
+        def binary_to_string_repr(
+            binary_data: Optional[Union[bytes, bytearray]]
+        ) -> Optional[str]:
+            """Convert binary data to Python string representation (e.g., b'hello').
+
+            Args:
+                binary_data: Binary data as bytes or bytearray. PySpark passes BinaryType
+                    as bytearray by default, but Spark 4.1+ with
+                    spark.sql.execution.pyspark.binaryAsBytes=true passes bytes instead.
+            """
             if binary_data is None:
                 return None
             return str(bytes(binary_data))
+
+        binary_udf = F.udf(binary_to_string_repr, StringType())
 
         def select_column(field: StructField) -> Column:
             col = F.col(field.name)
@@ -248,8 +258,9 @@ class PysparkImplementation:
 
             # We slice binary field before converting to string representation
             if isinstance(field.dataType, BinaryType):
-                sliced = F.substring(F.col(field.name), 1, keep_bytes)
-                binary_udf = F.udf(binary_to_string_repr, StringType())
+                # Each byte becomes up to 4 chars (\xNN) in string repr, plus b'' overhead
+                max_binary_bytes = (MAX_STRING_CELL_LENGTH - 3) // 4
+                sliced = F.substring(F.col(field.name), 1, max_binary_bytes)
                 return binary_udf(sliced)
 
             # String just needs to be trimmed
@@ -258,8 +269,6 @@ class PysparkImplementation:
 
             # Everything else gets stringified (Decimal, Date, Timestamp, Struct, …)
             return F.substring(col.cast("string"), 1, MAX_STRING_CELL_LENGTH)
-
-        keep_bytes = (MAX_STRING_CELL_LENGTH // 4) * 3
 
         if mode == "python":
             return [row.asDict() for row in self._df.collect()]
