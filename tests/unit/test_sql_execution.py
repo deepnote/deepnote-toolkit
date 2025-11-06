@@ -437,6 +437,76 @@ class TestTrinoParamStyleAutoDetection(TestCase):
         self.assertIsInstance(bind_params, list)
         self.assertEqual(bind_params, [123])
 
+    @mock.patch("pandas.read_sql_query")
+    def test_list_bind_params_converted_to_tuple_for_pandas(self, mocked_read_sql):
+        """Test that list bind_params are converted to tuple for pandas.read_sql_query"""
+        from deepnote_toolkit.sql.sql_execution import _execute_sql_on_engine
+
+        mock_df = pd.DataFrame({"col1": [1, 2, 3]})
+        mocked_read_sql.return_value = mock_df
+
+        # Mock engine and connection
+        mock_engine = mock.Mock()
+        mock_connection = mock.Mock()
+        mock_engine.begin.return_value.__enter__ = mock.Mock(
+            return_value=mock_connection
+        )
+        mock_engine.begin.return_value.__exit__ = mock.Mock(return_value=None)
+
+        # Test with list bind_params (qmark style for Trino)
+        list_params = [123, "test"]
+        _execute_sql_on_engine(
+            mock_engine,
+            "SELECT * FROM test_table WHERE id = ? AND name = ?",
+            list_params,
+        )
+
+        # Verify pandas.read_sql_query was called
+        self.assertTrue(mocked_read_sql.called)
+
+        # Get the params argument passed to pandas.read_sql_query
+        call_kwargs = mocked_read_sql.call_args[1]
+        params_arg = call_kwargs.get("params")
+
+        # Verify that list was converted to tuple
+        self.assertIsInstance(params_arg, tuple)
+        self.assertEqual(params_arg, (123, "test"))
+
+    @mock.patch("pandas.read_sql_query")
+    def test_dict_bind_params_not_converted_for_pandas(self, mocked_read_sql):
+        """Test that dict bind_params remain as dict for pandas.read_sql_query"""
+        from deepnote_toolkit.sql.sql_execution import _execute_sql_on_engine
+
+        mock_df = pd.DataFrame({"col1": [1, 2, 3]})
+        mocked_read_sql.return_value = mock_df
+
+        # Mock engine and connection
+        mock_engine = mock.Mock()
+        mock_connection = mock.Mock()
+        mock_engine.begin.return_value.__enter__ = mock.Mock(
+            return_value=mock_connection
+        )
+        mock_engine.begin.return_value.__exit__ = mock.Mock(return_value=None)
+
+        # Test with dict bind_params (pyformat style)
+        dict_params = {"id": 123, "name": "test"}
+        _execute_sql_on_engine(
+            mock_engine,
+            "SELECT * FROM test_table WHERE id = %(id)s AND name = %(name)s",
+            dict_params,
+        )
+
+        # Verify pandas.read_sql_query was called
+        self.assertTrue(mocked_read_sql.called)
+
+        # Get the params argument passed to pandas.read_sql_query
+        call_kwargs = mocked_read_sql.call_args[1]
+        params_arg = call_kwargs.get("params")
+
+        # Verify that dict was NOT converted (remains as dict)
+        self.assertIsInstance(params_arg, dict)
+        self.assertEqual(params_arg, {"id": 123, "name": "test"})
+
 
 class TestSanitizeDataframe(unittest.TestCase):
     @parameterized.expand([(key, df) for key, df in testing_dataframes.items()])
