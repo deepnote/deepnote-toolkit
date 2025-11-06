@@ -123,7 +123,7 @@ dependencies = [
     # NOTE: 1.7.0 is latest version of vl-convert which ships with Vega 5. In webapp we can't update to Vega 6 due to ESM-only issues
     # so we keep vl-convert version pinned as well
     "vl-convert-python==1.7.0",
-    "deepnote-vegafusion>=2.0.5,<3",
+    "deepnote-vegafusion (>=2.0.8,<3)",
 
     # Security constraint updates for transitive dependencies
     # snowflake-connector-python 4.0.0+ supports urllib3 2.x for Python 3.10+
