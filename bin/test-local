@@ -15,7 +15,7 @@ cleanup() {
 trap cleanup EXIT
 
 export TOOLKIT_VERSION="local-build"
-export PYTHON_VERSION=${PYTHON_VERSION:-"3.9"}
+export PYTHON_VERSION=${PYTHON_VERSION:-"3.11"}
 export COVERAGE_ENABLED=${COVERAGE_ENABLED:-"true"}
 
 if [ "${COVERAGE_ENABLED:-true}" = "true" ]; then
