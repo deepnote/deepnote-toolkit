@@ -133,6 +133,7 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
 .venv
 env/
 venv/
@@ -176,5 +177,3 @@ deepnote-lib/.DS_Store
 
 # mise
 .mise.local.toml
-
-.env
