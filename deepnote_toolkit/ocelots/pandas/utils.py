@@ -95,7 +95,7 @@ def cast_objects_to_string(df):
         )
 
     for column in df:
-        if not is_type_numeric(df[column].dtype):
+        if not is_pure_numeric(df[column].dtype):
             # if the dtype is not a number, we want to convert it to string and truncate
             df[column] = df[column].apply(to_string_truncated)
 
@@ -111,17 +111,39 @@ def is_type_datetime_or_timedelta(series_or_dtype):
     ) or pd.api.types.is_timedelta64_dtype(series_or_dtype)
 
 
-def is_type_numeric(dtype):
+def is_numeric_or_temporal(dtype):
     """
-    Returns True if dtype is numeric, False otherwise
+    Returns True if dtype is numeric or temporal (datetime/timedelta), False otherwise.
 
-    Numeric means either a number (int, float, complex) or a datetime or timedelta.
+    This includes numbers (int, float), datetime, and timedelta types.
+    Use this to determine if values can be plotted on a histogram or have min/max calculated.
     """
     if is_type_datetime_or_timedelta(dtype):
         return True
 
     try:
-        return np.issubdtype(dtype, np.number)
+        return np.issubdtype(dtype, np.number) and not np.issubdtype(
+            dtype, np.complexfloating
+        )
+    except TypeError:
+        # np.issubdtype crashes on categorical column dtype, and also on others, e.g. geopandas types
+        return False
+
+
+def is_pure_numeric(dtype):
+    """
+    Returns True if dtype is a pure number (int, float), False otherwise.
+
+    Use this to determine if a value will be serialized as a JSON number.
+    """
+    if is_type_datetime_or_timedelta(dtype):
+        # np.issubdtype(dtype, np.number) returns True for timedelta, which we don't want
+        return False
+
+    try:
+        return np.issubdtype(dtype, np.number) and not np.issubdtype(
+            dtype, np.complexfloating
+        )
     except TypeError:
         # np.issubdtype crashes on categorical column dtype, and also on others, e.g. geopandas types
         return False

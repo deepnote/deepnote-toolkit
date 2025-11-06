@@ -7,8 +7,8 @@ import pandas as pd
 
 from deepnote_toolkit.ocelots.constants import DEEPNOTE_INDEX_COLUMN
 from deepnote_toolkit.ocelots.pandas.utils import (
+    is_numeric_or_temporal,
     is_type_datetime_or_timedelta,
-    is_type_numeric,
     safe_convert_to_string,
 )
 from deepnote_toolkit.ocelots.types import ColumnsStatsRecord, ColumnStats
@@ -58,8 +58,6 @@ def _get_histogram(pd_series):
     try:
         if is_type_datetime_or_timedelta(pd_series):
             np_array = np.array(pd_series.dropna().astype(int))
-        elif np.issubdtype(pd_series.dtype, np.complexfloating):
-            return None
         else:
             # let's drop infinite values because they break histograms
             np_array = np.array(pd_series.replace([np.inf, -np.inf], np.nan).dropna())
@@ -90,14 +88,7 @@ def _calculate_min_max(column):
     """
     Calculate min and max values for a given column.
     """
-    if not is_type_numeric(column.dtype):
-        return None, None
-
-    # Complex numbers cannot be compared for min/max
-    # Check for datetime/timedelta types before because np.issubdtype doesn't work reliably on them
-    if not is_type_datetime_or_timedelta(column) and np.issubdtype(
-        column.dtype, np.complexfloating
-    ):
+    if not is_numeric_or_temporal(column.dtype):
         return None, None
 
     try:
@@ -164,7 +155,7 @@ def analyze_columns(
             unique_count=_count_unique(column), nan_count=column.isnull().sum().item()
         )
 
-        if is_type_numeric(column.dtype):
+        if is_numeric_or_temporal(column.dtype):
             min_value, max_value = _calculate_min_max(column)
             columns[i].stats.min = min_value
             columns[i].stats.max = max_value
@@ -184,7 +175,7 @@ def analyze_columns(
     for i in range(max_columns_to_analyze, len(df.columns)):
         # Ignore columns that are not numeric
         column = df.iloc[:, i]
-        if not is_type_numeric(column.dtype):
+        if not is_numeric_or_temporal(column.dtype):
             continue
 
         column_name = columns[i].name
