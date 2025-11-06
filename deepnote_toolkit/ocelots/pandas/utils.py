@@ -21,15 +21,17 @@ def flatten_column_name(item):
 
 
 def fix_nan_category(df):
-    for i in range(len(df.columns)):
-        column = df.iloc[
-            :, i
-        ]  # We need to use iloc because it works if column names have duplicates
+    # Collect indices of categorical columns to avoid repeated dtype checks
+    categorical_indices = [
+        i for i, dtype in enumerate(df.dtypes) if dtype.name == "category"
+    ]
+    if not categorical_indices:
+        return df
 
-        # If the column is categorical, we need to create a category for nan
-        if column.dtype.name == "category":
-            df.iloc[:, i] = column.cat.add_categories("nan")
-
+    # Apply add_categories in bulk for categorical columns
+    for i in categorical_indices:
+        column = df.iloc[:, i]
+        df.iloc[:, i] = column.cat.add_categories("nan")
     return df
 
 
