@@ -431,7 +431,7 @@ jobs:
           for file in "${coverage_files[@]}"; do
             echo "Copying $file to coverage-data/.coverage.$i"
             cp "$file" "coverage-data/.coverage.$i"
-            ((i++))
+            i=$((i + 1))
           done
           
           cd coverage-data
