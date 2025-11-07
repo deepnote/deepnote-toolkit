@@ -225,3 +225,105 @@ class TestTrinoWithDeepnoteToolkit:
             assert len(result) == 1
             assert "detected" in result.columns
             assert result["detected"].iloc[0] == test_value
+
+    def test_execute_sql_with_struct_types(self, trino_toolkit_connection):
+        """
+        Test execute_sql with Trino STRUCT/ROW types
+        (regression reported in BLU-5140)
+
+        Named structs from Trino come through as NamedRowTuple (tuple subclass).
+        The rendering layer will convert them to JSON via safe_convert_to_string.
+        """
+        query = """
+        SELECT id, simple_struct FROM (
+            SELECT
+                t.id,
+                CAST(
+                    ROW(
+                        'item_' || CAST(t.id AS VARCHAR),
+                        'value_' || CAST(t.id * 10 AS VARCHAR)
+                    )
+                    AS ROW(a VARCHAR, b VARCHAR)
+                ) AS simple_struct
+            FROM
+                UNNEST(SEQUENCE(1, 100)) AS t (id)
+        )
+        """
+
+        result = execute_sql(
+            template=query,
+            sql_alchemy_json_env_var=trino_toolkit_connection,
+        )
+
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) == 100
+        assert "id" in result.columns
+        assert "simple_struct" in result.columns
+
+        # Named structs from Trino come through as NamedRowTuple (tuple subclass)
+        first_struct = result["simple_struct"].iloc[0]
+        assert isinstance(
+            first_struct, tuple
+        ), f"Expected named struct to be tuple, got {type(first_struct)}"
+
+        assert len(first_struct) == 2
+        assert first_struct[0] == "item_1"
+        assert first_struct[1] == "value_10"
+
+        assert first_struct.a == "item_1"
+        assert first_struct.b == "value_10"
+
+    def test_execute_sql_with_array_types(self, trino_toolkit_connection):
+        """
+        Test execute_sql with Trino ARRAY types
+        (related to BLU-5140)
+
+        Arrays from Trino come through as Python lists.
+        The rendering layer will convert them to JSON via safe_convert_to_string.
+        Without proper handling, str(list) produces invalid JSON with single quotes.
+        """
+        query = """
+        SELECT 
+            id,
+            tags,
+            nested_array
+        FROM (
+            SELECT
+                t.id,
+                ARRAY['tag_' || CAST(t.id AS VARCHAR), 'item', 'test'] AS tags,
+                ARRAY[ARRAY[t.id, t.id * 2], ARRAY[t.id * 3, t.id * 4]] AS nested_array
+            FROM
+                UNNEST(SEQUENCE(1, 50)) AS t (id)
+        )
+        """
+
+        result = execute_sql(
+            template=query,
+            sql_alchemy_json_env_var=trino_toolkit_connection,
+        )
+
+        assert isinstance(result, pd.DataFrame)
+        assert len(result) == 50
+        assert "id" in result.columns
+        assert "tags" in result.columns
+        assert "nested_array" in result.columns
+
+        # Arrays from Trino come through as Python lists
+        first_tags = result["tags"].iloc[0]
+        assert isinstance(
+            first_tags, list
+        ), f"Expected array to be list, got {type(first_tags)}"
+
+        assert len(first_tags) == 3
+        assert first_tags[0] == "tag_1"
+        assert first_tags[1] == "item"
+        assert first_tags[2] == "test"
+
+        first_nested = result["nested_array"].iloc[0]
+        assert isinstance(
+            first_nested, list
+        ), f"Expected nested array to be list, got {type(first_nested)}"
+        assert len(first_nested) == 2
+        assert isinstance(first_nested[0], list)
+        assert first_nested[0] == [1, 2]
+        assert first_nested[1] == [3, 4]
