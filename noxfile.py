@@ -165,7 +165,7 @@ def coverage_report(session):
         session.run(
             "coverage",
             "combine",
-            "--data-file=coverage/.coverage",
+            f"--data-file={combined_file}",
             *[str(f) for f in coverage_files],
         )
     else:
@@ -173,23 +173,27 @@ def coverage_report(session):
 
     # Generate reports in coverage directory
     session.run(
-        "coverage", "report", "--data-file=coverage/.coverage", "--format=markdown"
+        "coverage", "report", f"--data-file={combined_file}", "--format=markdown"
     )
     session.run(
-        "coverage", "html", "--data-file=coverage/.coverage", "-d", "coverage/htmlcov"
+        "coverage",
+        "html",
+        f"--data-file={combined_file}",
+        "-d",
+        str(coverage_dir / "htmlcov"),
     )
     session.run(
         "coverage",
         "xml",
-        "--data-file=coverage/.coverage",
+        f"--data-file={combined_file}",
         "-o",
-        "coverage/coverage.xml",
+        str(coverage_dir / "coverage.xml"),
         "-i",
     )
     session.run(
         "coverage",
         "json",
-        "--data-file=coverage/.coverage",
+        f"--data-file={combined_file}",
         "-o",
-        "coverage/coverage.json",
+        str(coverage_dir / "coverage.json"),
     )
