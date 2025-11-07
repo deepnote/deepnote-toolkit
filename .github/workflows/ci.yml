@@ -334,13 +334,9 @@ jobs:
         run: poetry install --no-interaction --only-root
 
       - name: Run unit tests
-        id: test-unit
         env:
           TOOLKIT_VERSION: ${{ steps.version.outputs.VERSION }}
-          PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
-          set -euo pipefail
-
           poetry run pytest tests/unit \
             --cov=deepnote_toolkit \
             --cov=installer \
@@ -350,23 +346,12 @@ jobs:
             --junitxml=junit.xml \
             -o junit_family=legacy
 
-          # Check if coverage data was generated
-          if [ ! -f ".coverage" ]; then
-            echo "Error: No coverage data file generated"
-            echo "coverage_generated=false" >> $GITHUB_OUTPUT
-            exit 1
-          fi
-          
-          echo "Coverage data generated successfully"
-          echo "coverage_generated=true" >> $GITHUB_OUTPUT
-
       - name: Per-version coverage summary
-        if: steps.test-unit.outputs.coverage_generated == 'true'
         run: |
           echo "## Python ${{ matrix.python-version }} Coverage" >> $GITHUB_STEP_SUMMARY
           poetry run coverage report --format=markdown >> $GITHUB_STEP_SUMMARY
 
-      - name: Upload test results to Codecov (these are results not coverage reports)
+      - name: Upload test results to Codecov
         if: ${{ !cancelled() }}
         uses: codecov/test-results-action@47f89e9acb64b76debcd5ea40642d25a4adced9f # v1
         with:
@@ -374,7 +359,6 @@ jobs:
           flags: python-${{ matrix.python-version }}
 
       - name: Upload coverage artifacts
-        if: steps.test-unit.outputs.coverage_generated == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-${{ matrix.python-version }}
@@ -409,46 +393,24 @@ jobs:
           path: coverage-artifacts/
 
       - name: Combine coverage files
-        id: combine
         run: |
-          set -euo pipefail
-
-          # Collect all .coverage files from artifact subdirectories
-          echo "Collecting coverage files from artifact subdirectories"
           shopt -s nullglob
-          coverage_files=(coverage-artifacts/*/.coverage)
-          
-          if [ ${#coverage_files[@]} -eq 0 ]; then
-            echo "No coverage files to combine (tests may have failed)"
-            echo "success=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          echo "Found ${#coverage_files[@]} coverage file(s) to combine"
-          
-          # Rename each file to include a unique suffix for coverage combine
           mkdir -p coverage-data
+          
           i=0
-          for file in "${coverage_files[@]}"; do
+          for file in coverage-artifacts/*/.coverage; do
             cp "$file" "coverage-data/.coverage.$i"
             i=$((i + 1))
           done
           
-          echo "Running coverage combine from workspace root..."
-          coverage combine coverage-data/ || { echo "coverage combine failed"; exit 1; }
-          
-          echo "Generating XML report..."
-          coverage xml -o coverage-data/coverage.xml || { echo "coverage xml failed"; exit 1; }
-          
-          echo "Generating text report..."
-          coverage report || { echo "coverage report failed"; exit 1; }
+          coverage combine coverage-data/
+          coverage xml -o coverage-data/coverage.xml
+          coverage report
 
           echo "## Combined Coverage Report" >> $GITHUB_STEP_SUMMARY
           coverage report --format=markdown >> $GITHUB_STEP_SUMMARY
-          echo "success=true" >> $GITHUB_OUTPUT
 
       - name: Upload combined coverage to Codecov
-        if: steps.combine.outputs.success == 'true'
         uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
@@ -459,7 +421,6 @@ jobs:
           fail_ci_if_error: ${{ github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' }}
 
       - name: Upload combined coverage report
-        if: steps.combine.outputs.success == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-combined-report
