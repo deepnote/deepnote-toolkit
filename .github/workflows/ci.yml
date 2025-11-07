@@ -350,20 +350,35 @@ jobs:
             --junitxml=junit.xml \
             -o junit_family=legacy
 
-          # Coverage parallel mode creates multiple .coverage.* files, combine them
-          shopt -s nullglob
-          coverage_files=(.coverage.*)
+          # Debug: Check what coverage files exist
+          echo "=== Coverage files after pytest ==="
+          ls -la .coverage* 2>/dev/null || echo "No .coverage* files found"
+          ls -la .coverage.* 2>/dev/null || echo "No .coverage.* files found"
           
-          if [ ${#coverage_files[@]} -eq 0 ]; then
-            echo "Error: No coverage data generated"
-            echo "coverage_generated=false" >> $GITHUB_OUTPUT
-            exit 1
+          # Coverage parallel mode may create .coverage.machine.pid files
+          # Check for both .coverage and .coverage.* patterns
+          if [ -f ".coverage" ]; then
+            # Single .coverage file exists (parallel mode auto-combined or not used)
+            mv .coverage .coverage.${PYTHON_VERSION}
+            echo "Renamed .coverage to .coverage.${PYTHON_VERSION}"
+            echo "coverage_generated=true" >> $GITHUB_OUTPUT
+          else
+            # Check for parallel coverage files
+            shopt -s nullglob
+            coverage_files=(.coverage.*)
+            
+            if [ ${#coverage_files[@]} -gt 0 ]; then
+              echo "Found ${#coverage_files[@]} parallel coverage files, combining..."
+              poetry run coverage combine
+              mv .coverage .coverage.${PYTHON_VERSION}
+              echo "Combined and saved as .coverage.${PYTHON_VERSION}"
+              echo "coverage_generated=true" >> $GITHUB_OUTPUT
+            else
+              echo "Error: No coverage data files found"
+              echo "coverage_generated=false" >> $GITHUB_OUTPUT
+              exit 1
+            fi
           fi
-
-          poetry run coverage combine
-          mv .coverage .coverage.${PYTHON_VERSION}
-          echo "Coverage saved as .coverage.${PYTHON_VERSION}"
-          echo "coverage_generated=true" >> $GITHUB_OUTPUT
 
       - name: Per-version coverage summary
         if: steps.test-unit.outputs.coverage_generated == 'true'
