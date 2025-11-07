@@ -579,19 +579,13 @@ class TestAnalyzeColumnsMultipleTypes(unittest.TestCase):
 class TestAnalyzeColumnsWithTrinoTypes(unittest.TestCase):
     def test_analyze_columns_with_named_row_tuple(self):
         row1 = NamedRowTuple(
-            values=[1, "Alice"],
-            names=["id", "name"],
-            types=["integer", "varchar"]
+            values=[1, "Alice"], names=["id", "name"], types=["integer", "varchar"]
         )
         row2 = NamedRowTuple(
-            values=[2, "Bob"],
-            names=["id", "name"],
-            types=["integer", "varchar"]
+            values=[2, "Bob"], names=["id", "name"], types=["integer", "varchar"]
         )
         row3 = NamedRowTuple(
-            values=[1, "Alice"],
-            names=["id", "name"],
-            types=["integer", "varchar"]
+            values=[1, "Alice"], names=["id", "name"], types=["integer", "varchar"]
         )
 
         np_array = np.empty(3, dtype=object)
@@ -615,14 +609,10 @@ class TestAnalyzeColumnsWithTrinoTypes(unittest.TestCase):
 
     def test_analyze_columns_with_named_row_tuple_and_missing_values(self):
         row1 = NamedRowTuple(
-            values=[1, "Alice"],
-            names=["id", "name"],
-            types=["integer", "varchar"]
+            values=[1, "Alice"], names=["id", "name"], types=["integer", "varchar"]
         )
         row2 = NamedRowTuple(
-            values=[2, "Bob"],
-            names=["id", "name"],
-            types=["integer", "varchar"]
+            values=[2, "Bob"], names=["id", "name"], types=["integer", "varchar"]
         )
 
         np_array = np.empty(4, dtype=object)
@@ -652,7 +642,7 @@ class TestAnalyzeColumnsWithTrinoTypes(unittest.TestCase):
             row = NamedRowTuple(
                 values=[i, f"User{i}"],
                 names=["id", "name"],
-                types=["integer", "varchar"]
+                types=["integer", "varchar"],
             )
             np_array[i * 2] = row
             np_array[i * 2 + 1] = row
@@ -666,9 +656,7 @@ class TestAnalyzeColumnsWithTrinoTypes(unittest.TestCase):
         self.assertGreaterEqual(len(result[0].stats.categories), 1)
         self.assertLessEqual(len(result[0].stats.categories), 3)
 
-        has_others = any(
-            "others" in cat["name"] for cat in result[0].stats.categories
-        )
+        has_others = any("others" in cat["name"] for cat in result[0].stats.categories)
         self.assertTrue(has_others)
 
 
