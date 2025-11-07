@@ -455,6 +455,7 @@ jobs:
           slug: ${{ github.repository }}
           files: ./coverage-data/coverage.xml
           flags: combined
+          disable_search: true
           fail_ci_if_error: ${{ github.event.pull_request.head.repo.full_name == github.repository || github.event_name == 'push' }}
 
       - name: Upload combined coverage report
