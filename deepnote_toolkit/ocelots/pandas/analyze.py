@@ -24,7 +24,7 @@ def _count_unique(column):
 
 
 def _get_categories(np_array):
-    pandas_series = pd.Series(np_array.tolist())
+    pandas_series = pd.Series(np_array)
 
     # special treatment for empty values
     num_nans = pandas_series.isna().sum().item()
