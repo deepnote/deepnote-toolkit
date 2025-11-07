@@ -413,6 +413,7 @@ jobs:
           set -euo pipefail
 
           # Collect all .coverage files from artifact subdirectories
+          echo "Collecting coverage files from artifact subdirectories"
           shopt -s nullglob
           coverage_files=(coverage-artifacts/*/.coverage)
           
@@ -428,14 +429,23 @@ jobs:
           mkdir -p coverage-data
           i=0
           for file in "${coverage_files[@]}"; do
+            echo "Copying $file to coverage-data/.coverage.$i"
             cp "$file" "coverage-data/.coverage.$i"
             ((i++))
           done
           
           cd coverage-data
-          coverage combine
-          coverage xml -o coverage.xml
-          coverage report
+          echo "Files in coverage-data:"
+          ls -la
+          
+          echo "Running coverage combine..."
+          coverage combine || { echo "coverage combine failed"; exit 1; }
+          
+          echo "Generating XML report..."
+          coverage xml -o coverage.xml || { echo "coverage xml failed"; exit 1; }
+          
+          echo "Generating text report..."
+          coverage report || { echo "coverage report failed"; exit 1; }
 
           echo "## Combined Coverage Report" >> $GITHUB_STEP_SUMMARY
           coverage report --format=markdown >> $GITHUB_STEP_SUMMARY
