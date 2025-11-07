@@ -338,7 +338,6 @@ jobs:
         env:
           TOOLKIT_VERSION: ${{ steps.version.outputs.VERSION }}
           PYTHON_VERSION: ${{ matrix.python-version }}
-          COVERAGE_FILE: .coverage.${{ matrix.python-version }}
         run: |
           set -euo pipefail
 
@@ -351,13 +350,20 @@ jobs:
             --junitxml=junit.xml \
             -o junit_family=legacy
 
-          # Check if coverage file was generated
-          if [ -f ".coverage.${PYTHON_VERSION}" ]; then
-            echo "coverage_generated=true" >> $GITHUB_OUTPUT
-          else
+          # Coverage parallel mode creates multiple .coverage.* files, combine them
+          shopt -s nullglob
+          coverage_files=(.coverage.*)
+          
+          if [ ${#coverage_files[@]} -eq 0 ]; then
+            echo "Error: No coverage data generated"
             echo "coverage_generated=false" >> $GITHUB_OUTPUT
-            echo "Warning: No coverage file generated"
+            exit 1
           fi
+
+          poetry run coverage combine
+          mv .coverage .coverage.${PYTHON_VERSION}
+          echo "Coverage saved as .coverage.${PYTHON_VERSION}"
+          echo "coverage_generated=true" >> $GITHUB_OUTPUT
 
       - name: Per-version coverage summary
         if: steps.test-unit.outputs.coverage_generated == 'true'
@@ -414,33 +420,24 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [ ! -d "coverage-data" ] || [ -z "$(ls -A coverage-data 2>/dev/null)" ]; then
-            echo "No coverage artifacts were downloaded. All tests may have failed before generating coverage."
-            echo "success=false" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          echo "Downloaded coverage files:"
-          ls -la coverage-data/
-
           shopt -s nullglob
           coverage_files=(coverage-data/.coverage.*)
+          
           if [ ${#coverage_files[@]} -eq 0 ]; then
-            echo "No .coverage.* files found to combine"
+            echo "No coverage files to combine (tests may have failed)"
             echo "success=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          echo "Found ${#coverage_files[@]} coverage file(s) to combine"
-
+          echo "Combining ${#coverage_files[@]} coverage file(s)"
           cd coverage-data
+          
           coverage combine
           coverage xml -o coverage.xml
           coverage report
 
           echo "## Combined Coverage Report" >> $GITHUB_STEP_SUMMARY
           coverage report --format=markdown >> $GITHUB_STEP_SUMMARY
-
           echo "success=true" >> $GITHUB_OUTPUT
 
       - name: Upload combined coverage to Codecov
