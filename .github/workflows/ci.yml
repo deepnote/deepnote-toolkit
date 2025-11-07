@@ -424,19 +424,22 @@ jobs:
 
       - name: Download all coverage artifacts
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4
-        continue-on-error: true
         with:
           pattern: coverage-*
-          path: coverage-data/
-          merge-multiple: true
+          path: coverage-artifacts/
 
       - name: Combine coverage files
         id: combine
         run: |
           set -euo pipefail
 
+          # List downloaded artifacts structure
+          echo "=== Downloaded artifacts structure ==="
+          find coverage-artifacts -type f -name ".coverage.*" || echo "No .coverage.* files found"
+          
+          # Collect all coverage files from artifact subdirectories
           shopt -s nullglob
-          coverage_files=(coverage-data/.coverage.*)
+          coverage_files=(coverage-artifacts/*/.coverage.*)
           
           if [ ${#coverage_files[@]} -eq 0 ]; then
             echo "No coverage files to combine (tests may have failed)"
@@ -444,9 +447,15 @@ jobs:
             exit 0
           fi
 
-          echo "Combining ${#coverage_files[@]} coverage file(s)"
-          cd coverage-data
+          echo "Found ${#coverage_files[@]} coverage file(s) to combine"
           
+          # Copy all coverage files to a single directory for combining
+          mkdir -p coverage-data
+          for file in "${coverage_files[@]}"; do
+            cp "$file" coverage-data/
+          done
+          
+          cd coverage-data
           coverage combine
           coverage xml -o coverage.xml
           coverage report
