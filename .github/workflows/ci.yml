@@ -373,14 +373,6 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: python-${{ matrix.python-version }}
 
-      - name: Debug - Check file before upload
-        if: steps.test-unit.outputs.coverage_generated == 'true'
-        run: |
-          echo "PWD: $(pwd)"
-          echo "Looking for .coverage file:"
-          ls -la .coverage || echo ".coverage not found"
-          find . -name ".coverage" -type f || echo "No .coverage found anywhere"
-
       - name: Upload coverage artifacts
         if: steps.test-unit.outputs.coverage_generated == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -388,6 +380,7 @@ jobs:
           name: coverage-${{ matrix.python-version }}
           path: .coverage
           retention-days: 1
+          include-hidden-files: true
 
   coverage-combine:
     name: Combine and Upload Coverage
