@@ -146,17 +146,28 @@ def coverage_report(session):
 
     import pathlib
 
-    coverage_dir = pathlib.Path("coverage")
+    # Use absolute path relative to session.invoked_from
+    project_root = pathlib.Path(session.invoked_from)
+    coverage_dir = project_root / "coverage"
+    
     if not coverage_dir.exists():
-        session.error("No coverage directory found. Run tests with --coverage first.")
+        session.error("No coverage directory found. Run tests with nox -s unit first.")
 
-    # Combine all coverage files from coverage directory
-    session.run(
-        "coverage", "combine", "--data-file=coverage/.coverage", "coverage/.coverage.*"
-    )
+    # Check if we have a combined coverage file or individual files
+    combined_file = coverage_dir / ".coverage"
+    coverage_files = sorted(coverage_dir.glob(".coverage.*"))
+
+    if not combined_file.exists() and not coverage_files:
+        session.error("No coverage files found. Run tests with nox -s unit first.")
+    
+    if coverage_files:
+        session.log(f"Combining {len(coverage_files)} coverage files")
+        session.run("coverage", "combine", "--data-file=coverage/.coverage", *[str(f) for f in coverage_files])
+    else:
+        session.log("Using existing combined coverage file")
 
     # Generate reports in coverage directory
-    session.run("coverage", "report", "--format=markdown")
-    session.run("coverage", "html", "-d", "coverage/htmlcov")
-    session.run("coverage", "xml", "-o", "coverage/coverage.xml", "-i")
-    session.run("coverage", "json", "-o", "coverage/coverage.json")
+    session.run("coverage", "report", "--data-file=coverage/.coverage", "--format=markdown")
+    session.run("coverage", "html", "--data-file=coverage/.coverage", "-d", "coverage/htmlcov")
+    session.run("coverage", "xml", "--data-file=coverage/.coverage", "-o", "coverage/coverage.xml", "-i")
+    session.run("coverage", "json", "--data-file=coverage/.coverage", "-o", "coverage/coverage.json")
