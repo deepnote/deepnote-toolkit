@@ -67,8 +67,8 @@ def test_safe_convert_to_string_unconvertible():
 # Tests for Trino-specific types
 def test_safe_convert_to_string_trino_namedrowtuple():
     """Test that Trino's NamedRowTuple is converted to valid JSON strings."""
-    pytest.importorskip("trino")
-    from trino.client import NamedRowTuple
+    pytest.importorskip("trino.types")
+    from trino.types import NamedRowTuple
 
     # Create a NamedRowTuple with field names and values (as returned by Trino)
     row = NamedRowTuple(
