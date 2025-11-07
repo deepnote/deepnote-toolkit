@@ -1,5 +1,3 @@
-import json
-
 import numpy as np
 import pandas as pd
 from packaging.requirements import Requirement
@@ -13,23 +11,8 @@ def safe_convert_to_string(value):
 
     Note: For bytes, this returns Python's standard string representation (e.g., b'hello')
     rather than base64 encoding, which is more human-readable.
-
-    For dicts, lists, and tuples, this returns valid JSON using json.dumps() rather than str().
-    This is critical for databases like Trino that return structured types (STRUCT/ROW/ARRAY)
-    as Python objects (NamedRowTuple, dict, list) instead of strings. Using str() on these
-    would produce invalid JSON with single quotes like "{'a': 'x'}" instead of valid JSON
-    like '{"a": "x"}', causing frontend rendering to fail.
-
-    Note: PostgreSQL returns ROW types as plain strings, so this conversion isn't needed for
-    them, but it doesn't hurt since str(string) returns the same string.
     """
     try:
-        # Convert collection types to valid JSON strings for proper frontend rendering.
-        # Databases like Trino return structured types as Python objects (e.g. NamedRowTuple),
-        # while PostgreSQL returns them as strings. Using json.dumps() ensures valid JSON
-        # with double quotes, which the frontend can parse correctly.
-        if isinstance(value, (dict, list, tuple)):
-            return json.dumps(value)
         return str(value)
     except Exception:
         return "<unconvertible>"

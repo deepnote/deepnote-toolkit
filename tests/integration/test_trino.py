@@ -228,12 +228,13 @@ class TestTrinoWithDeepnoteToolkit:
 
     def test_execute_sql_with_struct_types(self, trino_toolkit_connection):
         """
-        Test execute_sql with Trino STRUCT/ROW types
-        (regression reported in BLU-5140)
+        Test Trino STRUCT/ROW types don't break rendering (BLU-5140 regression).
 
-        Named structs from Trino come through as NamedRowTuple (tuple subclass).
-        The rendering layer will convert them to JSON via safe_convert_to_string.
+        Verifies both analyze_columns() for stats and to_records() for cell values.
         """
+        from deepnote_toolkit.ocelots import DataFrame
+        from deepnote_toolkit.ocelots.pandas.analyze import analyze_columns
+
         query = """
         SELECT id, simple_struct FROM (
             SELECT
@@ -260,28 +261,43 @@ class TestTrinoWithDeepnoteToolkit:
         assert "id" in result.columns
         assert "simple_struct" in result.columns
 
-        # Named structs from Trino come through as NamedRowTuple (tuple subclass)
+        # Verify NamedRowTuple structure
         first_struct = result["simple_struct"].iloc[0]
-        assert isinstance(
-            first_struct, tuple
-        ), f"Expected named struct to be tuple, got {type(first_struct)}"
-
+        assert isinstance(first_struct, tuple)
         assert len(first_struct) == 2
         assert first_struct[0] == "item_1"
         assert first_struct[1] == "value_10"
-
         assert first_struct.a == "item_1"
         assert first_struct.b == "value_10"
 
+        # Verify analyze_columns() works without crashing
+        analysis_result = analyze_columns(result)
+        assert len(analysis_result) == 2
+
+        struct_col = next(col for col in analysis_result if col.name == "simple_struct")
+        assert struct_col.stats is not None
+        assert struct_col.stats.categories is not None
+        assert len(struct_col.stats.categories) > 0
+
+        # Verify to_records() produces stringified values
+        oc_df = DataFrame.from_native(result)
+        records = oc_df.to_records(mode="json")
+
+        assert len(records) == 100
+        cell_value = records[0]["simple_struct"]
+        assert isinstance(cell_value, str)
+        assert "item_1" in cell_value
+        assert "value_10" in cell_value
+
     def test_execute_sql_with_array_types(self, trino_toolkit_connection):
         """
-        Test execute_sql with Trino ARRAY types
-        (related to BLU-5140)
+        Test Trino ARRAY types don't break rendering (BLU-5140 regression).
 
-        Arrays from Trino come through as Python lists.
-        The rendering layer will convert them to JSON via safe_convert_to_string.
-        Without proper handling, str(list) produces invalid JSON with single quotes.
+        Verifies both analyze_columns() for stats and to_records() for cell values.
         """
+        from deepnote_toolkit.ocelots import DataFrame
+        from deepnote_toolkit.ocelots.pandas.analyze import analyze_columns
+
         query = """
         SELECT 
             id,
@@ -308,22 +324,35 @@ class TestTrinoWithDeepnoteToolkit:
         assert "tags" in result.columns
         assert "nested_array" in result.columns
 
-        # Arrays from Trino come through as Python lists
+        # Verify array data
         first_tags = result["tags"].iloc[0]
-        assert isinstance(
-            first_tags, list
-        ), f"Expected array to be list, got {type(first_tags)}"
-
+        assert isinstance(first_tags, list)
         assert len(first_tags) == 3
-        assert first_tags[0] == "tag_1"
-        assert first_tags[1] == "item"
-        assert first_tags[2] == "test"
+        assert first_tags == ["tag_1", "item", "test"]
 
         first_nested = result["nested_array"].iloc[0]
-        assert isinstance(
-            first_nested, list
-        ), f"Expected nested array to be list, got {type(first_nested)}"
+        assert isinstance(first_nested, list)
         assert len(first_nested) == 2
-        assert isinstance(first_nested[0], list)
-        assert first_nested[0] == [1, 2]
-        assert first_nested[1] == [3, 4]
+        assert first_nested == [[1, 2], [3, 4]]
+
+        # Verify analyze_columns() works without crashing
+        analysis_result = analyze_columns(result)
+        assert len(analysis_result) == 3
+
+        for col_name in ["tags", "nested_array"]:
+            col = next(c for c in analysis_result if c.name == col_name)
+            assert col.stats is not None
+            assert col.stats.categories is not None
+
+        # Verify to_records() produces stringified values
+        oc_df = DataFrame.from_native(result)
+        records = oc_df.to_records(mode="json")
+
+        assert len(records) == 50
+        tags_value = records[0]["tags"]
+        nested_value = records[0]["nested_array"]
+
+        assert isinstance(tags_value, str)
+        assert isinstance(nested_value, str)
+        assert "tag_1" in tags_value
+        assert "item" in tags_value
