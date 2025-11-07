@@ -2,6 +2,7 @@ import unittest
 
 import numpy as np
 import pandas as pd
+from trino.types import NamedRowTuple
 
 from deepnote_toolkit.ocelots.constants import DEEPNOTE_INDEX_COLUMN
 from deepnote_toolkit.ocelots.pandas.analyze import analyze_columns
@@ -573,6 +574,102 @@ class TestAnalyzeColumnsMultipleTypes(unittest.TestCase):
         self.assertEqual(len(result), 4)
         for col in result:
             self.assertIsNotNone(col.stats)
+
+
+class TestAnalyzeColumnsWithTrinoTypes(unittest.TestCase):
+    def test_analyze_columns_with_named_row_tuple(self):
+        row1 = NamedRowTuple(
+            values=[1, "Alice"],
+            names=["id", "name"],
+            types=["integer", "varchar"]
+        )
+        row2 = NamedRowTuple(
+            values=[2, "Bob"],
+            names=["id", "name"],
+            types=["integer", "varchar"]
+        )
+        row3 = NamedRowTuple(
+            values=[1, "Alice"],
+            names=["id", "name"],
+            types=["integer", "varchar"]
+        )
+
+        np_array = np.empty(3, dtype=object)
+        np_array[0] = row1
+        np_array[1] = row2
+        np_array[2] = row3
+
+        df = pd.DataFrame({"col1": np_array})
+        result = analyze_columns(df)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].name, "col1")
+        self.assertEqual(result[0].dtype, "object")
+        self.assertIsNotNone(result[0].stats)
+        self.assertIsNotNone(result[0].stats.categories)
+        self.assertIsInstance(result[0].stats.categories, list)
+        self.assertGreater(len(result[0].stats.categories), 0)
+        for category in result[0].stats.categories:
+            self.assertIn("name", category)
+            self.assertIn("count", category)
+
+    def test_analyze_columns_with_named_row_tuple_and_missing_values(self):
+        row1 = NamedRowTuple(
+            values=[1, "Alice"],
+            names=["id", "name"],
+            types=["integer", "varchar"]
+        )
+        row2 = NamedRowTuple(
+            values=[2, "Bob"],
+            names=["id", "name"],
+            types=["integer", "varchar"]
+        )
+
+        np_array = np.empty(4, dtype=object)
+        np_array[0] = row1
+        np_array[1] = row2
+        np_array[2] = None
+        np_array[3] = row1
+
+        df = pd.DataFrame({"col1": np_array})
+        result = analyze_columns(df)
+
+        self.assertEqual(len(result), 1)
+        self.assertIsNotNone(result[0].stats)
+        self.assertIsNotNone(result[0].stats.categories)
+
+        category_names = [cat["name"] for cat in result[0].stats.categories]
+        self.assertIn("Missing", category_names)
+
+        missing_cat = next(
+            cat for cat in result[0].stats.categories if cat["name"] == "Missing"
+        )
+        self.assertEqual(missing_cat["count"], 1)
+
+    def test_analyze_columns_with_many_named_row_tuples(self):
+        np_array = np.empty(20, dtype=object)
+        for i in range(10):
+            row = NamedRowTuple(
+                values=[i, f"User{i}"],
+                names=["id", "name"],
+                types=["integer", "varchar"]
+            )
+            np_array[i * 2] = row
+            np_array[i * 2 + 1] = row
+
+        df = pd.DataFrame({"col1": np_array})
+        result = analyze_columns(df)
+
+        self.assertEqual(len(result), 1)
+        self.assertIsNotNone(result[0].stats)
+        self.assertIsNotNone(result[0].stats.categories)
+        self.assertGreaterEqual(len(result[0].stats.categories), 1)
+        self.assertLessEqual(len(result[0].stats.categories), 3)
+
+        has_others = any(
+            "others" in cat["name"] for cat in result[0].stats.categories
+        )
+        self.assertTrue(has_others)
 
 
 if __name__ == "__main__":
