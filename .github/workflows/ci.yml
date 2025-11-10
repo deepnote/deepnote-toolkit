@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
-  POETRY_VERSION: "2.2.1"
+  POETRY_VERSION: "2.1.4"
   POETRY_VIRTUALENVS_CREATE: true
   POETRY_VIRTUALENVS_IN_PROJECT: true
   POETRY_INSTALLER_PARALLEL: true
