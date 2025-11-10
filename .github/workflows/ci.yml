@@ -139,7 +139,7 @@ jobs:
 
           # Only allow licenses compatible with Apache 2.0 (allowlist approach)
           # Ignored packages either have UNKNOWN licenses or not distributed
-          poetry run pip-licenses --allow-only "Apache;MIT;BSD;ISC;Unlicense;CC0;Public Domain;Python Software Foundation;Mozilla Public License 2.0;GNU Library or Lesser General Public License (LGPL)" --partial-match --ignore-packages arro3-core click dependency-groups Flask jeepney jupyter_core MarkupSafe more-itertools pymssql PyMySQL SecretStorage sqlalchemy-spanner typing-extensions typing-inspection urllib3
+          poetry run pip-licenses --allow-only "Apache;MIT;BSD;ISC;Unlicense;CC0;Public Domain;Python Software Foundation;Mozilla Public License 2.0;GNU Library or Lesser General Public License (LGPL)" --partial-match --ignore-packages arro3-core click dependency-groups Flask jeepney jupyter_core matplotlib-inline MarkupSafe more-itertools pymssql PyMySQL SecretStorage sqlalchemy-spanner typing-extensions typing-inspection urllib3
 
           echo "✅ All licenses are compatible with Apache 2.0"
 
