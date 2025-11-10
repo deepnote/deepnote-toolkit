@@ -212,7 +212,7 @@ license-check = [
 ]
 
 [tool.poetry]
-requires-poetry = ">=2.1"
+requires-poetry = ">=2.2"
 packages = [
     {include = "deepnote_toolkit"},
     {include = "deepnote_core"},
