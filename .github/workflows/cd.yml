@@ -20,7 +20,7 @@ env:
   POETRY_VIRTUALENVS_CREATE: true
   POETRY_VIRTUALENVS_IN_PROJECT: true
   POETRY_INSTALLER_PARALLEL: true
-  JUPYTER_FOR_LOCAL_PYTHON_VERSION: "3.9"
+  JUPYTER_FOR_LOCAL_PYTHON_VERSION: "3.11"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
@@ -395,13 +395,15 @@ jobs:
           aws s3 cp "s3://${STAGING_BUCKET}/deepnote-toolkit/${VERSION}/installer.zip" "/tmp/dist${PYTHON_VER}/installer.zip"
 
       - name: Build jupyter-for-local docker image
+        env:
+          PYTHON_VERSION: ${{ env.JUPYTER_FOR_LOCAL_PYTHON_VERSION }}
         run: |
           docker build \
             --progress plain \
-            --build-arg "FROM_PYTHON_TAG=3.9" \
+            --build-arg "FROM_PYTHON_TAG=${PYTHON_VERSION}" \
             --build-arg "BUNDLE_PATH=./" \
             --tag deepnote/jupyter-for-local:${VERSION} \
-            -f dockerfiles/jupyter-for-local/Dockerfile /tmp/dist3.9/
+            -f dockerfiles/jupyter-for-local/Dockerfile /tmp/dist${PYTHON_VERSION}/
 
       - name: Push jupyter-for-local image
         run: |
