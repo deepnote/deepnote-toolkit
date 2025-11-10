@@ -124,6 +124,8 @@ dependencies = [
     # so we keep vl-convert version pinned as well
     "vl-convert-python==1.7.0",
     "deepnote-vegafusion>=2.0.8,<3",
+    "matplotlib-inline>=0.1.6,<0.2.0; python_version <= '3.10'",  # 0.2.0 is not compatible with matplotlib 3.6.3
+    "matplotlib-inline>=0.2.1; python_version >= '3.11'",
 
     # Security constraint updates for transitive dependencies
     # snowflake-connector-python 4.0.0+ supports urllib3 2.x for Python 3.10+
@@ -141,7 +143,6 @@ dependencies = [
     "pydantic>=2.8.0,<3; python_version>='3.13'",
     "pyyaml>=6,<7",
     "tomli>=2,<3; python_version < '3.11'",
-    "toml>=0.10.0,<1.0.0",
     "toml>=0.10.0,<1.0.0",
 
     # Compatibility constraints for transitive dependencies
