@@ -192,6 +192,12 @@ jobs:
 
     - name: Install project
       run: poetry install --no-interaction
+    
+    - name: Show Poetry dependencies
+      run: poetry show --tree
+    
+    - name: Show Poetry internal dependencies
+      run: poetry self show plugins
 
     - name: Run mypy
       run: |
