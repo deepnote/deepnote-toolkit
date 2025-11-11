@@ -89,6 +89,32 @@ class TestRenderTemplate(unittest.TestCase):
         self.assertEqual(query.strip(), "SELECT * FROM users WHERE id = ?")
         self.assertEqual(bind_params, ["test"])
 
+    def test_qmark_escaping(self):
+        template = "SELECT date_format(TIMESTAMP '2022-10-20 05:10:00', '%m-%d-%Y %H')"
+
+        query, bind_params = render_jinja_sql_template(template, param_style="qmark")
+
+        self.assertEqual(query, template)
+        self.assertEqual(bind_params, [])
+
+    def test_pyformat_escaping(self):
+        query, bind_params = render_jinja_sql_template(
+            "SELECT '% character'",
+            param_style="pyformat",
+        )
+
+        self.assertEqual(query, "SELECT '%% character'")
+        self.assertEqual(bind_params, {})
+
+    def test_format_escaping(self):
+        query, bind_params = render_jinja_sql_template(
+            "SELECT '% character'",
+            param_style="format",
+        )
+
+        self.assertEqual(query, "SELECT '%% character'")
+        self.assertEqual(bind_params, [])
+
 
 if __name__ == "__main__":
     unittest.main()
