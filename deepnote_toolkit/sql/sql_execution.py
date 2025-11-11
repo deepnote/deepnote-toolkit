@@ -156,7 +156,8 @@ def execute_sql_with_connection_json(
             url_obj = make_url(sql_alchemy_dict["url"])
             # Mapping of SQLAlchemy dialect names to their required param_style
             dialect_param_styles = {
-                "trino": "qmark",  # Trino requires ? placeholders with list/tuple params
+                "trino": "qmark",  # Trino only supports qmark style
+                "deepnote+duckdb": "qmark",  # DuckDB officially recommends qmark style (doesn't support pyformat)
             }
             param_style = dialect_param_styles.get(url_obj.drivername)
 
@@ -294,10 +295,7 @@ def _execute_sql_with_caching(
 ):
     # duckdb SQL is not cached, so we can skip the logic below for duckdb
     if requires_duckdb:
-        # duckdb requires % to be unescaped, but other dialects require it to be escaped as %%
-        # https://docs.sqlalchemy.org/en/14/faq/sqlexpressions.html#why-are-percent-signs-being-doubled-up-when-stringifying-sql-statements
-        query_unescaped = query % () if query else query
-        dataframe = execute_duckdb_sql(query_unescaped, bind_params)
+        dataframe = execute_duckdb_sql(query, bind_params)
         # for Chained SQL we return the dataframe with the SQL source attached as DeepnoteQueryPreview object
         if return_variable_type == "query_preview":
             return _convert_dataframe_to_query_preview(dataframe, query_preview_source)
