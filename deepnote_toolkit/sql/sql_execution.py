@@ -156,13 +156,10 @@ def execute_sql_with_connection_json(
             url_obj = make_url(sql_alchemy_dict["url"])
             # Mapping of SQLAlchemy dialect names to their required param_style
             dialect_param_styles = {
-                "trino": "qmark",  # Trino requires ? placeholders with list/tuple params
+                "trino": "qmark",  # Trino only supports qmark style
+                "deepnote+duckdb": "qmark",  # DuckDB officially recommends qmark style (doesn't support pyformat)
             }
             param_style = dialect_param_styles.get(url_obj.drivername)
-
-        if requires_duckdb and param_style is None:
-            # DuckDB uses the DB-API qmark style (`?` placeholders)
-            param_style = "qmark"
 
         skip_template_render = re.search(
             "^snowflake.*host=.*.proxy.cloud.getdbt.com", sql_alchemy_dict["url"]
