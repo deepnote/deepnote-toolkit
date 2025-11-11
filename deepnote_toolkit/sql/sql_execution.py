@@ -160,6 +160,10 @@ def execute_sql_with_connection_json(
             }
             param_style = dialect_param_styles.get(url_obj.drivername)
 
+        if requires_duckdb and param_style is None:
+            # DuckDB uses the DB-API qmark style (`?` placeholders)
+            param_style = "qmark"
+
         skip_template_render = re.search(
             "^snowflake.*host=.*.proxy.cloud.getdbt.com", sql_alchemy_dict["url"]
         )
@@ -294,10 +298,7 @@ def _execute_sql_with_caching(
 ):
     # duckdb SQL is not cached, so we can skip the logic below for duckdb
     if requires_duckdb:
-        # duckdb requires % to be unescaped, but other dialects require it to be escaped as %%
-        # https://docs.sqlalchemy.org/en/14/faq/sqlexpressions.html#why-are-percent-signs-being-doubled-up-when-stringifying-sql-statements
-        query_unescaped = query % () if query else query
-        dataframe = execute_duckdb_sql(query_unescaped, bind_params)
+        dataframe = execute_duckdb_sql(query, bind_params)
         # for Chained SQL we return the dataframe with the SQL source attached as DeepnoteQueryPreview object
         if return_variable_type == "query_preview":
             return _convert_dataframe_to_query_preview(dataframe, query_preview_source)
