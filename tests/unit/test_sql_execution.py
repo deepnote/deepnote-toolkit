@@ -60,6 +60,19 @@ class TestExecuteSql(TestCase):
         self.assertEqual(result.iloc[0]["percentage_string"], "25.5%")
         self.assertNotEqual(result.iloc[0]["percentage_string"], "25.5%%")
 
+    def test_duckdb_defaults_to_qmark_param_style(self):
+        os.environ["SQL_DEEPNOTE_DATAFRAME_SQL"] = (
+            '{"url":"deepnote+duckdb:///:memory:","params":{},"param_style":null}'
+        )
+
+        result = execute_sql(
+            "SELECT '%' as value",
+            "SQL_DEEPNOTE_DATAFRAME_SQL",
+        )
+
+        assert result is not None
+        self.assertEqual(result.iloc[0]["value"], "%")
+
     @mock.patch("deepnote_toolkit.sql.sql_execution._execute_sql_on_engine")
     @mock.patch("sqlalchemy.engine.create_engine")
     def test_delete_sql_that_doesnt_produce_a_dataframe(
