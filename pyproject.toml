@@ -142,7 +142,6 @@ dependencies = [
     "pyyaml>=6,<7",
     "tomli>=2,<3; python_version < '3.11'",
     "toml>=0.10.0,<1.0.0",
-    "toml>=0.10.0,<1.0.0",
 
     # Compatibility constraints for transitive dependencies
     "grpcio>=1.66.2; python_version >= '3.13'",
