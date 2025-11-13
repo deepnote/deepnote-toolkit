@@ -123,7 +123,9 @@ dependencies = [
     # NOTE: 1.7.0 is latest version of vl-convert which ships with Vega 5. In webapp we can't update to Vega 6 due to ESM-only issues
     # so we keep vl-convert version pinned as well
     "vl-convert-python==1.7.0",
-    "deepnote-vegafusion>=2.0.5,<3",
+    "deepnote-vegafusion>=2.0.8,<3",
+    "matplotlib-inline>=0.1.7,<0.2.0; python_version <= '3.10'",  # 0.2.0 is not compatible with matplotlib 3.6.3 on Python <=3.10
+    "matplotlib-inline>=0.2.1,<0.3.0; python_version >= '3.11'",
 
     # Security constraint updates for transitive dependencies
     # snowflake-connector-python 4.0.0+ supports urllib3 2.x for Python 3.10+
@@ -141,7 +143,6 @@ dependencies = [
     "pydantic>=2.8.0,<3; python_version>='3.13'",
     "pyyaml>=6,<7",
     "tomli>=2,<3; python_version < '3.11'",
-    "toml>=0.10.0,<1.0.0",
     "toml>=0.10.0,<1.0.0",
 
     # Compatibility constraints for transitive dependencies
@@ -200,7 +201,8 @@ dev = [
     "poetry-dynamic-versioning>=1.4.0,<2.0.0",
     "twine>=6.1.0,<7.0.0",
     "codespell>=2.3.0,<3.0.0",
-    "pytest-subtests>=0.15.0,<0.16.0"
+    "pytest-subtests>=0.15.0,<0.16.0",
+    "python-dotenv>=1.2.1,<2.0.0"
 ]
 license-check = [
     # Dependencies needed for license checking that aren't in main production dependencies

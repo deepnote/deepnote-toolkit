@@ -60,6 +60,19 @@ class TestExecuteSql(TestCase):
         self.assertEqual(result.iloc[0]["percentage_string"], "25.5%")
         self.assertNotEqual(result.iloc[0]["percentage_string"], "25.5%%")
 
+    def test_duckdb_defaults_to_qmark_param_style(self):
+        os.environ["SQL_DEEPNOTE_DATAFRAME_SQL"] = (
+            '{"url":"deepnote+duckdb:///:memory:","params":{},"param_style":null}'
+        )
+
+        result = execute_sql(
+            "SELECT '%' as value",
+            "SQL_DEEPNOTE_DATAFRAME_SQL",
+        )
+
+        assert result is not None
+        self.assertEqual(result.iloc[0]["value"], "%")
+
     @mock.patch("deepnote_toolkit.sql.sql_execution._execute_sql_on_engine")
     @mock.patch("sqlalchemy.engine.create_engine")
     def test_delete_sql_that_doesnt_produce_a_dataframe(
@@ -276,6 +289,236 @@ class TestExecuteSql(TestCase):
                 "param_style": "pyformat",
             },
         )
+
+
+class TestTrinoParamStyleAutoDetection(TestCase):
+    """Tests for auto-detection of param_style for Trino connections"""
+
+    @mock.patch("deepnote_toolkit.sql.sql_execution.compile_sql_query")
+    @mock.patch("deepnote_toolkit.sql.sql_execution._query_data_source")
+    def test_trino_url_auto_detects_qmark_param_style(
+        self, mocked_query_data_source, mocked_compile_sql_query
+    ):
+        """Test that Trino URLs automatically get 'qmark' param_style when not specified"""
+        mock_df = pd.DataFrame({"col1": [1, 2, 3]})
+        mocked_query_data_source.return_value = mock_df
+        mocked_compile_sql_query.return_value = (
+            "SELECT * FROM test_table",
+            {},
+            "SELECT * FROM test_table",
+        )
+
+        sql_alchemy_json = json.dumps(
+            {
+                "url": "trino://user@localhost:8080/catalog",
+                "params": {},
+                "integration_id": "test_integration",
+            }
+        )
+
+        execute_sql_with_connection_json("SELECT * FROM test_table", sql_alchemy_json)
+
+        # Verify compile_sql_query was called with 'qmark' param_style
+        mocked_compile_sql_query.assert_called_once()
+        call_args = mocked_compile_sql_query.call_args[0]
+        self.assertEqual(call_args[2], "qmark")
+
+    @mock.patch("deepnote_toolkit.sql.sql_execution.compile_sql_query")
+    @mock.patch("deepnote_toolkit.sql.sql_execution._query_data_source")
+    def test_non_trino_url_param_style_remains_none(
+        self, mocked_query_data_source, mocked_compile_sql_query
+    ):
+        """Test that non-Trino databases don't get auto-detected param_style"""
+        mock_df = pd.DataFrame({"col1": [1, 2, 3]})
+        mocked_query_data_source.return_value = mock_df
+        mocked_compile_sql_query.return_value = (
+            "SELECT * FROM test_table",
+            {},
+            "SELECT * FROM test_table",
+        )
+
+        sql_alchemy_json = json.dumps(
+            {
+                "url": "postgresql://user:pass@localhost:5432/mydb",
+                "params": {},
+                "integration_id": "test_integration",
+            }
+        )
+
+        execute_sql_with_connection_json("SELECT * FROM test_table", sql_alchemy_json)
+
+        # Verify compile_sql_query was called with None param_style
+        mocked_compile_sql_query.assert_called_once()
+        call_args = mocked_compile_sql_query.call_args[0]
+        self.assertIsNone(call_args[2])
+
+    @mock.patch("deepnote_toolkit.sql.sql_execution.compile_sql_query")
+    @mock.patch("deepnote_toolkit.sql.sql_execution._query_data_source")
+    def test_explicit_param_style_not_overridden(
+        self, mocked_query_data_source, mocked_compile_sql_query
+    ):
+        """Test that explicitly set param_style is preserved and not auto-detected"""
+        mock_df = pd.DataFrame({"col1": [1, 2, 3]})
+        mocked_query_data_source.return_value = mock_df
+        mocked_compile_sql_query.return_value = (
+            "SELECT * FROM test_table",
+            {},
+            "SELECT * FROM test_table",
+        )
+
+        # Trino URL with explicit pyformat - should NOT be changed to qmark
+        sql_alchemy_json = json.dumps(
+            {
+                "url": "trino://user@localhost:8080/catalog",
+                "params": {},
+                "param_style": "pyformat",
+                "integration_id": "test_integration",
+            }
+        )
+
+        execute_sql_with_connection_json("SELECT * FROM test_table", sql_alchemy_json)
+
+        # Verify compile_sql_query was called with 'pyformat', NOT 'qmark'
+        mocked_compile_sql_query.assert_called_once()
+        call_args = mocked_compile_sql_query.call_args[0]
+        self.assertEqual(call_args[2], "pyformat")
+
+    @mock.patch("deepnote_toolkit.sql.sql_execution.compile_sql_query")
+    @mock.patch("deepnote_toolkit.sql.sql_execution._query_data_source")
+    def test_trino_url_with_protocol_suffix_not_matched(
+        self, mocked_query_data_source, mocked_compile_sql_query
+    ):
+        """Test that Trino URL variants like trino+rest:// don't match (drivername must be exactly 'trino')"""
+        mock_df = pd.DataFrame({"col1": [1, 2, 3]})
+        mocked_query_data_source.return_value = mock_df
+        mocked_compile_sql_query.return_value = (
+            "SELECT * FROM test_table",
+            {},
+            "SELECT * FROM test_table",
+        )
+
+        sql_alchemy_json = json.dumps(
+            {
+                "url": "trino+rest://user@localhost:8080/catalog",
+                "params": {},
+                "integration_id": "test_integration",
+            }
+        )
+
+        execute_sql_with_connection_json("SELECT * FROM test_table", sql_alchemy_json)
+
+        # Verify compile_sql_query was called with None param_style
+        # because "trino+rest" doesn't match "trino" in the dictionary
+        mocked_compile_sql_query.assert_called_once()
+        call_args = mocked_compile_sql_query.call_args[0]
+        self.assertIsNone(call_args[2])
+
+    @mock.patch("deepnote_toolkit.sql.sql_execution.render_jinja_sql_template")
+    @mock.patch("deepnote_toolkit.sql.sql_execution._query_data_source")
+    def test_trino_with_jinja_templates_uses_qmark(
+        self, mocked_query_data_source, mocked_render_jinja
+    ):
+        """Test that Trino queries with Jinja templates correctly use qmark style"""
+        mock_df = pd.DataFrame({"col1": [1, 2, 3]})
+        mocked_query_data_source.return_value = mock_df
+        mocked_render_jinja.return_value = (
+            "SELECT * FROM test_table WHERE id = ?",
+            [123],
+        )
+
+        sql_alchemy_json = json.dumps(
+            {
+                "url": "trino://user@localhost:8080/catalog",
+                "params": {},
+                "integration_id": "test_integration",
+            }
+        )
+
+        execute_sql_with_connection_json(
+            "SELECT * FROM test_table WHERE id = {{ user_id }}",
+            sql_alchemy_json,
+        )
+
+        # Verify render_jinja_sql_template was called with 'qmark' param_style
+        mocked_render_jinja.assert_called()
+        call_args = mocked_render_jinja.call_args[0]
+        self.assertEqual(call_args[1], "qmark")
+
+        # Verify bind_params is a list (qmark style) not dict (pyformat style)
+        call_args = mocked_query_data_source.call_args[0]
+        bind_params = call_args[1]
+        self.assertIsInstance(bind_params, list)
+        self.assertEqual(bind_params, [123])
+
+    @mock.patch("pandas.read_sql_query")
+    def test_list_bind_params_converted_to_tuple_for_pandas(self, mocked_read_sql):
+        """Test that list bind_params are converted to tuple for pandas.read_sql_query"""
+        from deepnote_toolkit.sql.sql_execution import _execute_sql_on_engine
+
+        mock_df = pd.DataFrame({"col1": [1, 2, 3]})
+        mocked_read_sql.return_value = mock_df
+
+        # Mock engine and connection
+        mock_engine = mock.Mock()
+        mock_connection = mock.Mock()
+        mock_engine.begin.return_value.__enter__ = mock.Mock(
+            return_value=mock_connection
+        )
+        mock_engine.begin.return_value.__exit__ = mock.Mock(return_value=None)
+
+        # Test with list bind_params (qmark style for Trino)
+        list_params = [123, "test"]
+        _execute_sql_on_engine(
+            mock_engine,
+            "SELECT * FROM test_table WHERE id = ? AND name = ?",
+            list_params,
+        )
+
+        # Verify pandas.read_sql_query was called
+        self.assertTrue(mocked_read_sql.called)
+
+        # Get the params argument passed to pandas.read_sql_query
+        call_kwargs = mocked_read_sql.call_args[1]
+        params_arg = call_kwargs.get("params")
+
+        # Verify that list was converted to tuple
+        self.assertIsInstance(params_arg, tuple)
+        self.assertEqual(params_arg, (123, "test"))
+
+    @mock.patch("pandas.read_sql_query")
+    def test_dict_bind_params_not_converted_for_pandas(self, mocked_read_sql):
+        """Test that dict bind_params remain as dict for pandas.read_sql_query"""
+        from deepnote_toolkit.sql.sql_execution import _execute_sql_on_engine
+
+        mock_df = pd.DataFrame({"col1": [1, 2, 3]})
+        mocked_read_sql.return_value = mock_df
+
+        # Mock engine and connection
+        mock_engine = mock.Mock()
+        mock_connection = mock.Mock()
+        mock_engine.begin.return_value.__enter__ = mock.Mock(
+            return_value=mock_connection
+        )
+        mock_engine.begin.return_value.__exit__ = mock.Mock(return_value=None)
+
+        # Test with dict bind_params (pyformat style)
+        dict_params = {"id": 123, "name": "test"}
+        _execute_sql_on_engine(
+            mock_engine,
+            "SELECT * FROM test_table WHERE id = %(id)s AND name = %(name)s",
+            dict_params,
+        )
+
+        # Verify pandas.read_sql_query was called
+        self.assertTrue(mocked_read_sql.called)
+
+        # Get the params argument passed to pandas.read_sql_query
+        call_kwargs = mocked_read_sql.call_args[1]
+        params_arg = call_kwargs.get("params")
+
+        # Verify that dict was NOT converted (remains as dict)
+        self.assertIsInstance(params_arg, dict)
+        self.assertEqual(params_arg, {"id": 123, "name": "test"})
 
 
 class TestSanitizeDataframe(unittest.TestCase):
