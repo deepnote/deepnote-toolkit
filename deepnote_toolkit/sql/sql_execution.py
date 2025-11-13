@@ -150,6 +150,17 @@ def execute_sql_with_connection_json(
                 del sql_alchemy_dict["params"]["snowflake_private_key_passphrase"]
 
         param_style = sql_alchemy_dict.get("param_style")
+
+        # Auto-detect param_style for databases that don't support pyformat default
+        if param_style is None:
+            url_obj = make_url(sql_alchemy_dict["url"])
+            # Mapping of SQLAlchemy dialect names to their required param_style
+            dialect_param_styles = {
+                "trino": "qmark",  # Trino only supports qmark style
+                "deepnote+duckdb": "qmark",  # DuckDB officially recommends qmark style (doesn't support pyformat)
+            }
+            param_style = dialect_param_styles.get(url_obj.drivername)
+
         skip_template_render = re.search(
             "^snowflake.*host=.*.proxy.cloud.getdbt.com", sql_alchemy_dict["url"]
         )
@@ -284,10 +295,7 @@ def _execute_sql_with_caching(
 ):
     # duckdb SQL is not cached, so we can skip the logic below for duckdb
     if requires_duckdb:
-        # duckdb requires % to be unescaped, but other dialects require it to be escaped as %%
-        # https://docs.sqlalchemy.org/en/14/faq/sqlexpressions.html#why-are-percent-signs-being-doubled-up-when-stringifying-sql-statements
-        query_unescaped = query % () if query else query
-        dataframe = execute_duckdb_sql(query_unescaped, bind_params)
+        dataframe = execute_duckdb_sql(query, bind_params)
         # for Chained SQL we return the dataframe with the SQL source attached as DeepnoteQueryPreview object
         if return_variable_type == "query_preview":
             return _convert_dataframe_to_query_preview(dataframe, query_preview_source)
@@ -425,10 +433,15 @@ def _execute_sql_on_engine(engine, query, bind_params):
                 connection.connection if needs_raw_connection else connection
             )
 
+            # pandas.read_sql_query expects params as tuple (not list) for qmark/format style
+            params_for_pandas = (
+                tuple(bind_params) if isinstance(bind_params, list) else bind_params
+            )
+
             return pd.read_sql_query(
                 query,
                 con=connection_for_pandas,
-                params=bind_params,
+                params=params_for_pandas,
                 coerce_float=coerce_float,
             )
         except ResourceClosedError:

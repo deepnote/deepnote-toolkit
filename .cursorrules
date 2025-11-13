@@ -94,6 +94,12 @@ Additional for integration tests:
 # Run local tests
 ./bin/test-local
 
+# Run a specific test file
+./bin/test-local tests/unit/test_file.py
+
+# ... or specific test from file
+./bin/test-local tests/unit/test_file.py::TestClass::test_method
+
 # Run specific test type
 export TEST_TYPE="unit|integration"
 export TOOLKIT_VERSION="local-build"
