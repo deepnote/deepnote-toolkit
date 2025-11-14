@@ -17,7 +17,7 @@ class ExecutionTracker:
     """Tracks execution state of notebook cells."""
 
     def __init__(self):
-        self.logger = LoggerManager.get_logger("execution_tracker")
+        self.logger = LoggerManager().get_logger()
         self.current_execution: Optional[Dict[str, Any]] = None
         self.execution_count = 0
 
@@ -109,7 +109,7 @@ def setup_execution_tracking() -> None:
 
         ip = get_ipython()
         if ip is None:
-            LoggerManager.get_logger("execution_tracking").warning(
+            LoggerManager().get_logger().warning(
                 "IPython instance not available, skipping execution tracking setup"
             )
             return
@@ -122,11 +122,11 @@ def setup_execution_tracking() -> None:
         ip.events.register("pre_run_cell", _execution_tracker.on_pre_run_cell)
         ip.events.register("post_run_cell", _execution_tracker.on_post_run_cell)
 
-        LoggerManager.get_logger("execution_tracking").info(
+        LoggerManager().get_logger().info(
             "Execution tracking initialized successfully"
         )
 
     except Exception as e:  # pylint: disable=broad-exception-caught
-        LoggerManager.get_logger("execution_tracking").error(
+        LoggerManager().get_logger().error(
             "Failed to set up execution tracking: %s", e
         )

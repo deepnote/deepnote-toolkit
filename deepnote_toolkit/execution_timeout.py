@@ -11,7 +11,7 @@ from typing import Optional
 import requests
 from IPython.core.interactiveshell import ExecutionInfo, ExecutionResult
 
-from .get_webapp_url import get_webapp_url
+from .get_webapp_url import get_absolute_userpod_api_url
 from .logging import LoggerManager
 
 
@@ -34,7 +34,7 @@ class ExecutionTimeoutMonitor:
             timeout_seconds: Seconds after which to consider execution stuck (default: 300s = 5min)
             enable_auto_interrupt: Whether to automatically interrupt stuck executions (default: False)
         """
-        self.logger = LoggerManager.get_logger("execution_timeout")
+        self.logger = LoggerManager().get_logger()
         self.warning_threshold = warning_threshold_seconds
         self.timeout_threshold = timeout_seconds
         self.enable_auto_interrupt = enable_auto_interrupt
@@ -152,19 +152,8 @@ class ExecutionTimeoutMonitor:
             warning: Whether this is a warning (True) or timeout (False)
         """
         try:
-            webapp_url = get_webapp_url()
-            project_id = os.getenv("DEEPNOTE_PROJECT_ID")
-
-            if not webapp_url or not project_id:
-                self.logger.debug(
-                    "Webapp URL or project ID not available, skipping report"
-                )
-                return
-
-            endpoint = (
-                "warning" if warning else "timeout"
-            )
-            url = f"{webapp_url}/userpod-api/{project_id}/execution/{endpoint}"
+            endpoint = "warning" if warning else "timeout"
+            url = get_absolute_userpod_api_url(f"execution/{endpoint}")
 
             payload = {
                 "duration": duration,
@@ -209,7 +198,7 @@ def setup_execution_timeout_monitor(
 
         ip = get_ipython()
         if ip is None:
-            LoggerManager.get_logger("execution_timeout").warning(
+            LoggerManager().get_logger().warning(
                 "IPython instance not available, skipping timeout monitor setup"
             )
             return
@@ -224,7 +213,7 @@ def setup_execution_timeout_monitor(
         ip.events.register("pre_execute", _timeout_monitor.on_pre_execute)
         ip.events.register("post_execute", _timeout_monitor.on_post_execute)
 
-        LoggerManager.get_logger("execution_timeout").info(
+        LoggerManager().get_logger().info(
             "Execution timeout monitor initialized: warning=%ds, timeout=%ds, auto_interrupt=%s",
             warning_threshold_seconds,
             timeout_seconds,
@@ -232,6 +221,6 @@ def setup_execution_timeout_monitor(
         )
 
     except Exception as e:  # pylint: disable=broad-exception-caught
-        LoggerManager.get_logger("execution_timeout").error(
+        LoggerManager().get_logger().error(
             "Failed to set up timeout monitor: %s", e
         )
