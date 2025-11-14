@@ -1,6 +1,7 @@
 """ This module contains functions to set up the Deepnote runtime environment. """
 
 import builtins
+import os
 
 import IPython.core.page
 import psycopg2.extensions
@@ -8,6 +9,8 @@ import psycopg2.extras
 
 from .dataframe_utils import add_formatters
 from .execute_post_start_hooks import execute_post_start_hooks
+from .execution_timeout import setup_execution_timeout_monitor
+from .execution_tracking import setup_execution_tracking
 from .logging import LoggerManager
 from .output_middleware import add_output_middleware
 from .set_integrations_env import set_integration_env
@@ -43,6 +46,35 @@ def init_deepnote_runtime():
         add_output_middleware()
     except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("Failed to add output middleware with a error: %s", e)
+
+    # Set up execution tracking for monitoring cell execution
+    try:
+        logger.debug("Setting up execution tracking.")
+        setup_execution_tracking()
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Failed to set up execution tracking with a error: %s", e)
+
+    # Set up execution timeout monitor (optional, controlled by env vars)
+    enable_timeout_monitor = os.getenv("DEEPNOTE_ENABLE_EXECUTION_TIMEOUT", "false").lower() == "true"
+    if enable_timeout_monitor:
+        try:
+            warning_threshold = int(os.getenv("DEEPNOTE_EXECUTION_WARNING_THRESHOLD", "240"))
+            timeout_threshold = int(os.getenv("DEEPNOTE_EXECUTION_TIMEOUT_THRESHOLD", "300"))
+            auto_interrupt = os.getenv("DEEPNOTE_EXECUTION_AUTO_INTERRUPT", "false").lower() == "true"
+
+            logger.debug(
+                "Setting up execution timeout monitor: warning=%ds, timeout=%ds, auto_interrupt=%s",
+                warning_threshold,
+                timeout_threshold,
+                auto_interrupt,
+            )
+            setup_execution_timeout_monitor(
+                warning_threshold_seconds=warning_threshold,
+                timeout_seconds=timeout_threshold,
+                enable_auto_interrupt=auto_interrupt,
+            )
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Failed to set up execution timeout monitor with a error: %s", e)
 
     # Set up psycopg2 to make long-running queries interruptible by SIGINT (interrupt kernel)
     try:
