@@ -6,6 +6,7 @@ It can detect long-running executions and optionally send warnings or interrupt 
 import os
 import signal
 import threading
+import time
 from typing import Optional
 
 import requests
@@ -41,36 +42,36 @@ class ExecutionTimeoutMonitor:
         self.current_execution: Optional[dict] = None
         self.warning_timer: Optional[threading.Timer] = None
         self.timeout_timer: Optional[threading.Timer] = None
+        self._execution_lock = threading.Lock()
 
     def on_pre_execute(self, info: ExecutionInfo) -> None:
         """
         Called before executing a cell.
         Starts timers for warning and timeout.
         """
-        import time
-
         cell_preview = info.raw_cell[:100] if info.raw_cell else "<empty>"
 
-        self.current_execution = {
-            "code": cell_preview,
-            "start": time.time(),
-        }
+        with self._execution_lock:
+            self.current_execution = {
+                "code": cell_preview,
+                "start": time.time(),
+            }
 
-        # Start warning timer
-        if self.warning_threshold > 0:
-            self.warning_timer = threading.Timer(
-                self.warning_threshold, self._send_warning
-            )
-            self.warning_timer.daemon = True
-            self.warning_timer.start()
+            # Start warning timer
+            if self.warning_threshold > 0:
+                self.warning_timer = threading.Timer(
+                    self.warning_threshold, self._send_warning
+                )
+                self.warning_timer.daemon = True
+                self.warning_timer.start()
 
-        # Start timeout timer
-        if self.enable_auto_interrupt and self.timeout_threshold > 0:
-            self.timeout_timer = threading.Timer(
-                self.timeout_threshold, self._interrupt_execution
-            )
-            self.timeout_timer.daemon = True
-            self.timeout_timer.start()
+            # Start timeout timer
+            if self.enable_auto_interrupt and self.timeout_threshold > 0:
+                self.timeout_timer = threading.Timer(
+                    self.timeout_threshold, self._interrupt_execution
+                )
+                self.timeout_timer.daemon = True
+                self.timeout_timer.start()
 
         self.logger.debug(
             "Timeout monitoring started: warning=%ds, timeout=%ds, auto_interrupt=%s",
@@ -84,8 +85,9 @@ class ExecutionTimeoutMonitor:
         Called after executing a cell.
         Cancels any pending timers.
         """
-        self._cancel_timers()
-        self.current_execution = None
+        with self._execution_lock:
+            self._cancel_timers()
+            self.current_execution = None
 
     def _cancel_timers(self) -> None:
         """Cancel all active timers."""
@@ -98,13 +100,15 @@ class ExecutionTimeoutMonitor:
 
     def _send_warning(self) -> None:
         """Send warning when execution is running longer than threshold."""
-        if not self.current_execution:
-            return
+        # Capture execution data while holding lock
+        with self._execution_lock:
+            if not self.current_execution:
+                return
+            execution_data = self.current_execution.copy()
 
-        import time
-
-        duration = time.time() - self.current_execution["start"]
-        code_preview = self.current_execution["code"][:50]
+        # Process outside lock to avoid blocking
+        duration = time.time() - execution_data["start"]
+        code_preview = execution_data["code"][:50]
 
         self.logger.warning(
             "LONG_EXECUTION | duration=%.1fs | preview=%s",
@@ -117,12 +121,15 @@ class ExecutionTimeoutMonitor:
 
     def _interrupt_execution(self) -> None:
         """Interrupt execution after timeout threshold is exceeded."""
-        if not self.current_execution:
-            return
+        # Capture execution data while holding lock
+        with self._execution_lock:
+            if not self.current_execution:
+                return
+            execution_data = self.current_execution.copy()
 
-        import time
-
-        duration = time.time() - self.current_execution["start"]
+        # Process outside lock to avoid blocking
+        duration = time.time() - execution_data["start"]
+        code_preview = execution_data["code"][:50]
 
         self.logger.error(
             "TIMEOUT_INTERRUPT | duration=%.1fs | Sending SIGINT to interrupt execution",
@@ -130,9 +137,7 @@ class ExecutionTimeoutMonitor:
         )
 
         # Report to webapp before interrupting
-        self._report_to_webapp(
-            duration, self.current_execution["code"][:50], warning=False
-        )
+        self._report_to_webapp(duration, code_preview, warning=False)
 
         # Send SIGINT to interrupt the execution (simulates Ctrl+C)
         try:

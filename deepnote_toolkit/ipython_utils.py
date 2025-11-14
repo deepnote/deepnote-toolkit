@@ -1,3 +1,4 @@
+import time
 from typing import Optional
 
 from IPython import get_ipython
@@ -56,7 +57,7 @@ def publish_execution_metadata(
         "execution_count": execution_count,
         "duration_seconds": duration,
         "success": success,
-        "timestamp": duration,  # Using duration as timestamp for now
+        "timestamp": time.time(),
     }
 
     if error_type:
