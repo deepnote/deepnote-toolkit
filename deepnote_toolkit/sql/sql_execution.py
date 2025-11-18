@@ -43,7 +43,7 @@ logger = LoggerManager().get_logger()
 # 1. https://github.com/googleapis/python-bigquery/pull/2331 is merged and released
 # 2. Dependencies updated for the toolkit. We don't depend on google-cloud-bigquery directly, but it's transitive
 # dependency through sqlalchemy-bigquery
-def _monkeypatch_bigquery_wait_or_cancel():
+def _monkeypatch_bigquery_wait_or_cancel() -> None:
     try:
         from typing import Optional, Union
 
