@@ -41,7 +41,7 @@ logger = LoggerManager().get_logger()
 # TODO(BLU-5171): Temporary hack to allow cancelling BigQuery jobs on KeyboardInterrupt (e.g. when user cancels cell execution)
 # Can be removed once
 # 1. https://github.com/googleapis/python-bigquery/pull/2331 is merged and released
-# 2. Dependicies updated for the toolkit. We don't depend on google-cloud-bigquery directly, but it's transitive
+# 2. Dependencies updated for the toolkit. We don't depend on google-cloud-bigquery directly, but it's transitive
 # dependency through sqlalchemy-bigquery
 def _monkeypatch_bigquery_wait_or_cancel():
     try:
@@ -73,9 +73,13 @@ def _monkeypatch_bigquery_wait_or_cancel():
                 raise
 
         _job_helpers._wait_or_cancel = _wait_or_cancel
-        logger.debug("Successfully monkeypatched google.cloud.bigquery._job_helpers._wait_or_cancel")
+        logger.debug(
+            "Successfully monkeypatched google.cloud.bigquery._job_helpers._wait_or_cancel"
+        )
     except ImportError:
-        logger.debug("Could not monkeypatch BigQuery _wait_or_cancel: google.cloud.bigquery not available")
+        logger.debug(
+            "Could not monkeypatch BigQuery _wait_or_cancel: google.cloud.bigquery not available"
+        )
     except Exception as e:
         logger.warning("Failed to monkeypatch BigQuery _wait_or_cancel: %s", repr(e))
 
