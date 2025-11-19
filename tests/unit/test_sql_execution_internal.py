@@ -9,6 +9,27 @@ from google.api_core.client_info import ClientInfo
 from deepnote_toolkit.sql import sql_execution as se
 
 
+def test_bigquery_wait_or_cancel_handles_keyboard_interrupt():
+    import google.cloud.bigquery._job_helpers as _job_helpers
+
+    mock_job = mock.Mock()
+    mock_job.result.side_effect = KeyboardInterrupt("User interrupted")
+    mock_job.cancel = mock.Mock()
+
+    with pytest.raises(KeyboardInterrupt):
+        # _wait_or_cancel should be monkeypatched by `_monkeypatch_bigquery_wait_or_cancel`
+        _job_helpers._wait_or_cancel(
+            job_obj=mock_job,
+            api_timeout=30.0,
+            wait_timeout=60.0,
+            retry=None,
+            page_size=None,
+            max_results=None,
+        )
+
+    mock_job.cancel.assert_called_once_with(retry=None, timeout=30.0)
+
+
 def test_build_params_for_bigquery_oauth_ok():
     with mock.patch(
         "deepnote_toolkit.sql.sql_execution.bigquery.Client"
