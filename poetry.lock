@@ -1656,6 +1656,56 @@ files = [
 all = ["adbc-driver-manager", "fsspec", "ipython", "numpy", "pandas", "pyarrow"]
 
 [[package]]
+name = "duckdb-extension-excel"
+version = "1.4.1"
+description = "Duckdb excel extension"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "duckdb_extension_excel-1.4.1-py3-none-macosx_11_0_arm64.whl", hash = "sha256:16521c719b0a4d8637c84c965a02148e339f2f2aed616e32aad7e4b303ac57b4"},
+    {file = "duckdb_extension_excel-1.4.1-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:06881c3eecadfb48adf6a5cbb039c0ea384d9a9532dc3bc1b8391fef04f44905"},
+    {file = "duckdb_extension_excel-1.4.1-py3-none-manylinux2014_aarch64.whl", hash = "sha256:e6a969dea89815bd93af5fc92534091b694f020d39aa930e91de903cbc04dd05"},
+    {file = "duckdb_extension_excel-1.4.1-py3-none-manylinux2014_x86_64.whl", hash = "sha256:9e8e90b087b07b1aa2fc001b15ba4094104232fb3ff04774105e2a2b79db1695"},
+    {file = "duckdb_extension_excel-1.4.1-py3-none-win_amd64.whl", hash = "sha256:9e3f14ac386839a4f6dfe8cf33b660ca6e506cc0f4f3ac6bc42a3ef6ff4436f1"},
+]
+
+[package.dependencies]
+duckdb = "1.4.1"
+
+[[package]]
+name = "duckdb-extension-spatial"
+version = "1.4.1"
+description = "Duckdb spatial extension"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "duckdb_extension_spatial-1.4.1-py3-none-macosx_11_0_arm64.whl", hash = "sha256:911e8c0e2816584beb34ff433853745cba03266936c13a587a7c471fb5e82e01"},
+    {file = "duckdb_extension_spatial-1.4.1-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:2a3710130cbd545168a1397e005457ba5e0e24b3fe89c576db2acfb88ac6aa6a"},
+    {file = "duckdb_extension_spatial-1.4.1-py3-none-manylinux2014_aarch64.whl", hash = "sha256:d32e5745bfeb839e288e9ee741d6f16c91f99ec0514fcc42715a0365934baf3c"},
+    {file = "duckdb_extension_spatial-1.4.1-py3-none-manylinux2014_x86_64.whl", hash = "sha256:997757a23f3bd8b15a26d0093a6bf83c291cce16d78d3a26edf9443df3fb462e"},
+    {file = "duckdb_extension_spatial-1.4.1-py3-none-win_amd64.whl", hash = "sha256:ac19e649d78a31f74c19817023e8332930b9d28c137455e0aeaa6f044a340dc0"},
+]
+
+[package.dependencies]
+duckdb = "1.4.1"
+
+[[package]]
+name = "duckdb-extensions"
+version = "1.4.1"
+description = "DuckDB extensions as python package"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "duckdb_extensions-1.4.1-py3-none-any.whl", hash = "sha256:153227ced6e3e7ae3a963611bc90299050bd3437c6eed36edbe25a9173add12a"},
+]
+
+[package.dependencies]
+duckdb = "1.4.1"
+
+[[package]]
 name = "dunamai"
 version = "1.25.0"
 description = "Dynamic version generation"
@@ -7355,4 +7405,4 @@ server = ["deepnote-python-lsp-server", "jupyter-resource-usage", "jupyter-serve
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.9.0,<3.14,!=3.9.7"
-content-hash = "1f130b5dd4d909faaca0ae2874ea688283574fd8a658bdb8ab75b32a89cb45ac"
+content-hash = "d30f63bb45bb945b636bf86f2a91f659db8f0fcd942b760aaa77cb73da685309"

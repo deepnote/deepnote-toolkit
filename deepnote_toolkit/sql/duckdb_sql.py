@@ -1,6 +1,7 @@
 import sys
 
 import duckdb
+from duckdb_extensions import import_extension
 from packaging.version import Version
 
 _DEEPNOTE_DUCKDB_CONNECTION = None
@@ -46,10 +47,18 @@ def _get_duckdb_connection():
             database=":memory:", read_only=False
         )
 
+        # DuckDB extensions are loaded from included wheels to prevent loading them
+        # from the internet on every notebook start
+        #
         # Install and load the spatial extension. Primary use case: reading xlsx files
         # e.g. SELECT * FROM st_read('excel.xlsx')
-        _DEEPNOTE_DUCKDB_CONNECTION.execute("install spatial;")
-        _DEEPNOTE_DUCKDB_CONNECTION.execute("load spatial;")
+        # there is also official excel extension, which mentions that Excel support from spatial extension
+        # may be removed in the future (see: https://duckdb.org/docs/stable/core_extensions/excel)
+        for extension_name in ["spatial", "excel"]:
+            import_extension(
+                name=extension_name, force_install=True, con=_DEEPNOTE_DUCKDB_CONNECTION
+            )
+            _DEEPNOTE_DUCKDB_CONNECTION.execute(f"LOAD '{extension_name}'")
 
         _set_sample_size(_DEEPNOTE_DUCKDB_CONNECTION, _DEFAULT_DUCKDB_SAMPLE_SIZE)
 
