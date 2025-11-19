@@ -58,7 +58,7 @@ def _get_duckdb_connection():
             import_extension(
                 name=extension_name, force_install=True, con=_DEEPNOTE_DUCKDB_CONNECTION
             )
-            _DEEPNOTE_DUCKDB_CONNECTION.execute(f"LOAD '{extension_name}'")
+            _DEEPNOTE_DUCKDB_CONNECTION.load_extension(extension_name)
 
         _set_sample_size(_DEEPNOTE_DUCKDB_CONNECTION, _DEFAULT_DUCKDB_SAMPLE_SIZE)
 
