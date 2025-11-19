@@ -8,7 +8,7 @@ import pytest
 
 
 @pytest.fixture(autouse=True, scope="session")
-def apply_runtime_patches() -> None:
+def apply_patches() -> None:
     """Apply runtime patches once before any tests run."""
     from deepnote_toolkit.runtime_patches import apply_runtime_patches
 
