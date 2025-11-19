@@ -6,6 +6,8 @@ import IPython.core.page
 import psycopg2.extensions
 import psycopg2.extras
 
+from deepnote_toolkit.runtime_patches import apply_runtime_patches
+
 from .dataframe_utils import add_formatters
 from .execute_post_start_hooks import execute_post_start_hooks
 from .logging import LoggerManager
@@ -23,6 +25,11 @@ def init_deepnote_runtime():
     logger = LoggerManager().get_logger()
 
     logger.debug("Initializing Deepnote runtime environment started.")
+
+    try:
+        apply_runtime_patches()
+    except Exception as e:
+        logger.error("Failed to apply runtime patches with a error: %s", e)
 
     # Register sparksql magic
     try:

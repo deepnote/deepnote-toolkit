@@ -7,6 +7,14 @@ from typing import Generator
 import pytest
 
 
+@pytest.fixture(autouse=True, scope="session")
+def apply_runtime_patches() -> None:
+    """Apply runtime patches once before any tests run."""
+    from deepnote_toolkit.runtime_patches import apply_runtime_patches
+
+    apply_runtime_patches()
+
+
 @pytest.fixture(autouse=True)
 def clean_runtime_state() -> Generator[None, None, None]:
     """Automatically clean in-memory env state and config cache before and after each test."""
