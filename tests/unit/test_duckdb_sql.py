@@ -1,3 +1,6 @@
+from contextlib import contextmanager
+from unittest import mock
+
 import pandas as pd
 import pytest
 
@@ -8,11 +11,10 @@ from deepnote_toolkit.sql.duckdb_sql import (
 )
 
 
-@pytest.fixture(scope="function")
-def duckdb_connection():
+@contextmanager
+def fresh_duckdb_connection():
     import deepnote_toolkit.sql.duckdb_sql as duckdb_sql_module
 
-    # reset the connection to ensure a fresh one is created for each test
     duckdb_sql_module._DEEPNOTE_DUCKDB_CONNECTION = None
     conn = _get_duckdb_connection()
 
@@ -21,6 +23,12 @@ def duckdb_connection():
     finally:
         conn.close()
         duckdb_sql_module._DEEPNOTE_DUCKDB_CONNECTION = None
+
+
+@pytest.fixture(scope="function")
+def duckdb_connection():
+    with fresh_duckdb_connection() as conn:
+        yield conn
 
 
 @pytest.mark.parametrize("extension_name", ["spatial", "excel"])
@@ -67,6 +75,38 @@ def test_set_scan_all_frames(duckdb_connection):
         "SELECT value FROM duckdb_settings() WHERE name = 'python_scan_all_frames'"
     ).fetchone()
     assert result[0] == "true"
+
+
+@mock.patch("deepnote_toolkit.sql.duckdb_sql.import_extension")
+def test_connection_returns_successfully_when_import_extension_fails(
+    mock_import_extension,
+):
+    mock_import_extension.side_effect = Exception("Failed to import extension")
+
+    with fresh_duckdb_connection() as conn:
+        assert conn is not None
+        result = conn.execute(
+            "SELECT extension_name, loaded FROM duckdb_extensions()"
+        ).df()
+        assert result is not None
+        # check that spatial and excel extensions are not loaded as import extension failed
+        result = result[result["extension_name"].isin(["spatial", "excel"])]
+        assert result["loaded"].all() == False
+
+
+@mock.patch("duckdb.DuckDBPyConnection.load_extension")
+def test_connection_returns_successfully_when_load_extension_fails(mock_load_extension):
+    mock_load_extension.side_effect = Exception("Failed to load extension")
+
+    with fresh_duckdb_connection() as conn:
+        assert conn is not None
+        result = conn.execute(
+            "SELECT extension_name, loaded FROM duckdb_extensions()"
+        ).df()
+        assert result is not None
+        # check that spatial and excel extensions are not loaded as import extension failed
+        result = result[result["extension_name"].isin(["spatial", "excel"])]
+        assert result["loaded"].all() == False
 
 
 def test_excel_extension_roundtrip(duckdb_connection, tmp_path):

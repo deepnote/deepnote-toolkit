@@ -66,7 +66,9 @@ def _get_duckdb_connection():
                 )
                 _DEEPNOTE_DUCKDB_CONNECTION.load_extension(extension_name)
             except Exception as e:
-                logger.error(f"Failed to load DuckDB {extension_name} extension: {e}")
+                # Extensions are optional and connection still works, users are able to load
+                # them manually if needed (pulling them from internet in this case as fallback)
+                logger.warning(f"Failed to load DuckDB {extension_name} extension: {e}")
 
         _set_sample_size(_DEEPNOTE_DUCKDB_CONNECTION, _DEFAULT_DUCKDB_SAMPLE_SIZE)
 
