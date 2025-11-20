@@ -59,6 +59,9 @@ dependencies = [
     "duckdb>=1.1.0,<2.0.0; python_version < '3.12'",
     "duckdb>=1.1.0,<2.0.0; python_version >= '3.12'",
     "duckdb>=1.4.1,<2.0.0; python_version >= '3.13'",
+    "duckdb-extensions>=1.1.0,<2.0.0", # bake in as dependency to not pull extensions from the internet on every notebook start
+    "duckdb-extension-spatial>=1.1.0,<2.0.0", 
+    "duckdb-extension-excel>=1.1.0,<2.0.0", 
     "google-cloud-bigquery-storage==2.16.2; python_version < '3.13'",
     "google-cloud-bigquery-storage>=2.33.1,<3; python_version>='3.13'",
 

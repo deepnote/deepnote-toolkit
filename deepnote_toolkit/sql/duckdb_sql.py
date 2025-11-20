@@ -1,7 +1,10 @@
 import sys
 
 import duckdb
+from duckdb_extensions import import_extension
 from packaging.version import Version
+
+from deepnote_toolkit.logging import LoggerManager
 
 _DEEPNOTE_DUCKDB_CONNECTION = None
 _DEFAULT_DUCKDB_SAMPLE_SIZE = 20_000
@@ -40,16 +43,32 @@ def _get_duckdb_connection():
       duckdb.Connection: A connection to the DuckDB database.
     """
     global _DEEPNOTE_DUCKDB_CONNECTION
+    logger = LoggerManager().get_logger()
 
     if not _DEEPNOTE_DUCKDB_CONNECTION:
         _DEEPNOTE_DUCKDB_CONNECTION = duckdb.connect(
             database=":memory:", read_only=False
         )
 
+        # DuckDB extensions are loaded from included wheels to prevent loading them
+        # from the internet on every notebook start
+        #
         # Install and load the spatial extension. Primary use case: reading xlsx files
         # e.g. SELECT * FROM st_read('excel.xlsx')
-        _DEEPNOTE_DUCKDB_CONNECTION.execute("install spatial;")
-        _DEEPNOTE_DUCKDB_CONNECTION.execute("load spatial;")
+        # there is also official excel extension, which mentions that Excel support from spatial extension
+        # may be removed in the future (see: https://duckdb.org/docs/stable/core_extensions/excel)
+        for extension_name in ["spatial", "excel"]:
+            try:
+                import_extension(
+                    name=extension_name,
+                    force_install=True,
+                    con=_DEEPNOTE_DUCKDB_CONNECTION,
+                )
+                _DEEPNOTE_DUCKDB_CONNECTION.load_extension(extension_name)
+            except Exception as e:
+                # Extensions are optional and connection still works, users are able to load
+                # them manually if needed (pulling them from internet in this case as fallback)
+                logger.warning(f"Failed to load DuckDB {extension_name} extension: {e}")
 
         _set_sample_size(_DEEPNOTE_DUCKDB_CONNECTION, _DEFAULT_DUCKDB_SAMPLE_SIZE)
 
