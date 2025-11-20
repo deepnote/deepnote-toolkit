@@ -91,7 +91,7 @@ def test_connection_returns_successfully_when_import_extension_fails(
         assert result is not None
         # check that spatial and excel extensions are not loaded as import extension failed
         result = result[result["extension_name"].isin(["spatial", "excel"])]
-        assert result["loaded"].all() == False
+        assert all(result["loaded"]) is False
 
 
 @mock.patch("duckdb.DuckDBPyConnection.load_extension")
@@ -106,7 +106,7 @@ def test_connection_returns_successfully_when_load_extension_fails(mock_load_ext
         assert result is not None
         # check that spatial and excel extensions are not loaded as import extension failed
         result = result[result["extension_name"].isin(["spatial", "excel"])]
-        assert result["loaded"].all() == False
+        assert all(result["loaded"]) is False
 
 
 def test_excel_extension_roundtrip(duckdb_connection, tmp_path):
