@@ -455,6 +455,11 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-toolkit-cluster-cache
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    concurrency:
+      # run the job sequentially to prevent Git conflicts from update-config-version action
+      # (GitHub queues only 1 job at a time for the same concurrency group, which is fine)
+      group: release-staging
+      cancel-in-progress: false
     steps:
       - name: Checkout code
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
