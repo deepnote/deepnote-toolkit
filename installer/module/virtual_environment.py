@@ -96,8 +96,9 @@ class VirtualEnvironment:
             if condition_env:
                 # Write conditional import that checks environment variable
                 pth_content = (
-                    f"import os, sys; "
-                    f"sys.path.append('{bundle_site_package_path}') "
+                    f"import sys, os, sysconfig; "
+                    f"(sys.path.append('{bundle_site_package_path}'), "
+                    f"sys.path.insert(sys.path.index('{bundle_site_package_path}'), sysconfig.get_path('purelib'))) "
                     f"if os.environ.get('{condition_env}', '').lower() == 'true' else None"
                 )
                 pth_file.write(pth_content + "\n")
