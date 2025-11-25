@@ -81,14 +81,17 @@ class VirtualEnvironment:
         return server_proc
 
     def import_package_bundle(
-        self, bundle_site_package_path: str, condition_env: Optional[str] = None
+        self, bundle_site_package_path: str, 
+        condition_env: Optional[str] = None,
+        priority: bool = False,
     ) -> None:
         """
         Import a package bundle to the virtual environment.
 
         :param bundle_site_package_path: Absolute path to the package bundle.
         :param condition_env: Optional environment variable name. If provided, the bundle
-                         will only be loaded when this env var is set to 'true'.
+                        will only be loaded when this env var is set to 'true'.
+        :param priority: If True, insert at front of sys.path to override other bundles.
         """
         pth_file_path = os.path.join(self._site_packages_path, "deepnote.pth")
 
@@ -96,15 +99,21 @@ class VirtualEnvironment:
             if condition_env:
                 # Write conditional import that checks environment variable
                 pth_content = (
-                    f"import sys, os, sysconfig; "
-                    f"(sys.path.append('{bundle_site_package_path}'), "
-                    f"sys.path.insert(sys.path.index('{bundle_site_package_path}'), sysconfig.get_path('purelib'))) "
+                    f"import os, sys; "
+                    f"sys.path.insert(0, '{bundle_site_package_path}') "
                     f"if os.environ.get('{condition_env}', '').lower() == 'true' else None"
                 )
                 pth_file.write(pth_content + "\n")
                 logger.info(
                     "Bundle was conditionally imported to the virtual environment "
                     f"(loads when {condition_env}=true)."
+                )
+            elif priority:
+                # Insert at front of sys.path for higher priority (overrides other bundles)
+                pth_content = f"import sys; sys.path.insert(0, '{bundle_site_package_path}')"
+                pth_file.write(pth_content + "\n")
+                logger.info(
+                    "Bundle was imported with priority to the virtual environment."
                 )
             else:
                 pth_file.write(bundle_site_package_path + "\n")
