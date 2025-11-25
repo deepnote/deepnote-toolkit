@@ -97,7 +97,7 @@ class VirtualEnvironment:
                 # Write conditional import that checks environment variable
                 pth_content = (
                     f"import os, sys; "
-                    f"sys.path.insert(0, '{bundle_site_package_path}') "
+                    f"sys.path.append('{bundle_site_package_path}') "
                     f"if os.environ.get('{condition_env}', '').lower() == 'true' else None"
                 )
                 pth_file.write(pth_content + "\n")
