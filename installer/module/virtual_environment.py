@@ -81,7 +81,8 @@ class VirtualEnvironment:
         return server_proc
 
     def import_package_bundle(
-        self, bundle_site_package_path: str, 
+        self,
+        bundle_site_package_path: str,
         condition_env: Optional[str] = None,
         priority: bool = False,
     ) -> None:
@@ -110,7 +111,9 @@ class VirtualEnvironment:
                 )
             elif priority:
                 # Insert at front of sys.path for higher priority (overrides other bundles)
-                pth_content = f"import sys; sys.path.insert(0, '{bundle_site_package_path}')"
+                pth_content = (
+                    f"import sys; sys.path.insert(0, '{bundle_site_package_path}')"
+                )
                 pth_file.write(pth_content + "\n")
                 logger.info(
                     "Bundle was imported with priority to the virtual environment."
