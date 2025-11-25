@@ -84,6 +84,7 @@ class VirtualEnvironment:
         self,
         bundle_site_package_path: str,
         condition_env: Optional[str] = None,
+        *,
         priority: bool = False,
     ) -> None:
         """
