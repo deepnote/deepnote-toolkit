@@ -1,6 +1,6 @@
 """Tests for VirtualEnvironment class."""
 
-import os
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -21,7 +21,7 @@ class TestImportPackageBundle:
         ):
             venv = VirtualEnvironment(str(venv_path))
         # Create the site-packages directory
-        os.makedirs(venv.site_packages_path, exist_ok=True)
+        Path(venv.site_packages_path).mkdir(parents=True, exist_ok=True)
         return venv
 
     def test_import_package_bundle_plain_path(self, venv):
@@ -30,9 +30,8 @@ class TestImportPackageBundle:
 
         venv.import_package_bundle(bundle_path)
 
-        pth_file = os.path.join(venv.site_packages_path, "deepnote.pth")
-        with open(pth_file, "r") as f:
-            content = f.read()
+        pth_file = Path(venv.site_packages_path) / "deepnote.pth"
+        content = pth_file.read_text()
 
         assert content == f"{bundle_path}\n"
 
@@ -43,9 +42,8 @@ class TestImportPackageBundle:
 
         venv.import_package_bundle(bundle_path, condition_env=condition_env)
 
-        pth_file = os.path.join(venv.site_packages_path, "deepnote.pth")
-        with open(pth_file, "r") as f:
-            content = f.read()
+        pth_file = Path(venv.site_packages_path) / "deepnote.pth"
+        content = pth_file.read_text()
 
         assert "import os, sys" in content
         assert f"sys.path.insert(0, '{bundle_path}')" in content
@@ -57,9 +55,8 @@ class TestImportPackageBundle:
 
         venv.import_package_bundle(bundle_path, priority=True)
 
-        pth_file = os.path.join(venv.site_packages_path, "deepnote.pth")
-        with open(pth_file, "r") as f:
-            content = f.read()
+        pth_file = Path(venv.site_packages_path) / "deepnote.pth"
+        content = pth_file.read_text()
 
         assert "import sys" in content
         assert f"sys.path.insert(0, '{bundle_path}')" in content
@@ -77,9 +74,8 @@ class TestImportPackageBundle:
         venv.import_package_bundle(system_site, priority=True)
         venv.import_package_bundle(kernel_libs)
 
-        pth_file = os.path.join(venv.site_packages_path, "deepnote.pth")
-        with open(pth_file, "r") as f:
-            lines = f.readlines()
+        pth_file = Path(venv.site_packages_path) / "deepnote.pth"
+        lines = pth_file.read_text().splitlines()
 
         assert len(lines) == 3
         # Line 1: server-libs conditional
@@ -89,3 +85,16 @@ class TestImportPackageBundle:
         assert f"sys.path.insert(0, '{system_site}')" in lines[1]
         # Line 3: kernel plain path
         assert lines[2].strip() == kernel_libs
+
+    def test_import_package_bundle_condition_env_and_priority_mutually_exclusive(
+        self, venv
+    ):
+        """Test that condition_env and priority cannot be used together."""
+        bundle_path = "/some/bundle/site-packages"
+
+        with pytest.raises(ValueError, match="mutually exclusive"):
+            venv.import_package_bundle(
+                bundle_path,
+                condition_env="SOME_ENV_VAR",
+                priority=True,
+            )

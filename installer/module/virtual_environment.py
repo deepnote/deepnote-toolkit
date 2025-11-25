@@ -92,8 +92,17 @@ class VirtualEnvironment:
         :param bundle_site_package_path: Absolute path to the package bundle.
         :param condition_env: Optional environment variable name. If provided, the bundle
                         will only be loaded when this env var is set to 'true'.
+                        Cannot be combined with priority.
         :param priority: If True, insert at front of sys.path to override other bundles.
+                        Cannot be combined with condition_env.
+        :raises ValueError: If both condition_env and priority are specified.
         """
+        if condition_env and priority:
+            raise ValueError(
+                "condition_env and priority are mutually exclusive; "
+                "specify only one of them"
+            )
+
         pth_file_path = os.path.join(self._site_packages_path, "deepnote.pth")
 
         with open(pth_file_path, "a+", encoding="utf-8") as pth_file:
