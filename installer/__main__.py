@@ -273,7 +273,7 @@ def bootstrap():
     venv.import_package_bundle(
         server_site_packages_path, condition_env="DEEPNOTE_INCLUDE_SERVER_PACKAGES"
     )
-    venv.import_package_bundle(system_site_packages_path)
+    venv.import_package_bundle(system_site_packages_path, priority=True)
     venv.import_package_bundle(kernel_site_package_path)
 
     # Phase 7.2: Symlink notebook to jupyter_server for compatibility with
