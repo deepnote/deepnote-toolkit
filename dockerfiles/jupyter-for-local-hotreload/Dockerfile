@@ -1,32 +1,52 @@
-ARG FROM_PYTHON_TAG
+# Dockerfile for local development with hot-reload support
+# This container expects the toolkit source to be mounted at /toolkit
+# and installs it in editable mode for live code changes
+#
+# Build with:
+#   docker build -t deepnote/jupyter-for-local:local -f dockerfiles/jupyter-for-local-hotreload/Dockerfile .
+
+ARG FROM_PYTHON_TAG=3.12
 FROM deepnote/python:${FROM_PYTHON_TAG}
 
+ARG FROM_PYTHON_TAG
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install system dependencies
 RUN apt-get update && \
-    apt-get install -y openjdk-17-jdk && \
+    apt-get install --no-install-recommends -y \
+    rsync \
+    git \
+    # Required for pymssql
+    freetds-dev \
+    # Required for database connectivity through ODBC
+    unixodbc-dev \
+    # Required for secure connections (SSL/TLS)
+    libssl-dev && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-RUN pip install poetry==2.2.0
+# Install Poetry and required plugins
+RUN pip install --no-cache-dir poetry==2.2.0 && \
+    poetry self add 'poetry-dynamic-versioning[plugin]>=1.0.0,<2.0.0'
 
-WORKDIR /deepnote-toolkit
+# Configure Poetry to create virtualenv outside the mounted source directory
+RUN poetry config virtualenvs.path /opt/venvs
 
-ENV POETRY_NO_INTERACTION=1 \
-    POETRY_VIRTUALENVS_CREATE=1 \
-    POETRY_VIRTUALENVS_IN_PROJECT=0 \
-    POETRY_CACHE_DIR=/tmp/poetry_cache
+# Create toolkit directory (will be mounted over, but needed for initial setup)
+RUN mkdir -p /toolkit /opt/venvs
 
-COPY pyproject.toml poetry.lock poetry.toml ./
+WORKDIR /toolkit
 
-RUN poetry install --no-interaction --no-ansi --with server --with dev
+# Environment variables for development mode
+ENV DEEPNOTE_RUNNING_IN_DEV_MODE=true \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 
-ENV PYTHONPATH=/deepnote-toolkit:/deepnote-toolkit/installer:$PYTHONPATH \
-    TOOLKIT_BUNDLE_PATH=/deepnote-toolkit \
-    TOOLKIT_VERSION="local-build" \
-    USERNAME=user \
-    PASSWORD=password \
-    DEEPNOTE_RUNNING_IN_DEV_MODE=true \
-    DEEPNOTE_WEBAPP_URL="http://host.docker.internal:3002"
+# Copy the entrypoint script
+COPY dockerfiles/jupyter-for-local-hotreload/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-COPY dockerfiles/jupyter-for-local-hotreload/run-installer.sh /usr/local/bin/run-installer.sh
+EXPOSE 8888
 
-ENTRYPOINT ["/usr/local/bin/run-installer.sh"]
+ENTRYPOINT ["/entrypoint.sh"]
