@@ -3,7 +3,7 @@ import datetime
 import io
 import json
 import os
-import random
+import secrets
 import unittest
 from unittest import TestCase, mock
 
@@ -284,7 +284,7 @@ class TestExecuteSql(TestCase):
         self, mock_execute_sql_with_caching
     ):
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        private_key_passphrase = base64.b64encode(random.randbytes(16)).decode("utf-8")
+        private_key_passphrase = secrets.token_urlsafe(16)
         private_key_b64 = base64.b64encode(
             private_key.private_bytes(
                 encoding=serialization.Encoding.PEM,
