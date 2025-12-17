@@ -1,13 +1,22 @@
 import base64
 import contextlib
 import json
+import logging
 import re
+import sys
+from typing import Any, Literal
 import uuid
+
+if sys.version_info >= (3, 11):
+    from typing import Never
+else:
+    from typing_extensions import Never
 import warnings
 from urllib.parse import quote
 
 import google.oauth2.credentials
 import numpy as np
+from pydantic import BaseModel, ValidationError
 import requests
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
@@ -32,6 +41,18 @@ from deepnote_toolkit.sql.sql_caching import get_sql_cache, upload_sql_cache
 from deepnote_toolkit.sql.sql_query_chaining import add_limit_clause, unchain_sql_query
 from deepnote_toolkit.sql.sql_utils import is_single_select_query
 from deepnote_toolkit.sql.url_utils import replace_user_pass_in_pg_url
+
+logger = logging.getLogger(__name__)
+
+
+class IntegrationFederatedAuthParams(BaseModel):
+    integrationType: Literal["trino", "big-query"]
+    integrationId: str
+    userId: str
+
+
+class FederatedAuthResponseData(BaseModel):
+    accessToken: str
 
 
 def compile_sql_query(
@@ -247,6 +268,68 @@ def _generate_temporary_credentials(integration_id):
     return quote(data["username"]), quote(data["password"])
 
 
+def _get_federated_auth_credentials(integration_id: str, user_id: str) -> str:
+    url = get_absolute_userpod_api_url(
+        f"integrations/federated-auth-token/{integration_id}"
+    )
+
+    # Add project credentials in detached mode
+    headers = get_project_auth_headers()
+
+    response = requests.post(url, json={"userId": user_id}, timeout=10, headers=headers)
+
+    data = FederatedAuthResponseData.model_validate_json(response.json())
+
+    return data.accessToken
+
+
+def _handle_iam_params(sql_alchemy_dict: dict[str, Any]) -> None:
+    if "iamParams" not in sql_alchemy_dict:
+        return
+
+    integration_id = sql_alchemy_dict["iamParams"]["integrationId"]
+
+    temporaryUsername, temporaryPassword = _generate_temporary_credentials(
+        integration_id
+    )
+
+    sql_alchemy_dict["url"] = replace_user_pass_in_pg_url(
+        sql_alchemy_dict["url"], temporaryUsername, temporaryPassword
+    )
+
+
+def _handle_federated_auth_params(sql_alchemy_dict: dict[str, Any]) -> None:
+    if "federatedAuthParams" not in sql_alchemy_dict:
+        return
+
+    try:
+        federated_auth_params = IntegrationFederatedAuthParams.model_validate(
+            sql_alchemy_dict["federatedAuthParams"]
+        )
+    except ValidationError as e:
+        logger.error(
+            f"Invalid federated auth params, try updating toolkit version: {e}"
+        )
+        return
+
+    access_token = _get_federated_auth_credentials(
+        federated_auth_params.integrationId, federated_auth_params.userId
+    )
+
+    match federated_auth_params.integrationType:
+        case "trino":
+            sql_alchemy_dict["params"]["connect_args"]["http_headers"][
+                "Authorization"
+            ] = f"Bearer {access_token}"
+        case "big-query":
+            sql_alchemy_dict["params"]["access_token"] = access_token
+        case _:
+            _check_never: Never = federated_auth_params.integrationType
+            raise ValueError(
+                f"Unsupported integration type: {federated_auth_params.integrationType}"
+            )
+
+
 @contextlib.contextmanager
 def _create_sql_ssh_uri(ssh_enabled, sql_alchemy_dict):
     server = None
@@ -346,16 +429,9 @@ def _query_data_source(
 ):
     sshEnabled = sql_alchemy_dict.get("ssh_options", {}).get("enabled", False)
 
-    if "iamParams" in sql_alchemy_dict:
-        integration_id = sql_alchemy_dict["iamParams"]["integrationId"]
+    _handle_iam_params(sql_alchemy_dict)
 
-        temporaryUsername, temporaryPassword = _generate_temporary_credentials(
-            integration_id
-        )
-
-        sql_alchemy_dict["url"] = replace_user_pass_in_pg_url(
-            sql_alchemy_dict["url"], temporaryUsername, temporaryPassword
-        )
+    _handle_federated_auth_params(sql_alchemy_dict)
 
     with _create_sql_ssh_uri(sshEnabled, sql_alchemy_dict) as url:
         if url is None:
