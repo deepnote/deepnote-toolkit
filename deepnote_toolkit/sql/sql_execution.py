@@ -318,9 +318,9 @@ def _handle_federated_auth_params(sql_alchemy_dict: dict[str, Any]) -> None:
     if federated_auth.integrationType == "trino":
         sql_alchemy_dict["params"]["connect_args"]["http_headers"][
             "Authorization"
-        ] = f"Bearer {federated_auth.access_token}"
+        ] = f"Bearer {federated_auth.accessToken}"
     elif federated_auth.integrationType == "big-query":
-        sql_alchemy_dict["params"]["access_token"] = federated_auth.access_token
+        sql_alchemy_dict["params"]["access_token"] = federated_auth.accessToken
     else:
         logger.error(
             "Unsupported integration type: %s, try updating toolkit version", federated_auth.integrationType
