@@ -585,3 +585,222 @@ class TestSanitizeDataframe(unittest.TestCase):
                 df_cleaned.to_parquet(in_memory_file)
             except:  # noqa: E722
                 self.fail(f"serializing to parquet failed for {key}")
+
+
+class TestFederatedAuth(unittest.TestCase):
+    @mock.patch("deepnote_toolkit.sql.sql_execution._get_federated_auth_credentials")
+    def test_federated_auth_params_trino(self, mock_get_credentials):
+        """Test that Trino federated auth updates the Authorization header with Bearer token."""
+        from deepnote_toolkit.sql.sql_execution import (
+            FederatedAuthResponseData,
+            _handle_federated_auth_params,
+        )
+
+        # Setup mock to return Trino credentials
+        mock_get_credentials.return_value = FederatedAuthResponseData(
+            integrationType="trino",
+            accessToken="test-trino-access-token",
+        )
+
+        # Create a sql_alchemy_dict with federatedAuthParams and the expected structure
+        sql_alchemy_dict = {
+            "url": "trino://user@localhost:8080/catalog",
+            "params": {
+                "connect_args": {
+                    "http_headers": {
+                        "Authorization": "Bearer old-token",
+                    }
+                }
+            },
+            "federatedAuthParams": {
+                "integrationId": "test-integration-id",
+                "authContextToken": "test-auth-context-token",
+            },
+        }
+
+        # Call the function
+        _handle_federated_auth_params(sql_alchemy_dict)
+
+        # Verify the API was called with correct params
+        mock_get_credentials.assert_called_once_with(
+            "test-integration-id", "test-auth-context-token"
+        )
+
+        # Verify the Authorization header was updated with the new token
+        self.assertEqual(
+            sql_alchemy_dict["params"]["connect_args"]["http_headers"]["Authorization"],
+            "Bearer test-trino-access-token",
+        )
+
+    @mock.patch("deepnote_toolkit.sql.sql_execution._get_federated_auth_credentials")
+    def test_federated_auth_params_bigquery(self, mock_get_credentials):
+        """Test that BigQuery federated auth updates the access_token in params."""
+        from deepnote_toolkit.sql.sql_execution import (
+            FederatedAuthResponseData,
+            _handle_federated_auth_params,
+        )
+
+        # Setup mock to return BigQuery credentials
+        mock_get_credentials.return_value = FederatedAuthResponseData(
+            integrationType="big-query",
+            accessToken="test-bigquery-access-token",
+        )
+
+        # Create a sql_alchemy_dict with federatedAuthParams
+        sql_alchemy_dict = {
+            "url": "bigquery://?user_supplied_client=true",
+            "params": {
+                "access_token": "old-access-token",
+                "project": "test-project",
+            },
+            "federatedAuthParams": {
+                "integrationId": "test-bigquery-integration-id",
+                "authContextToken": "test-bigquery-auth-context-token",
+            },
+        }
+
+        # Call the function
+        _handle_federated_auth_params(sql_alchemy_dict)
+
+        # Verify the API was called with correct params
+        mock_get_credentials.assert_called_once_with(
+            "test-bigquery-integration-id", "test-bigquery-auth-context-token"
+        )
+
+        # Verify the access_token was updated with the new token
+        self.assertEqual(
+            sql_alchemy_dict["params"]["access_token"],
+            "test-bigquery-access-token",
+        )
+
+    @mock.patch("deepnote_toolkit.sql.sql_execution.logger")
+    @mock.patch("deepnote_toolkit.sql.sql_execution._get_federated_auth_credentials")
+    def test_federated_auth_params_snowflake(self, mock_get_credentials, mock_logger):
+        """Test that Snowflake federated auth logs a warning since it's not supported yet."""
+        from deepnote_toolkit.sql.sql_execution import (
+            FederatedAuthResponseData,
+            _handle_federated_auth_params,
+        )
+
+        # Setup mock to return Snowflake credentials
+        mock_get_credentials.return_value = FederatedAuthResponseData(
+            integrationType="snowflake",
+            accessToken="test-snowflake-access-token",
+        )
+
+        # Create a sql_alchemy_dict with federatedAuthParams
+        sql_alchemy_dict = {
+            "url": "snowflake://test@test?warehouse=&role=&application=Deepnote_Workspaces",
+            "params": {},
+            "federatedAuthParams": {
+                "integrationId": "test-snowflake-integration-id",
+                "authContextToken": "test-snowflake-auth-context-token",
+            },
+        }
+
+        # Store original params to verify they remain unchanged
+        original_params = sql_alchemy_dict["params"].copy()
+
+        # Call the function
+        _handle_federated_auth_params(sql_alchemy_dict)
+
+        # Verify the API was called with correct params
+        mock_get_credentials.assert_called_once_with(
+            "test-snowflake-integration-id", "test-snowflake-auth-context-token"
+        )
+
+        # Verify a warning was logged
+        mock_logger.warning.assert_called_once_with(
+            "Snowflake federated auth is not supported yet, using the original connection URL"
+        )
+
+        # Verify params were NOT modified (snowflake is not supported yet)
+        self.assertEqual(sql_alchemy_dict["params"], original_params)
+
+    def test_federated_auth_params_not_present(self):
+        """Test that no action is taken when federatedAuthParams is not present."""
+        from deepnote_toolkit.sql.sql_execution import _handle_federated_auth_params
+
+        # Create a sql_alchemy_dict without federatedAuthParams
+        sql_alchemy_dict = {
+            "url": "trino://user@localhost:8080/catalog",
+            "params": {
+                "connect_args": {
+                    "http_headers": {"Authorization": "Bearer original-token"}
+                }
+            },
+        }
+
+        original_dict = json.loads(json.dumps(sql_alchemy_dict))
+
+        # Call the function
+        _handle_federated_auth_params(sql_alchemy_dict)
+
+        # Verify the dict was not modified
+        self.assertEqual(sql_alchemy_dict, original_dict)
+
+    @mock.patch("deepnote_toolkit.sql.sql_execution.logger")
+    def test_federated_auth_params_invalid_params(self, mock_logger):
+        """Test that invalid federated auth params logs an error and returns early."""
+        from deepnote_toolkit.sql.sql_execution import _handle_federated_auth_params
+
+        # Create a sql_alchemy_dict with invalid federatedAuthParams (missing required fields)
+        sql_alchemy_dict = {
+            "url": "trino://user@localhost:8080/catalog",
+            "params": {},
+            "federatedAuthParams": {
+                "invalidField": "value",
+            },
+        }
+
+        original_dict = json.loads(json.dumps(sql_alchemy_dict))
+
+        # Call the function
+        _handle_federated_auth_params(sql_alchemy_dict)
+
+        # Verify an error was logged
+        mock_logger.error.assert_called_once()
+        call_args = mock_logger.error.call_args
+        self.assertIn("Invalid federated auth params", call_args[0][0])
+
+        self.assertEqual(sql_alchemy_dict, original_dict)
+
+    @mock.patch("deepnote_toolkit.sql.sql_execution.logger")
+    @mock.patch("deepnote_toolkit.sql.sql_execution._get_federated_auth_credentials")
+    def test_federated_auth_params_unsupported_integration_type(
+        self, mock_get_credentials, mock_logger
+    ):
+        """Test that unsupported integration type logs an error."""
+        from deepnote_toolkit.sql.sql_execution import (
+            FederatedAuthResponseData,
+            _handle_federated_auth_params,
+        )
+
+        # Setup mock to return unknown integration type
+        mock_get_credentials.return_value = FederatedAuthResponseData(
+            integrationType="unknown-database",
+            accessToken="test-token",
+        )
+
+        # Create a sql_alchemy_dict with federatedAuthParams
+        sql_alchemy_dict = {
+            "url": "unknown://host/db",
+            "params": {},
+            "federatedAuthParams": {
+                "integrationId": "test-integration-id",
+                "authContextToken": "test-auth-context-token",
+            },
+        }
+
+        original_dict = json.loads(json.dumps(sql_alchemy_dict))
+
+        # Call the function
+        _handle_federated_auth_params(sql_alchemy_dict)
+
+        # Verify an error was logged for unsupported integration type
+        mock_logger.error.assert_called_once_with(
+            "Unsupported integration type: %s, try updating toolkit version",
+            "unknown-database",
+        )
+
+        self.assertEqual(sql_alchemy_dict, original_dict)

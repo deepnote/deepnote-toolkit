@@ -267,6 +267,8 @@ def _generate_temporary_credentials(integration_id):
 def _get_federated_auth_credentials(
     integration_id: str, user_pod_auth_context_token: str
 ) -> FederatedAuthResponseData:
+    """Get federated auth credentials for the given integration ID and user pod auth context token."""
+
     url = get_absolute_userpod_api_url(
         f"integrations/federated-auth-token/{integration_id}"
     )
@@ -327,6 +329,8 @@ def _handle_federated_auth_params(sql_alchemy_dict: dict[str, Any]) -> None:
         ] = f"Bearer {federated_auth.accessToken}"
     elif federated_auth.integrationType == "big-query":
         sql_alchemy_dict["params"]["access_token"] = federated_auth.accessToken
+    elif federated_auth.integrationType == "snowflake":
+        logger.warning("Snowflake federated auth is not supported yet, using the original connection URL")
     else:
         logger.error(
             "Unsupported integration type: %s, try updating toolkit version",
