@@ -3,26 +3,20 @@ import contextlib
 import json
 import logging
 import re
-import sys
-from typing import Any, Literal
 import uuid
-
-if sys.version_info >= (3, 11):
-    from typing import Never
-else:
-    from typing_extensions import Never
 import warnings
+from typing import Any
 from urllib.parse import quote
 
 import google.oauth2.credentials
 import numpy as np
-from pydantic import BaseModel, ValidationError
 import requests
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from google.api_core.client_info import ClientInfo
 from google.cloud import bigquery
 from packaging.version import parse as parse_version
+from pydantic import BaseModel, ValidationError
 from sqlalchemy.engine import URL, create_engine, make_url
 from sqlalchemy.exc import ResourceClosedError
 
@@ -46,12 +40,12 @@ logger = logging.getLogger(__name__)
 
 
 class IntegrationFederatedAuthParams(BaseModel):
-    integrationType: Literal["trino", "big-query"]
     integrationId: str
-    userId: str
+    userPodAuthContextToken: str
 
 
 class FederatedAuthResponseData(BaseModel):
+    integrationType: str
     accessToken: str
 
 
@@ -268,37 +262,42 @@ def _generate_temporary_credentials(integration_id):
     return quote(data["username"]), quote(data["password"])
 
 
-def _get_federated_auth_credentials(integration_id: str, user_id: str) -> str:
+def _get_federated_auth_credentials(integration_id: str, user_pod_auth_context_token: str) -> FederatedAuthResponseData:
     url = get_absolute_userpod_api_url(
         f"integrations/federated-auth-token/{integration_id}"
     )
 
     # Add project credentials in detached mode
     headers = get_project_auth_headers()
+    headers["UserPodAuthContextToken"] = user_pod_auth_context_token
 
-    response = requests.post(url, json={"userId": user_id}, timeout=10, headers=headers)
+    response = requests.post(url, timeout=10, headers=headers)
 
-    data = FederatedAuthResponseData.model_validate_json(response.json())
+    data = FederatedAuthResponseData.model_validate(response.json())
 
-    return data.accessToken
+    return data
 
 
 def _handle_iam_params(sql_alchemy_dict: dict[str, Any]) -> None:
+    """Apply IAM credentials to the connection URL in-place."""
+
     if "iamParams" not in sql_alchemy_dict:
         return
 
     integration_id = sql_alchemy_dict["iamParams"]["integrationId"]
 
-    temporaryUsername, temporaryPassword = _generate_temporary_credentials(
+    temporary_username, temporary_password = _generate_temporary_credentials(
         integration_id
     )
 
     sql_alchemy_dict["url"] = replace_user_pass_in_pg_url(
-        sql_alchemy_dict["url"], temporaryUsername, temporaryPassword
+        sql_alchemy_dict["url"], temporary_username, temporary_password
     )
 
 
 def _handle_federated_auth_params(sql_alchemy_dict: dict[str, Any]) -> None:
+    """Fetch and apply federated auth credentials to connection params in-place."""
+
     if "federatedAuthParams" not in sql_alchemy_dict:
         return
 
@@ -308,26 +307,24 @@ def _handle_federated_auth_params(sql_alchemy_dict: dict[str, Any]) -> None:
         )
     except ValidationError as e:
         logger.error(
-            f"Invalid federated auth params, try updating toolkit version: {e}"
+            "Invalid federated auth params, try updating toolkit version:", exc_info=e
         )
         return
 
-    access_token = _get_federated_auth_credentials(
-        federated_auth_params.integrationId, federated_auth_params.userId
+    federated_auth = _get_federated_auth_credentials(
+        federated_auth_params.integrationId, federated_auth_params.userPodAuthContextToken
     )
 
-    match federated_auth_params.integrationType:
-        case "trino":
-            sql_alchemy_dict["params"]["connect_args"]["http_headers"][
-                "Authorization"
-            ] = f"Bearer {access_token}"
-        case "big-query":
-            sql_alchemy_dict["params"]["access_token"] = access_token
-        case _:
-            _check_never: Never = federated_auth_params.integrationType
-            raise ValueError(
-                f"Unsupported integration type: {federated_auth_params.integrationType}"
-            )
+    if federated_auth.integrationType == "trino":
+        sql_alchemy_dict["params"]["connect_args"]["http_headers"][
+            "Authorization"
+        ] = f"Bearer {federated_auth.access_token}"
+    elif federated_auth.integrationType == "big-query":
+        sql_alchemy_dict["params"]["access_token"] = federated_auth.access_token
+    else:
+        logger.error(
+            "Unsupported integration type: %s, try updating toolkit version", federated_auth.integrationType
+        )
 
 
 @contextlib.contextmanager
