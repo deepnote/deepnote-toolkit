@@ -330,7 +330,9 @@ def _handle_federated_auth_params(sql_alchemy_dict: dict[str, Any]) -> None:
     elif federated_auth.integrationType == "big-query":
         sql_alchemy_dict["params"]["access_token"] = federated_auth.accessToken
     elif federated_auth.integrationType == "snowflake":
-        logger.warning("Snowflake federated auth is not supported yet, using the original connection URL")
+        logger.warning(
+            "Snowflake federated auth is not supported yet, using the original connection URL"
+        )
     else:
         logger.error(
             "Unsupported integration type: %s, try updating toolkit version",
