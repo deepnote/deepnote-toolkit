@@ -41,7 +41,7 @@ logger = logging.getLogger(__name__)
 
 class IntegrationFederatedAuthParams(BaseModel):
     integrationId: str
-    userPodAuthContextToken: str
+    authContextToken: str
 
 
 class FederatedAuthResponseData(BaseModel):
@@ -257,12 +257,16 @@ def _generate_temporary_credentials(integration_id):
 
     response = requests.post(url, timeout=10, headers=headers)
 
+    response.raise_for_status()
+
     data = response.json()
 
     return quote(data["username"]), quote(data["password"])
 
 
-def _get_federated_auth_credentials(integration_id: str, user_pod_auth_context_token: str) -> FederatedAuthResponseData:
+def _get_federated_auth_credentials(
+    integration_id: str, user_pod_auth_context_token: str
+) -> FederatedAuthResponseData:
     url = get_absolute_userpod_api_url(
         f"integrations/federated-auth-token/{integration_id}"
     )
@@ -272,6 +276,8 @@ def _get_federated_auth_credentials(integration_id: str, user_pod_auth_context_t
     headers["UserPodAuthContextToken"] = user_pod_auth_context_token
 
     response = requests.post(url, timeout=10, headers=headers)
+
+    response.raise_for_status()
 
     data = FederatedAuthResponseData.model_validate(response.json())
 
@@ -312,7 +318,7 @@ def _handle_federated_auth_params(sql_alchemy_dict: dict[str, Any]) -> None:
         return
 
     federated_auth = _get_federated_auth_credentials(
-        federated_auth_params.integrationId, federated_auth_params.userPodAuthContextToken
+        federated_auth_params.integrationId, federated_auth_params.authContextToken
     )
 
     if federated_auth.integrationType == "trino":
@@ -323,7 +329,8 @@ def _handle_federated_auth_params(sql_alchemy_dict: dict[str, Any]) -> None:
         sql_alchemy_dict["params"]["access_token"] = federated_auth.accessToken
     else:
         logger.error(
-            "Unsupported integration type: %s, try updating toolkit version", federated_auth.integrationType
+            "Unsupported integration type: %s, try updating toolkit version",
+            federated_auth.integrationType,
         )
 
 
