@@ -758,9 +758,9 @@ class TestFederatedAuth(unittest.TestCase):
         # Call the function
         _handle_federated_auth_params(sql_alchemy_dict)
 
-        # Verify an error was logged
-        mock_logger.error.assert_called_once()
-        call_args = mock_logger.error.call_args
+        # Verify an exception was logged
+        mock_logger.exception.assert_called_once()
+        call_args = mock_logger.exception.call_args
         self.assertIn("Invalid federated auth params", call_args[0][0])
 
         self.assertEqual(sql_alchemy_dict, original_dict)
