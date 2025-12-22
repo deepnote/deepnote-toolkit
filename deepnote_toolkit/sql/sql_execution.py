@@ -313,10 +313,8 @@ def _handle_federated_auth_params(sql_alchemy_dict: dict[str, Any]) -> None:
         federated_auth_params = IntegrationFederatedAuthParams.model_validate(
             sql_alchemy_dict["federatedAuthParams"]
         )
-    except ValidationError as e:
-        logger.error(
-            "Invalid federated auth params, try updating toolkit version:", exc_info=e
-        )
+    except ValidationError:
+        logger.exception("Invalid federated auth params, try updating toolkit version")
         return
 
     federated_auth = _get_federated_auth_credentials(
@@ -324,11 +322,21 @@ def _handle_federated_auth_params(sql_alchemy_dict: dict[str, Any]) -> None:
     )
 
     if federated_auth.integrationType == "trino":
-        sql_alchemy_dict["params"]["connect_args"]["http_headers"][
-            "Authorization"
-        ] = f"Bearer {federated_auth.accessToken}"
+        try:
+            sql_alchemy_dict["params"]["connect_args"]["http_headers"][
+                "Authorization"
+            ] = f"Bearer {federated_auth.accessToken}"
+        except KeyError:
+            logger.exception(
+                "Invalid federated auth params, try updating toolkit version"
+            )
     elif federated_auth.integrationType == "big-query":
-        sql_alchemy_dict["params"]["access_token"] = federated_auth.accessToken
+        try:
+            sql_alchemy_dict["params"]["access_token"] = federated_auth.accessToken
+        except KeyError:
+            logger.exception(
+                "Invalid federated auth params, try updating toolkit version"
+            )
     elif federated_auth.integrationType == "snowflake":
         logger.warning(
             "Snowflake federated auth is not supported yet, using the original connection URL"
