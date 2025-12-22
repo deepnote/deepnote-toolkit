@@ -700,7 +700,7 @@ class TestFederatedAuth(unittest.TestCase):
         }
 
         # Store original params to verify they remain unchanged
-        original_params = sql_alchemy_dict["params"].copy()
+        original_params = copy.deepcopy(sql_alchemy_dict["params"])
 
         # Call the function
         _handle_federated_auth_params(sql_alchemy_dict)
