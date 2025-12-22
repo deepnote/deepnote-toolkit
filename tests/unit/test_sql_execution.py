@@ -1,4 +1,5 @@
 import base64
+import copy
 import datetime
 import io
 import json
@@ -731,7 +732,7 @@ class TestFederatedAuth(unittest.TestCase):
             },
         }
 
-        original_dict = json.loads(json.dumps(sql_alchemy_dict))
+        original_dict = copy.deepcopy(sql_alchemy_dict)
 
         # Call the function
         _handle_federated_auth_params(sql_alchemy_dict)
@@ -753,7 +754,7 @@ class TestFederatedAuth(unittest.TestCase):
             },
         }
 
-        original_dict = json.loads(json.dumps(sql_alchemy_dict))
+        original_dict = copy.deepcopy(sql_alchemy_dict)
 
         # Call the function
         _handle_federated_auth_params(sql_alchemy_dict)
@@ -792,7 +793,7 @@ class TestFederatedAuth(unittest.TestCase):
             },
         }
 
-        original_dict = json.loads(json.dumps(sql_alchemy_dict))
+        original_dict = copy.deepcopy(sql_alchemy_dict)
 
         # Call the function
         _handle_federated_auth_params(sql_alchemy_dict)
@@ -803,4 +804,98 @@ class TestFederatedAuth(unittest.TestCase):
             "unknown-database",
         )
 
+        self.assertEqual(sql_alchemy_dict, original_dict)
+
+    @mock.patch("deepnote_toolkit.sql.sql_execution.logger")
+    @mock.patch("deepnote_toolkit.sql.sql_execution._get_federated_auth_credentials")
+    def test_federated_auth_params_trino_missing_http_headers(
+        self, mock_get_credentials, mock_logger
+    ):
+        """Test that Trino federated auth logs exception when connect_args is missing http_headers."""
+        from deepnote_toolkit.sql.sql_execution import (
+            FederatedAuthResponseData,
+            _handle_federated_auth_params,
+        )
+
+        # Setup mock to return Trino credentials
+        mock_get_credentials.return_value = FederatedAuthResponseData(
+            integrationType="trino",
+            accessToken="test-trino-access-token",
+        )
+
+        # Create a sql_alchemy_dict with connect_args but missing http_headers
+        sql_alchemy_dict = {
+            "url": "trino://user@localhost:8080/catalog",
+            "params": {
+                "connect_args": {
+                    # http_headers is missing
+                }
+            },
+            "federatedAuthParams": {
+                "integrationId": "test-integration-id",
+                "authContextToken": "test-auth-context-token",
+            },
+        }
+
+        original_dict = copy.deepcopy(sql_alchemy_dict)
+
+        # Call the function
+        _handle_federated_auth_params(sql_alchemy_dict)
+
+        # Verify the API was called with correct params
+        mock_get_credentials.assert_called_once_with(
+            "test-integration-id", "test-auth-context-token"
+        )
+
+        # Verify an exception was logged for missing http_headers
+        mock_logger.exception.assert_called_once()
+        call_args = mock_logger.exception.call_args
+        self.assertIn("Invalid federated auth params", call_args[0][0])
+
+        # Verify the dict was not modified
+        self.assertEqual(sql_alchemy_dict, original_dict)
+
+    @mock.patch("deepnote_toolkit.sql.sql_execution.logger")
+    @mock.patch("deepnote_toolkit.sql.sql_execution._get_federated_auth_credentials")
+    def test_federated_auth_params_bigquery_missing_params(
+        self, mock_get_credentials, mock_logger
+    ):
+        """Test that BigQuery federated auth logs exception when params key is missing."""
+        from deepnote_toolkit.sql.sql_execution import (
+            FederatedAuthResponseData,
+            _handle_federated_auth_params,
+        )
+
+        # Setup mock to return BigQuery credentials
+        mock_get_credentials.return_value = FederatedAuthResponseData(
+            integrationType="big-query",
+            accessToken="test-bigquery-access-token",
+        )
+
+        # Create a sql_alchemy_dict without params key (will cause KeyError)
+        sql_alchemy_dict = {
+            "url": "bigquery://?user_supplied_client=true",
+            # params key is missing entirely
+            "federatedAuthParams": {
+                "integrationId": "test-bigquery-integration-id",
+                "authContextToken": "test-bigquery-auth-context-token",
+            },
+        }
+
+        original_dict = copy.deepcopy(sql_alchemy_dict)
+
+        # Call the function
+        _handle_federated_auth_params(sql_alchemy_dict)
+
+        # Verify the API was called with correct params
+        mock_get_credentials.assert_called_once_with(
+            "test-bigquery-integration-id", "test-bigquery-auth-context-token"
+        )
+
+        # Verify an exception was logged for missing params
+        mock_logger.exception.assert_called_once()
+        call_args = mock_logger.exception.call_args
+        self.assertIn("Invalid federated auth params", call_args[0][0])
+
+        # Verify the dict was not modified
         self.assertEqual(sql_alchemy_dict, original_dict)
