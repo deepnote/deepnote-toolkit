@@ -115,6 +115,9 @@ def execute_sql_with_connection_json(
 
         requires_duckdb = sql_alchemy_dict["url"] == "deepnote+duckdb:///:memory:"
 
+        _handle_iam_params(sql_alchemy_dict)
+        _handle_federated_auth_params(sql_alchemy_dict)
+
         requires_bigquery_oauth = (
             sql_alchemy_dict["url"] == "bigquery://?user_supplied_client=true"
         )
@@ -447,10 +450,6 @@ def _query_data_source(
     query_preview_source,
 ):
     sshEnabled = sql_alchemy_dict.get("ssh_options", {}).get("enabled", False)
-
-    _handle_iam_params(sql_alchemy_dict)
-
-    _handle_federated_auth_params(sql_alchemy_dict)
 
     with _create_sql_ssh_uri(sshEnabled, sql_alchemy_dict) as url:
         if url is None:
