@@ -45,7 +45,7 @@ def _get_description_compat(field: Any) -> str:
     return getattr(field_info, "description", "") if field_info else ""
 
 
-def _model_validate_compat(model_cls, data: Mapping[str, Any]) -> Any:
+def model_validate_compat(model_cls, data: Mapping[str, Any]) -> Any:
     """Validate using Pydantic v2 if available, else fall back to v1.
 
     Pydantic v2 exposes `model_validate`, while v1 uses `parse_obj` on the class.
