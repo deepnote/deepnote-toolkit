@@ -589,6 +589,53 @@ class TestSanitizeDataframe(unittest.TestCase):
 
 
 class TestFederatedAuth(unittest.TestCase):
+    @mock.patch("deepnote_toolkit.sql.sql_execution.get_project_auth_headers")
+    @mock.patch("deepnote_toolkit.sql.sql_execution.get_absolute_userpod_api_url")
+    @mock.patch("deepnote_toolkit.sql.sql_execution.requests.post")
+    def test_get_federated_auth_credentials_returns_validated_response(
+        self, mock_post, mock_get_url, mock_get_headers
+    ):
+        """Test that _get_federated_auth_credentials properly validates and returns response data."""
+        from deepnote_toolkit.sql.sql_execution import _get_federated_auth_credentials
+
+        # Setup mocks
+        mock_get_url.return_value = "https://api.example.com/integrations/federated-auth-token/test-integration-id"
+        mock_get_headers.return_value = {"Authorization": "Bearer project-token"}
+
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "integrationType": "trino",
+            "accessToken": "test-access-token-123",
+        }
+        mock_post.return_value = mock_response
+
+        # Call the function
+        result = _get_federated_auth_credentials(
+            "test-integration-id", "test-auth-context-token"
+        )
+
+        # Verify URL construction
+        mock_get_url.assert_called_once_with(
+            "integrations/federated-auth-token/test-integration-id"
+        )
+
+        # Verify headers include both project auth and user pod auth context token
+        mock_post.assert_called_once_with(
+            "https://api.example.com/integrations/federated-auth-token/test-integration-id",
+            timeout=10,
+            headers={
+                "Authorization": "Bearer project-token",
+                "UserPodAuthContextToken": "test-auth-context-token",
+            },
+        )
+
+        # Verify raise_for_status was called
+        mock_response.raise_for_status.assert_called_once()
+
+        # Verify the response is properly validated and returned
+        self.assertEqual(result.integrationType, "trino")
+        self.assertEqual(result.accessToken, "test-access-token-123")
+
     @mock.patch("deepnote_toolkit.sql.sql_execution._get_federated_auth_credentials")
     def test_federated_auth_params_trino(self, mock_get_credentials):
         """Test that Trino federated auth updates the Authorization header with Bearer token."""
