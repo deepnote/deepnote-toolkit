@@ -14,7 +14,7 @@ except ImportError:  # pragma: no cover - for <3.11
 
 import yaml
 
-from ..pydantic_compat_helpers import _model_validate_compat
+from ..pydantic_compat_helpers import model_validate_compat
 from .installation_detector import InstallMethod, get_installation_method
 from .models import DeepnoteConfig
 from .xdg_paths import XDGPaths
@@ -108,7 +108,7 @@ class ConfigurationLoader:
 
         # 5) Expand paths and installation paths prior to model validation
         self._expand_path_fields(merged)
-        cfg = _model_validate_compat(DeepnoteConfig, merged)
+        cfg = model_validate_compat(DeepnoteConfig, merged)
 
         # 6) Normalize/expand any defaulted path values in the final model
         self._expand_config_paths(cfg)
@@ -131,7 +131,7 @@ class ConfigurationLoader:
         _deep_merge(merged, file_dict)
         _deep_merge(merged, env_overlay)
         self._expand_path_fields(merged)
-        cfg = _model_validate_compat(DeepnoteConfig, merged)
+        cfg = model_validate_compat(DeepnoteConfig, merged)
         self._expand_config_paths(cfg)
         self._apply_installation_defaults(cfg)
         return cfg

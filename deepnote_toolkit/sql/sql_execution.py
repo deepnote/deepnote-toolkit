@@ -16,10 +16,11 @@ from cryptography.hazmat.primitives import serialization
 from google.api_core.client_info import ClientInfo
 from google.cloud import bigquery
 from packaging.version import parse as parse_version
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from sqlalchemy.engine import URL, create_engine, make_url
 from sqlalchemy.exc import ResourceClosedError
 
+from deepnote_core.pydantic_compat_helpers import model_validate_compat
 from deepnote_toolkit import env as dnenv
 from deepnote_toolkit.create_ssh_tunnel import create_ssh_tunnel
 from deepnote_toolkit.get_webapp_url import (
@@ -113,6 +114,9 @@ def execute_sql_with_connection_json(
         sql_alchemy_dict = json.loads(sql_alchemy_json)
 
         requires_duckdb = sql_alchemy_dict["url"] == "deepnote+duckdb:///:memory:"
+
+        _handle_iam_params(sql_alchemy_dict)
+        _handle_federated_auth_params(sql_alchemy_dict)
 
         requires_bigquery_oauth = (
             sql_alchemy_dict["url"] == "bigquery://?user_supplied_client=true"
@@ -281,7 +285,7 @@ def _get_federated_auth_credentials(
 
     response.raise_for_status()
 
-    data = FederatedAuthResponseData.model_validate(response.json())
+    data = model_validate_compat(FederatedAuthResponseData, response.json())
 
     return data
 
@@ -310,10 +314,10 @@ def _handle_federated_auth_params(sql_alchemy_dict: dict[str, Any]) -> None:
         return
 
     try:
-        federated_auth_params = IntegrationFederatedAuthParams.model_validate(
-            sql_alchemy_dict["federatedAuthParams"]
+        federated_auth_params = model_validate_compat(
+            IntegrationFederatedAuthParams, sql_alchemy_dict["federatedAuthParams"]
         )
-    except ValidationError:
+    except Exception:
         logger.exception("Invalid federated auth params, try updating toolkit version")
         return
 
@@ -446,10 +450,6 @@ def _query_data_source(
     query_preview_source,
 ):
     sshEnabled = sql_alchemy_dict.get("ssh_options", {}).get("enabled", False)
-
-    _handle_iam_params(sql_alchemy_dict)
-
-    _handle_federated_auth_params(sql_alchemy_dict)
 
     with _create_sql_ssh_uri(sshEnabled, sql_alchemy_dict) as url:
         if url is None:
