@@ -721,10 +721,9 @@ class TestFederatedAuth(unittest.TestCase):
             "test-bigquery-access-token",
         )
 
-    @mock.patch("deepnote_toolkit.sql.sql_execution.logger")
     @mock.patch("deepnote_toolkit.sql.sql_execution._get_federated_auth_credentials")
-    def test_federated_auth_params_snowflake(self, mock_get_credentials, mock_logger):
-        """Test that Snowflake federated auth logs a warning since it's not supported yet."""
+    def test_federated_auth_params_snowflake(self, mock_get_credentials):
+        """Test that Snowflake federated auth doesn't do anything since it's not supported yet."""
         from deepnote_toolkit.sql.sql_execution import (
             FederatedAuthResponseData,
             _handle_federated_auth_params,
@@ -755,11 +754,6 @@ class TestFederatedAuth(unittest.TestCase):
         # Verify the API was called with correct params
         mock_get_credentials.assert_called_once_with(
             "test-snowflake-integration-id", "test-snowflake-auth-context-token"
-        )
-
-        # Verify a warning was logged
-        mock_logger.warning.assert_called_once_with(
-            "Snowflake federated auth is not supported yet, using the original connection URL"
         )
 
         # Verify params were NOT modified (snowflake is not supported yet)
