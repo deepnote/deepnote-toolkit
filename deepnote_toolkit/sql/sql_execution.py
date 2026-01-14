@@ -16,10 +16,11 @@ from cryptography.hazmat.primitives import serialization
 from google.api_core.client_info import ClientInfo
 from google.cloud import bigquery
 from packaging.version import parse as parse_version
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 from sqlalchemy.engine import URL, create_engine, make_url
 from sqlalchemy.exc import ResourceClosedError
 
+from deepnote_core.pydantic_compat_helpers import model_validate_compat
 from deepnote_toolkit import env as dnenv
 from deepnote_toolkit.create_ssh_tunnel import create_ssh_tunnel
 from deepnote_toolkit.get_webapp_url import (
@@ -281,7 +282,7 @@ def _get_federated_auth_credentials(
 
     response.raise_for_status()
 
-    data = FederatedAuthResponseData.model_validate(response.json())
+    data = model_validate_compat(FederatedAuthResponseData, response.json())
 
     return data
 
@@ -310,10 +311,10 @@ def _handle_federated_auth_params(sql_alchemy_dict: dict[str, Any]) -> None:
         return
 
     try:
-        federated_auth_params = IntegrationFederatedAuthParams.model_validate(
-            sql_alchemy_dict["federatedAuthParams"]
+        federated_auth_params = model_validate_compat(
+            IntegrationFederatedAuthParams, sql_alchemy_dict["federatedAuthParams"]
         )
-    except ValidationError:
+    except Exception:
         logger.exception("Invalid federated auth params, try updating toolkit version")
         return
 
