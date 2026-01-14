@@ -314,7 +314,7 @@ def _handle_federated_auth_params(sql_alchemy_dict: dict[str, Any]) -> None:
         federated_auth_params = model_validate_compat(
             IntegrationFederatedAuthParams, sql_alchemy_dict["federatedAuthParams"]
         )
-    except BaseException:
+    except Exception:
         logger.exception("Invalid federated auth params, try updating toolkit version")
         return
 
