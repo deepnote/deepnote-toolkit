@@ -168,9 +168,7 @@ class ResourceMonitor:
 class MetricsHandler(BaseHTTPRequestHandler):
     """HTTP handler for resource metrics."""
 
-    def __init__(
-        self, monitor: ResourceMonitor, *args: Any, **kwargs: Any
-    ) -> None:
+    def __init__(self, monitor: ResourceMonitor, *args: Any, **kwargs: Any) -> None:
         self.monitor = monitor
         super().__init__(*args, **kwargs)
 
@@ -209,7 +207,9 @@ class MetricsHandler(BaseHTTPRequestHandler):
                 "usage_percent": mem_util,
             },
             "cpu": {
-                "usage_percent": round(cpu_percent, 2) if cpu_percent is not None else None,
+                "usage_percent": (
+                    round(cpu_percent, 2) if cpu_percent is not None else None
+                ),
                 "limit_cores": cpu_limit,
                 "saturation_percent": cpu_sat,
             },
