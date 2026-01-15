@@ -142,7 +142,8 @@ class ResourceMonitor:
             return None
 
         if self.backend == "psutil":
-            return float(psutil.cpu_count(logical=True))
+            cpu_count = psutil.cpu_count(logical=True)
+            return float(cpu_count) if cpu_count is not None else None
 
         return None
 
@@ -208,7 +209,7 @@ class MetricsHandler(BaseHTTPRequestHandler):
                 "usage_percent": mem_util,
             },
             "cpu": {
-                "usage_percent": round(cpu_percent, 2) if cpu_percent else None,
+                "usage_percent": round(cpu_percent, 2) if cpu_percent is not None else None,
                 "limit_cores": cpu_limit,
                 "saturation_percent": cpu_sat,
             },
