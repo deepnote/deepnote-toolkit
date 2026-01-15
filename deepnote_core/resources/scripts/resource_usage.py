@@ -47,7 +47,9 @@ class ResourceMonitor:
     def get_memory(self) -> tuple[int, Optional[int]]:
         """Returns (used_bytes, limit_bytes). Limit is None if unlimited."""
         if self.backend == "cgroupv2":
-            used = self._parse_int(self.root / "memory.current", 0)
+            current = self._parse_int(self.root / "memory.current", 0)
+            inactive_file = self._parse_memory_stat("inactive_file")
+            used = current - inactive_file
             limit_str = self._read_file(self.root / "memory.max")
             limit = self._parse_limit(limit_str, "max")
             return used, limit
@@ -97,6 +99,21 @@ class ResourceMonitor:
             return parsed
         except ValueError:
             return None
+
+    def _parse_memory_stat(self, key: str) -> int:
+        """Parse a value from memory.stat file."""
+        content = self._read_file(self.root / "memory.stat")
+        if not content:
+            return 0
+        for line in content.splitlines():
+            if line.startswith(key):
+                parts = line.split()
+                if len(parts) >= 2:
+                    try:
+                        return int(parts[1])
+                    except ValueError:
+                        pass
+        return 0
 
     def _get_cpu_seconds(self) -> float:
         if self.backend == "cgroupv2":
