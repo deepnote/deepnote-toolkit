@@ -231,8 +231,8 @@ class MetricsHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def log_message(self, format: str, *args: Any) -> None:
-        print(f"{self.address_string()} - {format % args}")
+    def log_message(self, msg_format: str, *args: Any) -> None:
+        print(f"{self.address_string()} - {msg_format % args}")
 
 
 def main() -> None:
