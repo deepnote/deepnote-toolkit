@@ -342,9 +342,8 @@ def _handle_federated_auth_params(sql_alchemy_dict: dict[str, Any]) -> None:
                 "Invalid federated auth params, try updating toolkit version"
             )
     elif federated_auth.integrationType == "snowflake":
-        logger.warning(
-            "Snowflake federated auth is not supported yet, using the original connection URL"
-        )
+        # Snowflake federated auth is not supported yet, using the original connection URL
+        pass
     else:
         logger.error(
             "Unsupported integration type: %s, try updating toolkit version",
