@@ -75,12 +75,12 @@ class ResourceMonitor:
 
     def _parse_int(self, path: Path, default: int = 0) -> int:
         content = self._read_file(path)
-        if content:
-            try:
-                return int(content)
-            except ValueError:
-                pass
-        return default
+        if not content:
+            return default
+        try:
+            return int(content)
+        except ValueError:
+            return default
 
     def _parse_limit(
         self,
@@ -106,31 +106,35 @@ class ResourceMonitor:
         if not content:
             return 0
         for line in content.splitlines():
-            if line.startswith(key):
-                parts = line.split()
-                if len(parts) >= 2:
-                    try:
-                        return int(parts[1])
-                    except ValueError:
-                        pass
+            if not line.startswith(key):
+                continue
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            try:
+                return int(parts[1])
+            except ValueError:
+                continue
         return 0
 
     def _get_cpu_seconds(self) -> float:
         if self.backend == "cgroupv2":
             content = self._read_file(self.root / "cpu.stat")
-            if content:
-                for line in content.splitlines():
-                    if line.startswith("usage_usec"):
-                        parts = line.split()
-                        if len(parts) >= 2:
-                            return int(parts[1]) / 1_000_000.0
+            if not content:
+                return 0.0
+            for line in content.splitlines():
+                if not line.startswith("usage_usec"):
+                    continue
+                parts = line.split()
+                if len(parts) >= 2:
+                    return int(parts[1]) / 1_000_000.0
             return 0.0
 
         if self.backend == "cgroupv1":
             content = self._read_file(self.root / "cpuacct/cpuacct.usage")
-            if content:
-                return int(content) / 1_000_000_000.0
-            return 0.0
+            if not content:
+                return 0.0
+            return int(content) / 1_000_000_000.0
 
         if self.backend == "psutil":
             times = psutil.Process().cpu_times()
@@ -154,9 +158,9 @@ class ResourceMonitor:
         if self.backend == "cgroupv1":
             quota = self._parse_int(self.root / "cpu/cpu.cfs_quota_us", -1)
             period = self._parse_int(self.root / "cpu/cpu.cfs_period_us", 0)
-            if quota > 0 and period > 0:
-                return quota / period
-            return None
+            if quota <= 0 or period <= 0:
+                return None
+            return quota / period
 
         if self.backend == "psutil":
             cpu_count = psutil.cpu_count(logical=True)
