@@ -2,6 +2,7 @@
 """Lightweight resource metrics server."""
 
 import json
+import logging
 import os
 import threading
 import time
@@ -27,7 +28,6 @@ class ResourceMonitor:
         self._last_cpu_sec: Optional[float] = None
         self._last_time: Optional[float] = None
         self._lock = threading.Lock()
-        print(f"ResourceMonitor initialized with backend: {self.backend}")
 
     def _detect_backend(self) -> str:
         if (self.root / "cgroup.controllers").exists():
@@ -249,10 +249,15 @@ class MetricsHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, msg_format: str, *args: Any) -> None:
-        print(f"{self.address_string()} - {msg_format % args}")
+        logging.info(f"{self.address_string()} - {msg_format % args}")
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+
     port = int(os.environ.get("RESOURCE_USAGE_METRICS_PORT", 9104))
     monitor = ResourceMonitor()
     monitor.get_cpu()  # Initialize CPU baseline
@@ -260,12 +265,12 @@ def main() -> None:
     handler = partial(MetricsHandler, monitor)
     server = ThreadingHTTPServer(("0.0.0.0", port), handler)
 
-    print(f"Starting server on port {port} (backend: {monitor.backend})")
+    logging.info(f"Starting server on port {port} (backend: {monitor.backend})")
 
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("Shutting down...")
+        logging.info("Shutting down...")
         server.server_close()
 
 
