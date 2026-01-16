@@ -117,6 +117,7 @@ def execute_sql_with_connection_json(
 
         _handle_iam_params(sql_alchemy_dict)
         _handle_federated_auth_params(sql_alchemy_dict)
+        _handle_mssql_trusted_connection(sql_alchemy_dict)
 
         requires_bigquery_oauth = (
             sql_alchemy_dict["url"] == "bigquery://?user_supplied_client=true"
@@ -349,6 +350,38 @@ def _handle_federated_auth_params(sql_alchemy_dict: dict[str, Any]) -> None:
             "Unsupported integration type: %s, try updating toolkit version",
             federated_auth.integrationType,
         )
+
+
+def _handle_mssql_trusted_connection(sql_alchemy_dict: dict[str, Any]) -> None:
+    """Handle MS SQL Server Windows Authentication (trusted connections) in-place.
+
+    When 'mssql_trusted_connection' is True in params, removes username and password
+    from the connection URL to enable Windows Authentication via pymssql.
+    """
+    params = sql_alchemy_dict.get("params", {})
+
+    if not params.get("mssql_trusted_connection"):
+        return
+
+    url_obj = make_url(sql_alchemy_dict["url"])
+
+    if not url_obj.drivername.startswith("mssql"):
+        logger.warning(
+            "mssql_trusted_connection is only supported for MS SQL Server connections"
+        )
+        return
+
+    # Build new URL without username/password for Windows Authentication
+    new_url = URL.create(
+        drivername=url_obj.drivername,
+        host=url_obj.host,
+        port=url_obj.port,
+        database=url_obj.database,
+        query=url_obj.query,
+    )
+
+    sql_alchemy_dict["url"] = str(new_url)
+    del params["mssql_trusted_connection"]
 
 
 @contextlib.contextmanager
