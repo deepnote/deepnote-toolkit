@@ -223,7 +223,7 @@ Each PR creates a review application for testing. Access it via GitHub checks. M
 
 We use Docker to ensure reproducible environments due to Jupyter libraries' binary dependencies:
 
-- `builder.Dockerfile`: Creates Python package bundles for different versions (3.9-3.12), generates kernel and server bundles, and packages the toolkit for distribution using Poetry.
+- `builder.Dockerfile`: Creates Python package bundles for different versions (3.10-3.13), generates kernel and server bundles, and packages the toolkit for distribution using Poetry.
 
 - `test.Dockerfile`: Provides consistent test environment for running unit and integration tests across Python versions using nox. Used both locally and in CI/CD pipeline.
 
