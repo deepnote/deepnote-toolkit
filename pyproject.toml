@@ -48,8 +48,8 @@ dependencies = [
     "pandas>=1.2.5,<2.2; python_version < '3.12'",
     "pandas>=2.1.0,<2.3; python_version >= '3.12'",
     "pandas>=2.2.3,<2.4; python_version >= '3.13'",
-    "numpy>=1.23,<2; python_version >= '3.10' and python_version < '3.11'",
-    "numpy>=1.24,<2; python_version >= '3.11' and python_version < '3.12'",
+    "numpy>=1.23,<2; python_version == '3.10'",
+    "numpy>=1.24,<2; python_version == '3.11'",
     "numpy>=1.26.0,<2; python_version == '3.12'",
     "numpy>=2.1.0,<3; python_version >= '3.13'",
 
@@ -63,10 +63,10 @@ dependencies = [
     "google-cloud-bigquery-storage==2.16.2; python_version < '3.13'",
     "google-cloud-bigquery-storage>=2.33.1,<3; python_version>='3.13'",
 
-    "pyarrow>=10.0.0,<=17.0.0; python_version >= '3.10' and python_version < '3.11' and sys_platform != 'darwin'",
-    "pyarrow>=16.0.0,<18.0.0; python_version >= '3.10' and python_version < '3.11' and sys_platform == 'darwin'",
-    "pyarrow>=13.0.0,<=17.0.0; python_version >= '3.11' and python_version < '3.12' and sys_platform != 'darwin'",
-    "pyarrow>=16.0.0,<=18.0.0; python_version >= '3.11' and python_version < '3.12' and sys_platform == 'darwin'",
+    "pyarrow>=10.0.0,<=17.0.0; python_version == '3.10' and sys_platform != 'darwin'",
+    "pyarrow>=16.0.0,<18.0.0; python_version == '3.10' and sys_platform == 'darwin'",
+    "pyarrow>=13.0.0,<=17.0.0; python_version == '3.11' and sys_platform != 'darwin'",
+    "pyarrow>=16.0.0,<=18.0.0; python_version == '3.11' and sys_platform == 'darwin'",
     "pyarrow>=14.0.1; python_version >= '3.12'",
     "pyarrow>=18.0.0,<22.0; python_version >= '3.13'",
 
@@ -74,7 +74,7 @@ dependencies = [
 
     # pymssql: macOS uses versions with ARM64 wheels (2.3.5+)
     "pymssql>=2.3.5,<2.4; sys_platform == 'darwin'",
-    "pymssql>=2.2.9,<2.4; python_version >= '3.10' and python_version < '3.12' and sys_platform != 'darwin'",
+    "pymssql>=2.2.9,<2.4; python_version < '3.12' and sys_platform != 'darwin'",
     "pymssql>=2.3.0,<2.4; python_version >= '3.12' and sys_platform != 'darwin'",
     "pymssql>=2.3.8,<2.4; python_version >= '3.13'",
 
@@ -100,9 +100,8 @@ dependencies = [
     "clickhouse-sqlalchemy>0,<0.4",
     "sqlalchemy-bigquery>1.6.1,<1.13; python_version < '3.13'",
     "sqlalchemy-bigquery>=1.15.0,<1.20; python_version>='3.13'",
-    "zstd>1.5.5.1; python_version < '3.11'",
-    "zstd>1.5.7.0; python_version >= '3.11' and python_version < '3.12'",
-    "zstd>1.5.7.0; python_version >= '3.12'",
+    "zstd>1.5.5.1; python_version == '3.10'",
+    "zstd>1.5.7.0; python_version >= '3.11'",
     "deepnote-sqlalchemy-redshift==0.8.17",
     "trino[sqlalchemy]>=0.327.0,<=0.330.0",
     "trino[sqlalchemy]>=0.329.0,<=0.336.0; python_version>='3.13'",

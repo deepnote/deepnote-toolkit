@@ -43,8 +43,8 @@ runs:
         aws s3 cp "dist/python${PYTHON_VERSION}.tar" "${BASE_PATH}/" --acl public-read --no-progress
         aws s3 cp "dist/constraints${PYTHON_VERSION}.txt" "${BASE_PATH}/" --acl public-read --no-progress
 
-        # Upload shared files only from Python 3.9
-        if [ "${PYTHON_VERSION}" = "3.9" ]; then
+        # Upload shared files only from Python 3.10
+        if [ "${PYTHON_VERSION}" = "3.10" ]; then
           [ -f dist/installer.zip ] && aws s3 cp dist/installer.zip "${BASE_PATH}/" --acl public-read --no-progress
           aws s3 sync dist/ "${BASE_PATH}/" --exclude "*" --include "*.whl" --acl public-read
         fi
