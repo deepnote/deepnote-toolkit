@@ -940,3 +940,88 @@ class TestFederatedAuth(unittest.TestCase):
 
         # Verify the dict was not modified
         self.assertEqual(sql_alchemy_dict, original_dict)
+
+
+class TestMssqlTrustedConnection(unittest.TestCase):
+    """Tests for MS SQL Server Windows Authentication (trusted connections)."""
+
+    def test_trusted_connection_removes_credentials(self):
+        """Test that mssql_trusted_connection removes username and password from URL."""
+        from deepnote_toolkit.sql.sql_execution import _handle_mssql_trusted_connection
+
+        sql_alchemy_dict = {
+            "url": "mssql+pymssql://user:password@myserver:1433/mydb",
+            "params": {"mssql_trusted_connection": True},
+        }
+
+        _handle_mssql_trusted_connection(sql_alchemy_dict)
+
+        # Verify credentials were removed from URL
+        self.assertIn("mssql+pymssql://", sql_alchemy_dict["url"])
+        self.assertIn("myserver", sql_alchemy_dict["url"])
+        self.assertIn("mydb", sql_alchemy_dict["url"])
+        self.assertNotIn("user", sql_alchemy_dict["url"])
+        self.assertNotIn("password", sql_alchemy_dict["url"])
+
+        # Verify the flag was removed from params
+        self.assertNotIn("mssql_trusted_connection", sql_alchemy_dict["params"])
+
+    def test_trusted_connection_preserves_query_params(self):
+        """Test that existing query parameters are preserved."""
+        from deepnote_toolkit.sql.sql_execution import _handle_mssql_trusted_connection
+
+        sql_alchemy_dict = {
+            "url": "mssql+pymssql://user:password@myserver/mydb?charset=utf8",
+            "params": {"mssql_trusted_connection": True},
+        }
+
+        _handle_mssql_trusted_connection(sql_alchemy_dict)
+
+        # Verify query params are preserved
+        self.assertIn("charset=utf8", sql_alchemy_dict["url"])
+
+    def test_trusted_connection_not_enabled(self):
+        """Test that no action is taken when mssql_trusted_connection is not set."""
+        from deepnote_toolkit.sql.sql_execution import _handle_mssql_trusted_connection
+
+        sql_alchemy_dict = {
+            "url": "mssql+pymssql://user:password@myserver/mydb",
+            "params": {},
+        }
+        original_url = sql_alchemy_dict["url"]
+
+        _handle_mssql_trusted_connection(sql_alchemy_dict)
+
+        self.assertEqual(sql_alchemy_dict["url"], original_url)
+
+    def test_trusted_connection_false(self):
+        """Test that no action is taken when mssql_trusted_connection is False."""
+        from deepnote_toolkit.sql.sql_execution import _handle_mssql_trusted_connection
+
+        sql_alchemy_dict = {
+            "url": "mssql+pymssql://user:password@myserver/mydb",
+            "params": {"mssql_trusted_connection": False},
+        }
+        original_url = sql_alchemy_dict["url"]
+
+        _handle_mssql_trusted_connection(sql_alchemy_dict)
+
+        self.assertEqual(sql_alchemy_dict["url"], original_url)
+
+    @mock.patch("deepnote_toolkit.sql.sql_execution.logger")
+    def test_trusted_connection_non_mssql_url_warns(self, mock_logger):
+        """Test that a warning is logged for non-mssql URLs."""
+        from deepnote_toolkit.sql.sql_execution import _handle_mssql_trusted_connection
+
+        sql_alchemy_dict = {
+            "url": "postgresql://user:password@localhost/db",
+            "params": {"mssql_trusted_connection": True},
+        }
+        original_url = sql_alchemy_dict["url"]
+
+        _handle_mssql_trusted_connection(sql_alchemy_dict)
+
+        mock_logger.warning.assert_called_once_with(
+            "mssql_trusted_connection is only supported for MS SQL Server connections"
+        )
+        self.assertEqual(sql_alchemy_dict["url"], original_url)
