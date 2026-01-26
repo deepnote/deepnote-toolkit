@@ -15,7 +15,7 @@ maintainers = [
 ]
 readme = "README.md"
 license = {text = "Apache-2.0"}
-requires-python = ">=3.9.0,<3.14,!=3.9.7"
+requires-python = ">=3.10.0,<3.14"
 keywords = [
     "deepnote",
     "jupyter",
@@ -35,7 +35,6 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Information Analysis",
     "Topic :: Scientific/Engineering :: Visualization",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -49,9 +48,8 @@ dependencies = [
     "pandas>=1.2.5,<2.2; python_version < '3.12'",
     "pandas>=2.1.0,<2.3; python_version >= '3.12'",
     "pandas>=2.2.3,<2.4; python_version >= '3.13'",
-    "numpy>=1.21,<2; python_version >= '3.9' and python_version < '3.10'",
-    "numpy>=1.23,<2; python_version >= '3.10' and python_version < '3.11'",
-    "numpy>=1.24,<2; python_version >= '3.11' and python_version < '3.12'",
+    "numpy>=1.23,<2; python_version == '3.10'",
+    "numpy>=1.24,<2; python_version == '3.11'",
     "numpy>=1.26.0,<2; python_version == '3.12'",
     "numpy>=2.1.0,<3; python_version >= '3.13'",
 
@@ -60,29 +58,28 @@ dependencies = [
     "duckdb>=1.1.0,<2.0.0; python_version >= '3.12'",
     "duckdb>=1.4.1,<2.0.0; python_version >= '3.13'",
     "duckdb-extensions>=1.1.0,<2.0.0", # bake in as dependency to not pull extensions from the internet on every notebook start
-    "duckdb-extension-spatial>=1.1.0,<2.0.0", 
-    "duckdb-extension-excel>=1.1.0,<2.0.0", 
+    "duckdb-extension-spatial>=1.1.0,<2.0.0",
+    "duckdb-extension-excel>=1.1.0,<2.0.0",
     "google-cloud-bigquery-storage==2.16.2; python_version < '3.13'",
     "google-cloud-bigquery-storage>=2.33.1,<3; python_version>='3.13'",
 
-    "pyarrow>=10.0.0,<=17.0.0; python_version >= '3.9' and python_version < '3.11' and sys_platform != 'darwin'",
-    "pyarrow>=16.0.0,<18.0.0; python_version >= '3.9' and python_version < '3.11' and sys_platform == 'darwin'",
-    "pyarrow>=13.0.0,<=17.0.0; python_version >= '3.11' and python_version < '3.12' and sys_platform != 'darwin'",
-    "pyarrow>=16.0.0,<=18.0.0; python_version >= '3.11' and python_version < '3.12' and sys_platform == 'darwin'",
+    "pyarrow>=10.0.0,<=17.0.0; python_version == '3.10' and sys_platform != 'darwin'",
+    "pyarrow>=16.0.0,<18.0.0; python_version == '3.10' and sys_platform == 'darwin'",
+    "pyarrow>=13.0.0,<=17.0.0; python_version == '3.11' and sys_platform != 'darwin'",
+    "pyarrow>=16.0.0,<=18.0.0; python_version == '3.11' and sys_platform == 'darwin'",
     "pyarrow>=14.0.1; python_version >= '3.12'",
     "pyarrow>=18.0.0,<22.0; python_version >= '3.13'",
 
     "db-dtypes>=1.2.0,<1.4",
 
     # pymssql: macOS uses versions with ARM64 wheels (2.3.5+)
-    "pymssql>=2.3.5,<2.4; python_version >= '3.9' and sys_platform == 'darwin'",
-    "pymssql>=2.2.9,<2.4; python_version >= '3.9' and python_version < '3.12' and sys_platform != 'darwin'",
+    "pymssql>=2.3.5,<2.4; sys_platform == 'darwin'",
+    "pymssql>=2.2.9,<2.4; python_version < '3.12' and sys_platform != 'darwin'",
     "pymssql>=2.3.0,<2.4; python_version >= '3.12' and sys_platform != 'darwin'",
     "pymssql>=2.3.8,<2.4; python_version >= '3.13'",
 
     "sshtunnel==0.4.0",
-    "psycopg2-binary>=2.9.4,<2.9.10; sys_platform == 'darwin' and python_version == '3.9'",
-    "psycopg2-binary>=2.9.4,<2.10; sys_platform != 'darwin' or python_version >= '3.10'",
+    "psycopg2-binary>=2.9.4,<2.10; python_version < '3.13'",
     "psycopg2-binary>=2.9.10,<3; python_version>='3.13'",
 
     # SQL templating
@@ -103,9 +100,8 @@ dependencies = [
     "clickhouse-sqlalchemy>0,<0.4",
     "sqlalchemy-bigquery>1.6.1,<1.13; python_version < '3.13'",
     "sqlalchemy-bigquery>=1.15.0,<1.20; python_version>='3.13'",
-    "zstd>1.5.5.1; python_version < '3.11'",
-    "zstd>1.5.7.0; python_version >= '3.11' and python_version < '3.12'",
-    "zstd>1.5.7.0; python_version >= '3.12'",
+    "zstd>1.5.5.1; python_version == '3.10'",
+    "zstd>1.5.7.0; python_version >= '3.11'",
     "deepnote-sqlalchemy-redshift==0.8.17",
     "trino[sqlalchemy]>=0.327.0,<=0.330.0",
     "trino[sqlalchemy]>=0.329.0,<=0.336.0; python_version>='3.13'",
@@ -120,7 +116,7 @@ dependencies = [
     "nbformat>=5.10.4,<6",
     "typing-extensions>=4.12.2,<5.0.0",
     "wrapt>=1.12.0",
-    
+
     # Jupyter & IPython dependencies
     "ipykernel>=6.30.1,<7",
     "jupyter-core>=5.8.1,<6",
@@ -134,16 +130,12 @@ dependencies = [
     "matplotlib-inline>=0.2.1,<0.3.0; python_version >= '3.11'",
 
     # Security constraint updates for transitive dependencies
-    # snowflake-connector-python 4.0.0+ supports urllib3 2.x for Python 3.10+
-    # For Python 3.9, urllib3 must remain <2.0.0 due to snowflake constraints
-    "urllib3>=2.6.3,<3; python_version >= '3.10'",
-    "cryptography>=43.0.1,<44; python_version == '3.9'",
-    "cryptography>=44.0.1,<45; python_version >= '3.10'",
+    "urllib3>=2.6.3,<3",
+    "cryptography>=44.0.1,<45",
     "protobuf>=4.25.8,<6",
     "requests>=2.32.4,<3",
     "tornado>=6.5,<7",
-    "filelock>=3.19.1,<3.20; python_version < '3.10'", # https://github.com/deepnote/deepnote-toolkit/security/dependabot?q=is%3Aopen+package%3Afilelock
-    "filelock>=3.20.3,<4; python_version >= '3.10'",
+    "filelock>=3.20.3,<4",
     "pynacl>=1.6.2,<2",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/8
 
     # Config dependencies - they need to be declared both in main and server extras, keep them in sync
@@ -194,8 +186,7 @@ dev = [
     "pytest-cov>=6.0.0,<7.0.0",
     "coverage[toml]>=7.10.0,<8.0.0",
     "mypy>=1.13.0,<2.0.0",
-    "pre-commit>=3.6.0,<4.0.0; python_version >= '3.10'",
-    "pre-commit<3.6.0; python_version >= '3.9' and python_version < '3.10'",
+    "pre-commit>=3.6.0,<4.0.0",
     "responses>=0.25.7,<0.26.0",
     "parameterized>=0.9.0,<0.10.0",
     "geopandas>=0.11.1,<1.1; python_version < '3.12'",
