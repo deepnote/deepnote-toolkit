@@ -6,6 +6,7 @@ import json
 import os
 import secrets
 import unittest
+import warnings
 from unittest import TestCase, mock
 
 import duckdb
@@ -940,6 +941,52 @@ class TestFederatedAuth(unittest.TestCase):
 
         # Verify the dict was not modified
         self.assertEqual(sql_alchemy_dict, original_dict)
+
+
+class TestSuppressThirdPartyDeprecationWarnings(TestCase):
+    """Test suppression of known third-party deprecation warnings."""
+
+    def test_suppresses_databricks_user_agent_warning(self):
+        """Verify databricks-sqlalchemy '_user_agent_entry' warning is suppressed.
+
+        See: https://github.com/databricks/databricks-sqlalchemy/issues/36
+        """
+        from deepnote_toolkit.sql.sql_execution import (
+            suppress_third_party_deprecation_warnings,
+        )
+
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+
+            with suppress_third_party_deprecation_warnings():
+                # Simulate the warning that databricks-sqlalchemy emits
+                warnings.warn(
+                    "Parameter '_user_agent_entry' is deprecated; "
+                    "use 'user_agent_entry' instead.",
+                    DeprecationWarning,
+                )
+
+            # Warning should be suppressed
+            databricks_warnings = [
+                w for w in caught_warnings if "_user_agent_entry" in str(w.message)
+            ]
+            self.assertEqual(len(databricks_warnings), 0)
+
+    def test_does_not_suppress_unrelated_warnings(self):
+        """Verify unrelated warnings are not suppressed."""
+        from deepnote_toolkit.sql.sql_execution import (
+            suppress_third_party_deprecation_warnings,
+        )
+
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+
+            with suppress_third_party_deprecation_warnings():
+                warnings.warn("Some other deprecation", DeprecationWarning)
+
+            # Unrelated warning should NOT be suppressed
+            self.assertEqual(len(caught_warnings), 1)
+            self.assertIn("Some other deprecation", str(caught_warnings[0].message))
 
 
 class TestSqlAlchemyDialectRegistration(TestCase):
