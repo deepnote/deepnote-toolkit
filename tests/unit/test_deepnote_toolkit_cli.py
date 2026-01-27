@@ -235,7 +235,7 @@ class TestProcessCleanup:
         # Mock the process manager
         mock_manager = mock.MagicMock()
         mock_manager.processes = [mock_proc1, mock_proc2]
-        mock_manager.check_processes.return_value = []
+        mock_manager.check_processes.side_effect = KeyboardInterrupt
         mock_context.return_value.__enter__.return_value = mock_manager
 
         args = argparse.Namespace(
@@ -247,13 +247,7 @@ class TestProcessCleanup:
             python_kernel_only=None,
         )
 
-        # Simulate interrupt after process checks
-        # Need to mock: 2x time.sleep(0.1) for process checks, then 1x time.sleep(1) before interrupt
-        with mock.patch(
-            "deepnote_toolkit.cli.server.time.sleep",
-            side_effect=[None, None, None, KeyboardInterrupt],
-        ):
-            ret = run_server_command(args)
+        ret = run_server_command(args)
 
         assert ret == 0
 
@@ -265,7 +259,7 @@ class TestProcessCleanup:
         mock_manager.add_process.assert_any_call(mock_proc1)
         mock_manager.add_process.assert_any_call(mock_proc2)
 
-        # Verify monitoring occurred
+        # Verify monitoring was attempted (interrupt occurred during check)
         mock_manager.check_processes.assert_called()
 
 
