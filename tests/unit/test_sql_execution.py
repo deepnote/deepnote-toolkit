@@ -940,3 +940,35 @@ class TestFederatedAuth(unittest.TestCase):
 
         # Verify the dict was not modified
         self.assertEqual(sql_alchemy_dict, original_dict)
+
+
+class TestSqlAlchemyDialectRegistration(TestCase):
+    """Test that SQL integration dialects are properly installed and registered."""
+
+    def test_databricks_dialect_is_registered(self):
+        """Verify databricks-sqlalchemy package is installed and dialect is loadable."""
+        from sqlalchemy.engine.url import make_url
+
+        # databricks-sqlalchemy 1.x and 2.x registers as 'databricks' dialect
+        url = make_url("databricks://token:test@host:443")
+        dialect_cls = url.get_dialect()
+
+        self.assertEqual(url.drivername, "databricks")
+        self.assertIsNotNone(dialect_cls)
+
+    def test_databricks_connector_dialect_alias_is_registered(self):
+        """Verify backward-compatible 'databricks+connector://' URL format works.
+
+        The integration generates URLs with 'databricks+connector://' scheme
+        (originally for the old sqlalchemy-databricks package). We now use
+        databricks-sqlalchemy which only registers the 'databricks' dialect.
+        deepnote-toolkit registers 'databricks.connector' as an alias via entry points
+        in pyproject.toml to ensure the old URL format still works.
+        """
+        from sqlalchemy.engine.url import make_url
+
+        url = make_url("databricks+connector://token:test@host:443")
+        dialect_cls = url.get_dialect()
+
+        self.assertEqual(url.drivername, "databricks+connector")
+        self.assertIsNotNone(dialect_cls)

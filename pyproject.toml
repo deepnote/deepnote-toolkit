@@ -110,6 +110,8 @@ dependencies = [
     "sqlalchemy-dremio>=3.0.3,<3.1",
     "dill>=0.3.8,<=0.4; python_version <= '3.12'",
     "dill>=0.3.9,<=0.4; python_version >= '3.13'",
+    "databricks-sqlalchemy>=2.0.0,<3.0.0; python_version >= '3.13'",
+    "databricks-sqlalchemy>=1.0.5,<2.0.0; python_version < '3.13'", # SQLAlchemy 1.x compatibility
 
     # AlloyDB
     "pg8000==1.31.5",
@@ -175,6 +177,13 @@ server = [
 [project.scripts]
 generate-constraints = "dockerfiles.builder.constraintsgen:main"
 deepnote-toolkit = "deepnote_toolkit.cli.main:main"
+
+[project.entry-points."sqlalchemy.dialects"]
+# Backward-compatible dialect alias for Databricks.
+# The integration generates URLs with 'databricks+connector://' scheme (for the old
+# sqlalchemy-databricks package), but we now use databricks-sqlalchemy which only
+# registers the 'databricks' dialect. This alias ensures the old URL format still works.
+"databricks.connector" = "databricks.sqlalchemy:DatabricksDialect"
 
 [dependency-groups]
 dev = [
