@@ -4,18 +4,13 @@ inputs:
   env:
     description: 'Environment name (staging/production)'
     required: true
-  version_key:
-    description: 'YAML path to the version key'
-    required: true
-  values_yaml:
-    # Added this multi-file support because of app-config repo setup
-    description: 'Path(s) to the values.yaml file(s) - one per line for multiple files'
+  versions:
+    description: |
+      Version updates, one per line:
+      --file "path/to/file.yaml" --key ".yq.expression" --value "version"
     required: true
   merge:
     description: 'Whether to merge the PR automatically (true/false)'
-    required: true
-  version:
-    description: 'Version value to set'
     required: true
   github_token:
     description: 'GitHub token for authentication'
@@ -82,9 +77,7 @@ runs:
         INPUT_TARGET_REPO: ${{ inputs.target_repo }}
         INPUT_BRANCH: ${{ inputs.branch }}
         INPUT_MERGE: ${{ inputs.merge }}
-        INPUT_VERSION: ${{ inputs.version }}
-        INPUT_VERSION_KEY: ${{ inputs.version_key }}
-        INPUT_VALUES_YAML: ${{ inputs.values_yaml }}
+        INPUT_VERSIONS: ${{ inputs.versions }}
         GITHUB_SERVER_URL: ${{ github.server_url }}
         GITHUB_REPOSITORY: ${{ github.repository }}
         GITHUB_RUN_ID: ${{ github.run_id }}
@@ -98,8 +91,6 @@ runs:
         TARGET_REPO_NAME="${INPUT_TARGET_REPO}"
         BRANCH="${INPUT_BRANCH}"
         MERGE="${INPUT_MERGE}"
-        VERSION_VALUE="${INPUT_VERSION}"
-        VERSION_KEY="${INPUT_VERSION_KEY}"
 
         # Validate environment (staging or production only)
         if [[ ! "$ENV" =~ ^(staging|production)$ ]]; then
@@ -127,26 +118,10 @@ runs:
           exit 1
         fi
 
-        # Validate version format (semver or commit SHA)
-        if [[ ! "$VERSION_VALUE" =~ ^(v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?|[0-9a-f]{7,40})$ ]]; then
-          echo "ERROR: Invalid version format: $VERSION_VALUE"
-          echo "Version must be semantic version (e.g., 1.2.3, v1.2.3) or commit SHA"
-          exit 1
-        fi
-
-        # Validate version key format (YAML path)
-        if [[ ! "$VERSION_KEY" =~ ^\.?[a-zA-Z0-9_.]+$ ]]; then
-          echo "ERROR: Invalid version key format: $VERSION_KEY"
-          exit 1
-        fi
-
         # Set additional variables
         export ENV
         export RELEASE_NAME="deepnote-toolkit"
-        export VERSION_KEY
-        export VERSION_VALUE
         export TARGET_REPO_NAME
-        export VALUES_YAML="${INPUT_VALUES_YAML}"
         export ORG_NAME="deepnote"
         export SOURCE_REPO_NAME="deepnote-toolkit"
         export GIT_URL="https://github.com/${ORG_NAME}/${SOURCE_REPO_NAME}"
@@ -159,25 +134,32 @@ runs:
           exit 1
         fi
 
-        # Commit body with GitHub Actions info
-        git_commit_body="Bump ${ENV} ${RELEASE_NAME} to ${VERSION_VALUE}
-        GitHub Actions: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-        GitHub: ${GIT_URL}/commit/${GITHUB_SHA}"
+        # Parse versions input: --file "path" --key ".expression" --value "version"
+        declare -a FILE_PATHS
+        declare -a VERSION_KEYS
+        declare -a VERSION_VALUES
 
-        # Convert multiline input to array
-        readarray -t FILES_ARRAY <<< "$VALUES_YAML"
-
-        # Remove empty lines and trim whitespace (using safe bash parameter expansion)
-        YAML_FILES=()
-        for file in "${FILES_ARRAY[@]}"; do
+        while IFS= read -r line || [[ -n "$line" ]]; do
           # Trim leading whitespace
-          file="${file#"${file%%[![:space:]]*}"}"
+          line="${line#"${line%%[![:space:]]*}"}"
           # Trim trailing whitespace
-          file="${file%"${file##*[![:space:]]}"}"
+          line="${line%"${line##*[![:space:]]}"}"
 
           # Skip empty lines
-          if [ -z "$file" ]; then
+          if [ -z "$line" ]; then
             continue
+          fi
+
+          # Parse arguments from line
+          file="" key="" value=""
+          [[ $line =~ --file[[:space:]]+\"([^\"]+)\" ]] && file="${BASH_REMATCH[1]}"
+          [[ $line =~ --key[[:space:]]+\"([^\"]+)\" ]] && key="${BASH_REMATCH[1]}"
+          [[ $line =~ --value[[:space:]]+\"([^\"]+)\" ]] && value="${BASH_REMATCH[1]}"
+
+          if [[ -z "$file" || -z "$key" || -z "$value" ]]; then
+            echo "ERROR: Missing or malformed argument in line: $line"
+            echo "Expected format: --file \"path\" --key \".expression\" --value \"version\""
+            exit 1
           fi
 
           # Validate file path format (no path traversal, must end in .yaml or .yml)
@@ -192,25 +174,49 @@ runs:
             exit 1
           fi
 
-          YAML_FILES+=("$file")
-        done
+          # Validate key format (yq path expression)
+          if [[ ! "$key" =~ ^\.?[a-zA-Z0-9_]+(\.[a-zA-Z0-9_]+)*$ ]]; then
+            echo "ERROR: Invalid key format: $key"
+            echo "Key must be a valid yq path expression (e.g., .foo.bar, .config.VERSION)"
+            exit 1
+          fi
 
-        # Validate we have at least one file
-        if [ ${#YAML_FILES[@]} -eq 0 ]; then
-          echo "ERROR: No YAML files provided"
+          # Validate version format (semver or commit SHA)
+          if [[ ! "$value" =~ ^(v?[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?|[0-9a-f]{7,40})$ ]]; then
+            echo "ERROR: Invalid version format: $value"
+            echo "Version must be semantic version (e.g., 1.2.3, v1.2.3) or commit SHA"
+            exit 1
+          fi
+
+          FILE_PATHS+=("$file")
+          VERSION_KEYS+=("$key")
+          VERSION_VALUES+=("$value")
+        done <<< "$INPUT_VERSIONS"
+
+        # Validate we have at least one entry
+        if [ ${#FILE_PATHS[@]} -eq 0 ]; then
+          echo "ERROR: No version entries provided"
           exit 1
         fi
+
+        # Use first version value for commit message
+        VERSION_VALUE="${VERSION_VALUES[0]}"
+
+        # Commit body with GitHub Actions info
+        git_commit_body="Bump ${ENV} ${RELEASE_NAME} to ${VERSION_VALUE}
+        GitHub Actions: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+        GitHub: ${GIT_URL}/commit/${GITHUB_SHA}"
 
         octopilot_args=(
           "--repo"
           "${ORG_NAME}/${TARGET_REPO_NAME}(merge=${MERGE},branch=${BRANCH})"
         )
 
-        # Add updates for all files
-        for file in "${YAML_FILES[@]}"; do
+        # Add updates for all file/key/value entries
+        for i in "${!FILE_PATHS[@]}"; do
           octopilot_args+=(
             "--update"
-            "yq(file=${file},expression='(${VERSION_KEY} = strenv(VERSION_VALUE))')"
+            "yq(file=${FILE_PATHS[$i]},expression='(${VERSION_KEYS[$i]} = \"${VERSION_VALUES[$i]}\")')"
           )
         done
 

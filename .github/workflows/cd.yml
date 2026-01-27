@@ -474,26 +474,25 @@ jobs:
         uses: ./.github/actions/update-config-version
         with:
           env: staging
-          version_key: .deepnoteConfig.DEEPNOTE_TOOLKIT_VERSION
-          values_yaml: charts/deepnote/env/single-tenant-staging-values.yaml
+          versions: |
+            --file "charts/deepnote/env/single-tenant-staging-values.yaml" --key ".deepnoteConfig.DEEPNOTE_TOOLKIT_VERSION" --value "${{ env.VERSION }}"
           merge: true
           target_repo: ops
           branch: master
-          version: ${{ env.VERSION }}
           github_token: ${{ secrets.DEEPNOTE_BOT_USER_TOKEN }}
 
       - name: Update app-config repo multi-tenant staging version
         uses: ./.github/actions/update-config-version
         with:
           env: staging
-          version_key: .deepnote.deepnoteConfig.DEEPNOTE_TOOLKIT_VERSION
-          values_yaml: |
-            env/dev-ue1/staging/deepnote/helm/values.yaml
-            env/dev-ue1/values-ra.yaml
+          versions: |
+            --file "env/dev-ue1/staging/deepnote/helm/values.yaml" --key ".deepnote.deepnoteConfig.DEEPNOTE_TOOLKIT_VERSION" --value "${{ env.VERSION }}"
+            --file "env/dev-ue1/values-ra.yaml" --key ".deepnote.deepnoteConfig.DEEPNOTE_TOOLKIT_VERSION" --value "${{ env.VERSION }}"
+            --file "env/dev-ue1/staging/values.yaml" --key ".global.deepnote.toolkit.version" --value "${{ env.VERSION }}"
+            --file "env/sandboxes/staging/values.yaml" --key ".global.deepnote.toolkit.version" --value "${{ env.VERSION }}"
           merge: true
           target_repo: app-config
           branch: main
-          version: ${{ env.VERSION }}
           github_token: ${{ secrets.DEEPNOTE_BOT_USER_TOKEN }}
 
   release-production:
@@ -515,22 +514,22 @@ jobs:
         uses: ./.github/actions/update-config-version
         with:
           env: production
-          version_key: .deepnoteConfig.DEEPNOTE_TOOLKIT_VERSION
-          values_yaml: charts/deepnote/chart/values.yaml
+          versions: |
+            --file "charts/deepnote/chart/values.yaml" --key ".deepnoteConfig.DEEPNOTE_TOOLKIT_VERSION" --value "${{ env.VERSION }}"
           merge: false
           target_repo: ops
           branch: master
-          version: ${{ env.VERSION }}
           github_token: ${{ secrets.DEEPNOTE_BOT_USER_TOKEN }}
 
       - name: Update app-config repo multi-tenant production version
         uses: ./.github/actions/update-config-version
         with:
           env: production
-          version_key: .deepnote.deepnoteConfig.DEEPNOTE_TOOLKIT_VERSION
-          values_yaml: env/prod-ue1/prod/deepnote/helm/values.yaml
+          versions: |
+            --file "env/prod-ue1/prod/deepnote/helm/values.yaml" --key ".deepnote.deepnoteConfig.DEEPNOTE_TOOLKIT_VERSION" --value "${{ env.VERSION }}"
+            --file "env/prod-ue1/prod/values.yaml" --key ".global.deepnote.toolkit.version" --value "${{ env.VERSION }}"
+            --file "env/sandboxes/prod/values.yaml" --key ".global.deepnote.toolkit.version" --value "${{ env.VERSION }}"
           merge: false
           target_repo: app-config
           branch: main
-          version: ${{ env.VERSION }}
           github_token: ${{ secrets.DEEPNOTE_BOT_USER_TOKEN }}
