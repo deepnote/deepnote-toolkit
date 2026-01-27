@@ -440,6 +440,27 @@ def _execute_sql_with_caching(
     )
 
 
+@contextlib.contextmanager
+def suppress_third_party_deprecation_warnings():
+    """Suppress known deprecation warnings from third-party SQL packages.
+
+    These warnings are caused by internal implementation details of upstream packages
+    and cannot be fixed in deepnote-toolkit. We suppress them to avoid cluttering
+    user output with warnings they cannot act upon.
+
+    Suppressed warnings:
+    - databricks-sqlalchemy: '_user_agent_entry' parameter deprecated
+      https://github.com/databricks/databricks-sqlalchemy/issues/36
+    """
+    with warnings.catch_warnings():
+        # databricks-sqlalchemy uses deprecated '_user_agent_entry' parameter
+        warnings.filterwarnings(
+            "ignore",
+            message=r"Parameter '_user_agent_entry' is deprecated",
+        )
+        yield
+
+
 def _query_data_source(
     query,
     bind_params,
@@ -454,7 +475,10 @@ def _query_data_source(
         if url is None:
             url = sql_alchemy_dict["url"]
 
-        engine = create_engine(url, **sql_alchemy_dict["params"], pool_pre_ping=True)
+        with suppress_third_party_deprecation_warnings():
+            engine = create_engine(
+                url, **sql_alchemy_dict["params"], pool_pre_ping=True
+            )
 
         try:
             dataframe = _execute_sql_on_engine(engine, query, bind_params)
