@@ -92,7 +92,7 @@ dependencies = [
     "dnspython>=2.7.0,<3.0; python_version>='3.13'",
     "paramiko>=3.4.0,<3.6",
     "sqlalchemy<2; python_version <= '3.11'",
-    "sqlalchemy>=2.0.31,<3; python_version >= '3.13'",
+    "sqlalchemy>=2.0.31,<3; python_version >= '3.12'",
     "snowflake-sqlalchemy>=1.6.0,<1.9",
     "snowflake-connector-python>=3.13.1",
     "snowflake-connector-python>=3.16.0,<5; python_version>='3.13'",
@@ -110,8 +110,8 @@ dependencies = [
     "sqlalchemy-dremio>=3.0.3,<3.1",
     "dill>=0.3.8,<=0.4; python_version <= '3.12'",
     "dill>=0.3.9,<=0.4; python_version >= '3.13'",
-    "databricks-sqlalchemy>=2.0.0,<3.0.0; python_version >= '3.13'",
-    "databricks-sqlalchemy>=1.0.5,<2.0.0; python_version < '3.13'", # SQLAlchemy 1.x compatibility
+    "databricks-sqlalchemy>=2.0.0,<3.0.0; python_version >= '3.12'",
+    "databricks-sqlalchemy>=1.0.5,<2.0.0; python_version < '3.12'", # SQLAlchemy 1.x compatibility
 
     # AlloyDB
     "pg8000==1.31.5",
@@ -148,6 +148,7 @@ dependencies = [
     "toml>=0.10.0,<1.0.0",
 
     # Compatibility constraints for transitive dependencies
+    "executing>=2.1.0,<3; python_version>='3.13'",  # Python 3.13 AST compatibility for IPython tracebacks
     "grpcio>=1.66.2; python_version >= '3.13'",
     "greenlet>=3.1.0; python_version >= '3.13'"
 ]
