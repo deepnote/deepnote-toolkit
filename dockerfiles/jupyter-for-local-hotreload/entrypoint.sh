@@ -50,6 +50,15 @@ LOG_FILE="/root/.local/state/deepnote-toolkit/logs/helpers.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 touch "$LOG_FILE"
 tail -f "$LOG_FILE" &
+TAIL_PID=$!
+
+# Clean up tail process on exit
+cleanup() {
+    if kill -0 "$TAIL_PID" 2>/dev/null; then
+        kill "$TAIL_PID" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT SIGINT SIGTERM
 
 # Configure Jupyter to use /work as its root directory
 # This is picked up by the config loader and passed to Jupyter's --ServerApp.root_dir
@@ -57,4 +66,6 @@ export DEEPNOTE_PATHS__NOTEBOOK_ROOT=/work
 
 cd /work
 
-exec poetry --directory /toolkit run deepnote-toolkit server "$@"
+# Run server in foreground (not exec) so trap can clean up tail process
+poetry --directory /toolkit run deepnote-toolkit server "$@"
+exit $?

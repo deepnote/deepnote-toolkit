@@ -151,23 +151,23 @@ $ ./bin/test-local
 
 ## Development Workflow for Deepnote maintainers
 
-### Local Toolkit development with Webapp
+### Local Toolkit development with Deepnote Cloud
 
-To develop deepnote-toolkit against a local webapp with hot-reload:
+To develop deepnote-toolkit against a locally running Deepnote Cloud with hot-reload:
 
 1. Build the local development image:
     ```bash
     docker build -t deepnote/jupyter-for-local:local -f ./dockerfiles/jupyter-for-local-hotreload/Dockerfile .
     ```
 
-2. Setup `DEEPNOTE_TOOLKIT_SOURCE_PATH` env variable pointing to folder with toolkit source. This can go either in `.zshrc` (or similar file for your shell) or set per shell session with `export DEEPNOTE_TOOLKIT_SOURCE_PATH=...`. If not set, webapp will try to resolve it to `../deepnote-toolkit` relative to webapp root folder.
+2. Setup `DEEPNOTE_TOOLKIT_SOURCE_PATH` env variable pointing to folder with toolkit source. This can go either in `.zshrc` (or similar file for your shell) or set per shell session with `export DEEPNOTE_TOOLKIT_SOURCE_PATH=...`. If not set, Deepnote Cloud will try to resolve it to `../deepnote-toolkit` relative to Deepnote Cloud root folder.
 
-3. In the webapp repository, run:
+3. In the Deepnote Cloud repository, run:
     ```bash
     pnpm dev:app:local-toolkit
     ```
 
-This mounts your toolkit source into the container and installs it in editable mode. Toolkit module code changes are reflected after kernel restart (use "Restart kernel" action in the webapp).
+This mounts your toolkit source into the container and installs it in editable mode. Toolkit module code changes are reflected after kernel restart (use "Restart kernel" action in the Deepnote Cloud).
 
 ### Review Applications
 
@@ -186,9 +186,9 @@ We use Docker to ensure reproducible environments due to Jupyter libraries' bina
 
 - `test.Dockerfile`: Provides consistent test environment for running unit and integration tests across Python versions using nox. Used both locally and in CI/CD pipeline.
 
-- `jupyter-for-local.Dockerfile`: Creates development environment with Jupyter integration, used for local development from docker-compose used in main monorepo.
+- `jupyter-for-local.Dockerfile`: Creates development environment with Jupyter integration, used for local development from docker-compose used in Deepnote Cloud.
 
-- `jupyter-for-local-hotreload.Dockerfile`: Creates development environment which expectes toolkit source to be mounted at `/toolkit`. Used for development in main monorepo.
+- `jupyter-for-local-hotreload.Dockerfile`: Creates development environment which expects toolkit source to be mounted at `/toolkit`. Used for development against locally running Deepnote Cloud by Deepnote employees.
 
 ### Production Releases
 
