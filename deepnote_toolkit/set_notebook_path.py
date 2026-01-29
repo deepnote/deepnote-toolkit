@@ -9,6 +9,7 @@ from ipykernel import connect
 
 from . import env
 from .config import get_config
+from .logging import get_logger
 
 
 def set_notebook_path() -> None:
@@ -107,5 +108,7 @@ def set_notebook_path() -> None:
         if notebook_directory not in sys.path:
             sys.path.append(notebook_directory)
         os.chdir(notebook_directory)
-    except Exception:  # pylint: disable=broad-except
+        get_logger().info("Kernel working directory set to: %s", notebook_directory)
+    except Exception as e:  # pylint: disable=broad-except
+        get_logger().error("Failed to set notebook path: %s", e)
         traceback.print_exc()

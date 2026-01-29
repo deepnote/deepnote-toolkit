@@ -127,6 +127,10 @@ def _execute_jupyter_server(
     if action.no_browser:
         argv.append("--no-browser")
 
+    # Set root directory if specified (affects Jupyter's file browser and API paths)
+    if action.root_dir:
+        argv.append(f"--ServerApp.root_dir={action.root_dir}")
+
     # Add any extra arguments
     if action.extra_args:
         argv.extend(action.extra_args)

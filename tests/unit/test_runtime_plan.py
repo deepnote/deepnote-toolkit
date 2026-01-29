@@ -57,6 +57,26 @@ class TestBuildServerPlan:
         assert actions[1].no_browser is True
         assert actions[1].host == "0.0.0.0"
 
+    def test_jupyter_server_with_root_dir(self):
+        """Test Jupyter server with custom root directory."""
+        from pathlib import Path
+
+        cfg = mock.MagicMock()
+        cfg.server.start_jupyter = True
+        cfg.server.jupyter_port = 8888
+        cfg.server.enable_terminals = False
+        cfg.server.start_ls = False
+        cfg.server.start_streamlit_servers = False
+        cfg.server.start_extra_servers = False
+        cfg.installation.install_method = "pip"
+        cfg.paths.notebook_root = Path("/custom/root")
+
+        actions = build_server_plan(cfg)
+
+        assert len(actions) == 1
+        assert isinstance(actions[0], JupyterServerSpec)
+        assert actions[0].root_dir == "/custom/root"
+
     def test_python_lsp_server(self):
         """Test Python LSP server configuration."""
         cfg = mock.MagicMock()
