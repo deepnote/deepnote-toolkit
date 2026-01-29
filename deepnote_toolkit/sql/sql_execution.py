@@ -1,9 +1,11 @@
 import base64
 import contextlib
 import json
+import logging
 import re
 import uuid
 import warnings
+from typing import Any
 from urllib.parse import quote
 
 import google.oauth2.credentials
@@ -14,9 +16,11 @@ from cryptography.hazmat.primitives import serialization
 from google.api_core.client_info import ClientInfo
 from google.cloud import bigquery
 from packaging.version import parse as parse_version
+from pydantic import BaseModel
 from sqlalchemy.engine import URL, create_engine, make_url
 from sqlalchemy.exc import ResourceClosedError
 
+from deepnote_core.pydantic_compat_helpers import model_validate_compat
 from deepnote_toolkit import env as dnenv
 from deepnote_toolkit.create_ssh_tunnel import create_ssh_tunnel
 from deepnote_toolkit.get_webapp_url import (
@@ -32,6 +36,18 @@ from deepnote_toolkit.sql.sql_caching import get_sql_cache, upload_sql_cache
 from deepnote_toolkit.sql.sql_query_chaining import add_limit_clause, unchain_sql_query
 from deepnote_toolkit.sql.sql_utils import is_single_select_query
 from deepnote_toolkit.sql.url_utils import replace_user_pass_in_pg_url
+
+logger = logging.getLogger(__name__)
+
+
+class IntegrationFederatedAuthParams(BaseModel):
+    integrationId: str
+    authContextToken: str
+
+
+class FederatedAuthResponseData(BaseModel):
+    integrationType: str
+    accessToken: str
 
 
 def compile_sql_query(
@@ -98,6 +114,9 @@ def execute_sql_with_connection_json(
         sql_alchemy_dict = json.loads(sql_alchemy_json)
 
         requires_duckdb = sql_alchemy_dict["url"] == "deepnote+duckdb:///:memory:"
+
+        _handle_iam_params(sql_alchemy_dict)
+        _handle_federated_auth_params(sql_alchemy_dict)
 
         requires_bigquery_oauth = (
             sql_alchemy_dict["url"] == "bigquery://?user_supplied_client=true"
@@ -242,9 +261,94 @@ def _generate_temporary_credentials(integration_id):
 
     response = requests.post(url, timeout=10, headers=headers)
 
+    response.raise_for_status()
+
     data = response.json()
 
     return quote(data["username"]), quote(data["password"])
+
+
+def _get_federated_auth_credentials(
+    integration_id: str, user_pod_auth_context_token: str
+) -> FederatedAuthResponseData:
+    """Get federated auth credentials for the given integration ID and user pod auth context token."""
+
+    url = get_absolute_userpod_api_url(
+        f"integrations/federated-auth-token/{integration_id}"
+    )
+
+    # Add project credentials in detached mode
+    headers = get_project_auth_headers()
+    headers["UserPodAuthContextToken"] = user_pod_auth_context_token
+
+    response = requests.post(url, timeout=10, headers=headers)
+
+    response.raise_for_status()
+
+    data = model_validate_compat(FederatedAuthResponseData, response.json())
+
+    return data
+
+
+def _handle_iam_params(sql_alchemy_dict: dict[str, Any]) -> None:
+    """Apply IAM credentials to the connection URL in-place."""
+
+    if "iamParams" not in sql_alchemy_dict:
+        return
+
+    integration_id = sql_alchemy_dict["iamParams"]["integrationId"]
+
+    temporary_username, temporary_password = _generate_temporary_credentials(
+        integration_id
+    )
+
+    sql_alchemy_dict["url"] = replace_user_pass_in_pg_url(
+        sql_alchemy_dict["url"], temporary_username, temporary_password
+    )
+
+
+def _handle_federated_auth_params(sql_alchemy_dict: dict[str, Any]) -> None:
+    """Fetch and apply federated auth credentials to connection params in-place."""
+
+    if "federatedAuthParams" not in sql_alchemy_dict:
+        return
+
+    try:
+        federated_auth_params = model_validate_compat(
+            IntegrationFederatedAuthParams, sql_alchemy_dict["federatedAuthParams"]
+        )
+    except Exception:
+        logger.exception("Invalid federated auth params, try updating toolkit version")
+        return
+
+    federated_auth = _get_federated_auth_credentials(
+        federated_auth_params.integrationId, federated_auth_params.authContextToken
+    )
+
+    if federated_auth.integrationType == "trino":
+        try:
+            sql_alchemy_dict["params"]["connect_args"]["http_headers"][
+                "Authorization"
+            ] = f"Bearer {federated_auth.accessToken}"
+        except KeyError:
+            logger.exception(
+                "Invalid federated auth params, try updating toolkit version"
+            )
+    elif federated_auth.integrationType == "big-query":
+        try:
+            sql_alchemy_dict["params"]["access_token"] = federated_auth.accessToken
+        except KeyError:
+            logger.exception(
+                "Invalid federated auth params, try updating toolkit version"
+            )
+    elif federated_auth.integrationType == "snowflake":
+        # Snowflake federated auth is not supported yet, using the original connection URL
+        pass
+    else:
+        logger.error(
+            "Unsupported integration type: %s, try updating toolkit version",
+            federated_auth.integrationType,
+        )
 
 
 @contextlib.contextmanager
@@ -336,6 +440,27 @@ def _execute_sql_with_caching(
     )
 
 
+@contextlib.contextmanager
+def suppress_third_party_deprecation_warnings():
+    """Suppress known deprecation warnings from third-party SQL packages.
+
+    These warnings are caused by internal implementation details of upstream packages
+    and cannot be fixed in deepnote-toolkit. We suppress them to avoid cluttering
+    user output with warnings they cannot act upon.
+
+    Suppressed warnings:
+    - databricks-sqlalchemy: '_user_agent_entry' parameter deprecated
+      https://github.com/databricks/databricks-sqlalchemy/issues/36
+    """
+    with warnings.catch_warnings():
+        # databricks-sqlalchemy uses deprecated '_user_agent_entry' parameter
+        warnings.filterwarnings(
+            "ignore",
+            message=r"Parameter '_user_agent_entry' is deprecated",
+        )
+        yield
+
+
 def _query_data_source(
     query,
     bind_params,
@@ -346,22 +471,14 @@ def _query_data_source(
 ):
     sshEnabled = sql_alchemy_dict.get("ssh_options", {}).get("enabled", False)
 
-    if "iamParams" in sql_alchemy_dict:
-        integration_id = sql_alchemy_dict["iamParams"]["integrationId"]
-
-        temporaryUsername, temporaryPassword = _generate_temporary_credentials(
-            integration_id
-        )
-
-        sql_alchemy_dict["url"] = replace_user_pass_in_pg_url(
-            sql_alchemy_dict["url"], temporaryUsername, temporaryPassword
-        )
-
     with _create_sql_ssh_uri(sshEnabled, sql_alchemy_dict) as url:
         if url is None:
             url = sql_alchemy_dict["url"]
 
-        engine = create_engine(url, **sql_alchemy_dict["params"], pool_pre_ping=True)
+        with suppress_third_party_deprecation_warnings():
+            engine = create_engine(
+                url, **sql_alchemy_dict["params"], pool_pre_ping=True
+            )
 
         try:
             dataframe = _execute_sql_on_engine(engine, query, bind_params)

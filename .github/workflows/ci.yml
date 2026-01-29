@@ -158,7 +158,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
     - name: Checkout code
@@ -277,7 +277,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - name: Checkout code
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
@@ -396,13 +396,13 @@ jobs:
         run: |
           shopt -s nullglob
           mkdir -p coverage-data
-          
+
           i=0
           for file in coverage-artifacts/*/.coverage; do
             cp "$file" "coverage-data/.coverage.$i"
             i=$((i + 1))
           done
-          
+
           coverage combine coverage-data/
           coverage xml -o coverage-data/coverage.xml
           coverage report
@@ -465,8 +465,17 @@ jobs:
           # PYSEC-2023-121 (CVE-2022-4899 / GHSA-5c9c-6x87-f9vm)
           # * incorrectly flags zstd versions >= 1.5.4.0 as vulnerable to CVE-2022-4899
           # * see https://github.com/pypa/advisory-database/blob/main/vulns/zstd/PYSEC-2023-121.yaml (our version ranges are outside of reported versions)
+          # CVE-2026-0994 (protobuf DoS via nested Any messages in ParseDict)
+          # * no fix version available yet
+          # * low risk: only affects json_format.ParseDict() with untrusted input
+          # PYSEC-2024-161 (pyarrow deserialization vulnerability)
+          # * false positive: only affects Arrow R package, not PyArrow
+          # * see CVE description: "This vulnerability only affects the arrow R package, not other Apache Arrow implementations"
+          # * databricks-sqlalchemy 1.x caps pyarrow<17, but upgrading requires SQLAlchemy 2.x (which is not possible for some Python versions)
           ignore-vulns: &ignore-vulns |
             PYSEC-2023-121
+            CVE-2026-0994
+            PYSEC-2024-161
 
   audit-all:
     name: Audit - All

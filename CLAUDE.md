@@ -9,7 +9,7 @@
 - Setup pre-commit hooks: `poetry poe setup-hooks`
 - Run unit tests (all): `nox -e unit`
 - Run integration tests: `nox -e integration`
-- Run specific test: `nox --force-color -e unit -p 3.9 -- tests/unit/test_file.py::TestClass::test_name`
+- Run specific test: `nox --force-color -e unit -p 3.10 -- tests/unit/test_file.py::TestClass::test_name`
 - Run local tests: `./bin/test-local`
 
 ## Code Coverage Commands
@@ -52,7 +52,7 @@
 
 ## Python Version Support
 
-- Python 3.9, 3.10, 3.11, 3.12, 3.13
+- Python 3.10, 3.11, 3.12, 3.13
 
 ## Dependencies
 
@@ -66,7 +66,7 @@
 - Early returns to reduce nesting: Check conditions and return early
 - Extract common checks into variables for readability
 - Use dictionary unpacking for headers: `headers = {"Content-Type": "application/json", **auth_headers}`
-- CLI arguments: Use space-separated format (`--port 8080`) 
+- CLI arguments: Use space-separated format (`--port 8080`)
 
 ## Testing
 

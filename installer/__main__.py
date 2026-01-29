@@ -382,6 +382,12 @@ def bootstrap():
     )
     all_actions.append(ExtraServerSpec(command=["python", prometheus_script]))
 
+    # Add resource usage server
+    resource_usage_script = os.path.join(
+        config_directory_path, "scripts", "resource_usage.py"
+    )
+    all_actions.append(ExtraServerSpec(command=["python", resource_usage_script]))
+
     # Execute all actions via the unified registry
     from .module.executor import run_actions_in_installer_env
 
