@@ -151,9 +151,9 @@ $ ./bin/test-local
 
 ## Development Workflow for Deepnote maintainers
 
-### Local Toolkit Development with Webapp
+### Local Toolkit development with Webapp
 
-To develop toolkit changes against a local webapp with hot-reload:
+To develop deepnote-toolkit against a local webapp with hot-reload:
 
 1. Build the local development image:
     ```bash
