@@ -1,16 +1,17 @@
 import base64
 import contextlib
 import json
-import logging
 import re
 import uuid
 import warnings
+import weakref
 from typing import Any
 from urllib.parse import quote
 
 import google.oauth2.credentials
 import numpy as np
 import requests
+import wrapt
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from google.api_core.client_info import ClientInfo
@@ -28,6 +29,7 @@ from deepnote_toolkit.get_webapp_url import (
     get_project_auth_headers,
 )
 from deepnote_toolkit.ipython_utils import output_sql_metadata
+from deepnote_toolkit.logging import LoggerManager
 from deepnote_toolkit.ocelots.pandas.utils import deduplicate_columns
 from deepnote_toolkit.sql.duckdb_sql import execute_duckdb_sql
 from deepnote_toolkit.sql.jinjasql_utils import render_jinja_sql_template
@@ -37,7 +39,7 @@ from deepnote_toolkit.sql.sql_query_chaining import add_limit_clause, unchain_sq
 from deepnote_toolkit.sql.sql_utils import is_single_select_query
 from deepnote_toolkit.sql.url_utils import replace_user_pass_in_pg_url
 
-logger = logging.getLogger(__name__)
+logger = LoggerManager().get_logger()
 
 
 class IntegrationFederatedAuthParams(BaseModel):
@@ -517,12 +519,90 @@ def _query_data_source(
             engine.dispose()
 
 
+class CursorTrackingDBAPIConnection(wrapt.ObjectProxy):
+    """Wraps DBAPI connection to track cursors as they're created."""
+
+    def __init__(self, wrapped, cursor_registry=None):
+        super().__init__(wrapped)
+        # Use provided registry or create our own
+        self._self_cursor_registry = (
+            cursor_registry if cursor_registry is not None else weakref.WeakSet()
+        )
+
+    def cursor(self, *args, **kwargs):
+        cursor = self.__wrapped__.cursor(*args, **kwargs)
+        self._self_cursor_registry.add(cursor)
+        return cursor
+
+    def cancel_all_cursors(self):
+        """Cancel all tracked cursors. Best-effort, ignores errors."""
+        for cursor in list(self._self_cursor_registry):
+            _cancel_cursor(cursor)
+
+
+class CursorTrackingSQLAlchemyConnection(wrapt.ObjectProxy):
+    """A SQLAlchemy connection wrapper that tracks cursors for cancellation.
+
+    This wrapper replaces the internal _dbapi_connection with a tracking proxy,
+    so all cursors created (including by exec_driver_sql) are tracked.
+    """
+
+    def __init__(self, wrapped):
+        super().__init__(wrapped)
+        self._self_cursors = weakref.WeakSet()
+        self._install_dbapi_wrapper()
+
+    def _install_dbapi_wrapper(self):
+        """Replace SQLAlchemy's internal DBAPI connection with our tracking wrapper."""
+        try:
+            # Access the internal DBAPI connection
+            dbapi_conn = self.__wrapped__._dbapi_connection
+            if dbapi_conn is None:
+                logger.warning("DBAPI connection is None, cannot install tracking")
+                return
+
+            self.__wrapped__._dbapi_connection = CursorTrackingDBAPIConnection(
+                dbapi_conn, self._self_cursors
+            )
+        except Exception as e:
+            logger.warning(f"Could not install DBAPI wrapper: {e}")
+
+    def cancel_all_cursors(self):
+        """Cancel all tracked cursors. Best-effort, ignores errors."""
+        for cursor in list(self._self_cursors):
+            _cancel_cursor(cursor)
+
+
+def _cancel_cursor(cursor):
+    """Best-effort cancel a cursor using available methods."""
+    try:
+        # BigQuery: cancel via query_job if available
+        query_job = getattr(cursor, "query_job", None)
+        if query_job is not None and hasattr(query_job, "cancel"):
+            try:
+                query_job.cancel()
+            except (Exception, KeyboardInterrupt):
+                pass
+
+        # Generic DBAPI: try cursor.cancel() if available (Trino, etc.)
+        if hasattr(cursor, "cancel"):
+            try:
+                cursor.cancel()
+            except (Exception, KeyboardInterrupt):
+                pass
+    except (Exception, KeyboardInterrupt):
+        pass  # Best effort, ignore all errors
+
+
 def _execute_sql_on_engine(engine, query, bind_params):
     """Run *query* on *engine* and return a DataFrame.
 
     Uses pandas.read_sql_query to execute the query with a SQLAlchemy connection.
     For pandas 2.2+ and SQLAlchemy < 2.0, which requires a raw DB-API connection with a `.cursor()` attribute,
     we use the underlying connection.
+
+    On exceptions (including KeyboardInterrupt from cell cancellation), all cursors
+    created during execution are cancelled to stop running queries on the server.
     """
 
     import pandas as pd
@@ -544,12 +624,13 @@ def _execute_sql_on_engine(engine, query, bind_params):
     )
 
     with engine.begin() as connection:
-        try:
-            # For pandas 2.2+, use raw connection to avoid 'cursor' AttributeError
-            connection_for_pandas = (
-                connection.connection if needs_raw_connection else connection
-            )
+        # For pandas 2.2+ with SQLAlchemy < 2.0, use raw DBAPI connection
+        if needs_raw_connection:
+            tracking_connection = CursorTrackingDBAPIConnection(connection.connection)
+        else:
+            tracking_connection = CursorTrackingSQLAlchemyConnection(connection)
 
+        try:
             # pandas.read_sql_query expects params as tuple (not list) for qmark/format style
             params_for_pandas = (
                 tuple(bind_params) if isinstance(bind_params, list) else bind_params
@@ -557,13 +638,16 @@ def _execute_sql_on_engine(engine, query, bind_params):
 
             return pd.read_sql_query(
                 query,
-                con=connection_for_pandas,
+                con=tracking_connection,
                 params=params_for_pandas,
                 coerce_float=coerce_float,
             )
         except ResourceClosedError:
             # this happens if the query is e.g. UPDATE and pandas tries to create a dataframe from its result
             return None
+        except BaseException:
+            tracking_connection.cancel_all_cursors()
+            raise
 
 
 def _build_params_for_bigquery_oauth(params):

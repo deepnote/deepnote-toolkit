@@ -9,25 +9,87 @@ from google.api_core.client_info import ClientInfo
 from deepnote_toolkit.sql import sql_execution as se
 
 
-def test_bigquery_wait_or_cancel_handles_keyboard_interrupt():
-    import google.cloud.bigquery._job_helpers as _job_helpers
+def test_execute_sql_on_engine_cancels_cursor_on_keyboard_interrupt():
+    """Test that _execute_sql_on_engine cancels cursors on KeyboardInterrupt.
 
-    mock_job = mock.Mock()
-    mock_job.result.side_effect = KeyboardInterrupt("User interrupted")
-    mock_job.cancel = mock.Mock()
+    We replace SQLAlchemy's _dbapi_connection with our tracking wrapper.
+    When SQLAlchemy creates a cursor, it goes through our wrapper.
+    """
+    mock_dbapi_cursor = mock.Mock()
+    mock_dbapi_connection = mock.Mock()
+    mock_dbapi_connection.cursor.return_value = mock_dbapi_cursor
 
-    with pytest.raises(KeyboardInterrupt):
-        # _wait_or_cancel should be monkeypatched by `_monkeypatch_bigquery_wait_or_cancel`
-        _job_helpers._wait_or_cancel(
-            job_obj=mock_job,
-            api_timeout=30.0,
-            wait_timeout=60.0,
-            retry=None,
-            page_size=None,
-            max_results=None,
-        )
+    def mock_read_sql_query(query, con, **kwargs):
+        # Simulate SQLAlchemy creating a cursor via the DBAPI connection
+        # After our wrapper is installed, _dbapi_connection.cursor() is tracked
+        con._dbapi_connection.cursor()
+        raise KeyboardInterrupt("Cancelled")
 
-    mock_job.cancel.assert_called_once_with(retry=None, timeout=30.0)
+    mock_engine = mock.Mock()
+    mock_connection = mock.Mock()
+    mock_connection._dbapi_connection = mock_dbapi_connection
+
+    mock_engine.begin.return_value.__enter__ = mock.Mock(return_value=mock_connection)
+    mock_engine.begin.return_value.__exit__ = mock.Mock(return_value=False)
+
+    with mock.patch("pandas.read_sql_query", side_effect=mock_read_sql_query):
+        with pytest.raises(KeyboardInterrupt):
+            se._execute_sql_on_engine(mock_engine, "SELECT 1", {})
+
+    mock_dbapi_cursor.cancel.assert_called_once()
+
+
+def test_execute_sql_on_engine_cancels_bigquery_query_job():
+    """Test that _execute_sql_on_engine cancels BigQuery query_job if present."""
+    mock_dbapi_cursor = mock.Mock()
+    mock_query_job = mock.Mock()
+    mock_dbapi_cursor.query_job = mock_query_job
+    mock_dbapi_connection = mock.Mock()
+    mock_dbapi_connection.cursor.return_value = mock_dbapi_cursor
+
+    def mock_read_sql_query(query, con, **kwargs):
+        con._dbapi_connection.cursor()
+        raise KeyboardInterrupt("Cancelled")
+
+    mock_engine = mock.Mock()
+    mock_connection = mock.Mock()
+    mock_connection._dbapi_connection = mock_dbapi_connection
+
+    mock_engine.begin.return_value.__enter__ = mock.Mock(return_value=mock_connection)
+    mock_engine.begin.return_value.__exit__ = mock.Mock(return_value=False)
+
+    with mock.patch("pandas.read_sql_query", side_effect=mock_read_sql_query):
+        with pytest.raises(KeyboardInterrupt):
+            se._execute_sql_on_engine(mock_engine, "SELECT 1", {})
+
+    mock_query_job.cancel.assert_called_once()
+    mock_dbapi_cursor.cancel.assert_called_once()
+
+
+def test_execute_sql_on_engine_handles_cancel_errors_gracefully():
+    """Test that _execute_sql_on_engine handles cancel errors gracefully."""
+    mock_dbapi_cursor = mock.Mock()
+    mock_dbapi_cursor.cancel.side_effect = RuntimeError("Cancel failed")
+    mock_dbapi_connection = mock.Mock()
+    mock_dbapi_connection.cursor.return_value = mock_dbapi_cursor
+
+    def mock_read_sql_query(query, con, **kwargs):
+        con._dbapi_connection.cursor()
+        raise KeyboardInterrupt("Cancelled")
+
+    mock_engine = mock.Mock()
+    mock_connection = mock.Mock()
+    mock_connection._dbapi_connection = mock_dbapi_connection
+
+    mock_engine.begin.return_value.__enter__ = mock.Mock(return_value=mock_connection)
+    mock_engine.begin.return_value.__exit__ = mock.Mock(return_value=False)
+
+    with mock.patch("pandas.read_sql_query", side_effect=mock_read_sql_query):
+        # Should raise original KeyboardInterrupt, not the cancel error
+        with pytest.raises(KeyboardInterrupt):
+            se._execute_sql_on_engine(mock_engine, "SELECT 1", {})
+
+    mock_dbapi_cursor.cancel.assert_called_once()
 
 
 def test_build_params_for_bigquery_oauth_ok():
