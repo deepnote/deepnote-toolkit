@@ -30,7 +30,7 @@ def test_bigquery_wait_or_cancel_handles_keyboard_interrupt():
     mock_job.cancel.assert_called_once_with(retry=None, timeout=30.0)
 
 
-def test_trino_cancels_on_keyboard_interrupt():
+def test_trino_execute_cancels_on_keyboard_interrupt():
     from trino import client as trino_client
 
     mock_request = mock.Mock()
@@ -46,7 +46,53 @@ def test_trino_cancels_on_keyboard_interrupt():
 
         with mock.patch.object(mock_query, "cancel") as mock_cancel:
             with pytest.raises(KeyboardInterrupt):
-                # TrinoQuery should be patched by `_monkeypatch_trino_cancel_on_error`
+                # TrinoQuery.execute should be patched by `_monkeypatch_trino_cancel_on_error`
+                mock_query.execute()
+
+            mock_cancel.assert_called_once()
+
+
+def test_trino_fetch_cancels_on_keyboard_interrupt():
+    from trino import client as trino_client
+
+    mock_request = mock.Mock()
+    mock_request.next_uri = "http://trino:8080/v1/statement/query123/2"
+    mock_query = trino_client.TrinoQuery(mock_request, query="SELECT 1")
+
+    # Simulate KeyboardInterrupt during fetch
+    with mock.patch.object(
+        mock_request, "get", side_effect=KeyboardInterrupt("User interrupted")
+    ):
+        mock_query._next_uri = "http://trino:8080/v1/statement/query123/1"
+        mock_query._cancelled = False
+
+        with mock.patch.object(mock_query, "cancel") as mock_cancel:
+            with pytest.raises(KeyboardInterrupt):
+                # TrinoQuery.fetch should be patched by `_monkeypatch_trino_cancel_on_error`
+                mock_query.fetch()
+
+            mock_cancel.assert_called_once()
+
+
+def test_trino_handles_cancel_failure_gracefully():
+    from trino import client as trino_client
+
+    mock_request = mock.Mock()
+    mock_request.next_uri = "http://trino:8080/v1/statement/query123/2"
+    mock_query = trino_client.TrinoQuery(mock_request, query="SELECT 1")
+
+    # Simulate KeyboardInterrupt during execute, and cancel() itself fails
+    with mock.patch.object(
+        mock_request, "post", side_effect=KeyboardInterrupt("User interrupted")
+    ):
+        mock_query._next_uri = "http://trino:8080/v1/statement/query123/1"
+        mock_query._cancelled = False
+
+        with mock.patch.object(
+            mock_query, "cancel", side_effect=RuntimeError("Cancel failed")
+        ) as mock_cancel:
+            # Should still raise the original KeyboardInterrupt, not the cancel error
+            with pytest.raises(KeyboardInterrupt):
                 mock_query.execute()
 
             mock_cancel.assert_called_once()

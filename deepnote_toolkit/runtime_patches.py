@@ -1,11 +1,11 @@
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from deepnote_toolkit.logging import LoggerManager
 
 logger = LoggerManager().get_logger()
 
 
-def _monkeypatch_trino_cancel_on_error():
+def _monkeypatch_trino_cancel_on_error() -> None:
     """Monkey patch Trino client to cancel queries on exceptions.
 
     When a query is running and an exception occurs (including KeyboardInterrupt
@@ -29,7 +29,7 @@ def _monkeypatch_trino_cancel_on_error():
 
         def _patched_execute(
             self: "trino_client.TrinoQuery",
-            additional_http_headers: Optional[Dict[str, str]] = None,
+            additional_http_headers: dict[str, str] | None = None,
         ) -> "trino_client.TrinoResult":
             try:
                 return _original_execute(self, additional_http_headers)
@@ -39,7 +39,7 @@ def _monkeypatch_trino_cancel_on_error():
 
         def _patched_fetch(
             self: "trino_client.TrinoQuery",
-        ) -> List[Union[List[Any], Any]]:
+        ) -> list[list[Any] | Any]:
             try:
                 return _original_fetch(self)
             except (KeyboardInterrupt, Exception):
@@ -64,18 +64,18 @@ def _monkeypatch_trino_cancel_on_error():
 # 1. https://github.com/googleapis/python-bigquery/pull/2331 is merged and released
 # 2. Dependencies updated for the toolkit. We don't depend on google-cloud-bigquery directly, but it's transitive
 # dependency through sqlalchemy-bigquery
-def _monkeypatch_bigquery_wait_or_cancel():
+def _monkeypatch_bigquery_wait_or_cancel() -> None:
     try:
         import google.cloud.bigquery._job_helpers as _job_helpers
         from google.cloud.bigquery import job, table
 
         def _wait_or_cancel(
             job_obj: job.QueryJob,
-            api_timeout: Optional[float],
-            wait_timeout: Optional[Union[object, float]],
-            retry: Optional[Any],
-            page_size: Optional[int],
-            max_results: Optional[int],
+            api_timeout: float | None,
+            wait_timeout: object | float | None,
+            retry: Any | None,
+            page_size: int | None,
+            max_results: int | None,
         ) -> table.RowIterator:
             try:
                 return job_obj.result(
@@ -103,6 +103,6 @@ def _monkeypatch_bigquery_wait_or_cancel():
         logger.warning("Failed to monkeypatch BigQuery _wait_or_cancel: %s", repr(e))
 
 
-def apply_runtime_patches():
+def apply_runtime_patches() -> None:
     _monkeypatch_trino_cancel_on_error()
     _monkeypatch_bigquery_wait_or_cancel()
