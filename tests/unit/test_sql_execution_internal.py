@@ -33,7 +33,9 @@ def _setup_mock_engine_with_cursor(mock_cursor):
     mock_sa_connection.exec_driver_sql = mock_exec_driver_sql
 
     mock_engine = mock.Mock()
-    mock_engine.begin.return_value.__enter__ = mock.Mock(return_value=mock_sa_connection)
+    mock_engine.begin.return_value.__enter__ = mock.Mock(
+        return_value=mock_sa_connection
+    )
     mock_engine.begin.return_value.__exit__ = mock.Mock(return_value=False)
 
     return mock_engine
