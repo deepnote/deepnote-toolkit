@@ -1,8 +1,10 @@
 import importlib
 import json
+import logging
 import os
 import types
 from pathlib import Path
+from unittest import mock
 
 from deepnote_toolkit import env as dnenv
 from deepnote_toolkit.set_notebook_path import set_notebook_path
@@ -83,3 +85,28 @@ def test_set_notebook_path_updates_chdir_and_env(tmp_path, monkeypatch):
     assert seen["url"] == "http://0.0.0.0:9999/api/sessions"
     assert seen["headers"] is not None
     assert seen["headers"]["Authorization"] == "token tok"
+
+
+def test_set_notebook_path_logs_error_on_failure(monkeypatch, capsys):
+    """Test that exceptions are caught and logged properly."""
+    mod = importlib.import_module("deepnote_toolkit.set_notebook_path")
+
+    # Make get_connection_file raise an exception
+    monkeypatch.setattr(
+        "ipykernel.connect.get_connection_file",
+        mock.Mock(side_effect=RuntimeError("No kernel connection")),
+    )
+
+    # Mock the logger to capture log calls
+    mock_logger = mock.Mock(spec=logging.Logger)
+    monkeypatch.setattr(mod, "get_logger", lambda: mock_logger)
+
+    # Call - should not raise
+    set_notebook_path()
+
+    # Verify error was logged
+    mock_logger.error.assert_called_once()
+    call_args = mock_logger.error.call_args[0]
+    assert "Failed to set notebook path" in call_args[0]
+    assert isinstance(call_args[1], RuntimeError)
+    assert "No kernel connection" in str(call_args[1])

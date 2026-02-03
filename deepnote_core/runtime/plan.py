@@ -45,12 +45,17 @@ def build_server_plan(cfg: DeepnoteConfig) -> List[RuntimeAction]:
             else False
         )
 
+        # Determine Jupyter root directory from config
+        # This affects what paths the Jupyter API returns for notebooks
+        root_dir = str(cfg.paths.notebook_root) if cfg.paths.notebook_root else None
+
         actions.append(
             JupyterServerSpec(
                 port=cfg.server.jupyter_port,
                 allow_root=allow_root,
                 enable_terminals=cfg.server.enable_terminals,
                 no_browser=True,
+                root_dir=root_dir,
                 extra_args=[],
             )
         )
