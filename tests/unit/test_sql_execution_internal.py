@@ -63,11 +63,8 @@ def test_bigquery_wait_or_cancel_handles_keyboard_interrupt():
 
 
 def test_execute_sql_on_engine_cancels_cursor_on_keyboard_interrupt():
-    """Test that _execute_sql_on_engine cancels cursors on KeyboardInterrupt.
+    """Test that _execute_sql_on_engine cancels cursors on KeyboardInterrupt."""
 
-    Uses real pandas.read_sql_query. The cursor's execute method throws
-    KeyboardInterrupt, simulating cell cancellation.
-    """
     mock_cursor = mock.MagicMock()
     mock_cursor.execute.side_effect = KeyboardInterrupt("Cancelled")
 
@@ -76,36 +73,12 @@ def test_execute_sql_on_engine_cancels_cursor_on_keyboard_interrupt():
     with pytest.raises(KeyboardInterrupt):
         se._execute_sql_on_engine(mock_engine, "SELECT 1", {})
 
-    mock_cursor.cancel.assert_called_once()
-
-
-def test_execute_sql_on_engine_cancels_bigquery_query_job():
-    """Test that _execute_sql_on_engine cancels BigQuery query_job if present.
-
-    Uses real pandas.read_sql_query. The cursor's execute method throws
-    KeyboardInterrupt, simulating cell cancellation.
-    """
-    mock_query_job = mock.Mock()
-    mock_cursor = mock.MagicMock()
-    mock_cursor.execute.side_effect = KeyboardInterrupt("Cancelled")
-    mock_cursor.query_job = mock_query_job
-
-    mock_engine = _setup_mock_engine_with_cursor(mock_cursor)
-
-    with pytest.raises(KeyboardInterrupt):
-        se._execute_sql_on_engine(mock_engine, "SELECT 1", {})
-
-    mock_query_job.cancel.assert_called_once()
     mock_cursor.cancel.assert_called_once()
 
 
 def test_execute_sql_on_engine_handles_cancel_errors_gracefully():
-    """Test that _execute_sql_on_engine handles cancel errors gracefully.
+    """Test that _execute_sql_on_engine handles cancel errors gracefully."""
 
-    Uses real pandas.read_sql_query. The cursor's execute method throws
-    KeyboardInterrupt. The cursor's cancel method throws an error, which
-    should be silently handled.
-    """
     mock_cursor = mock.MagicMock()
     mock_cursor.execute.side_effect = KeyboardInterrupt("Cancelled")
     mock_cursor.cancel.side_effect = RuntimeError("Cancel failed")

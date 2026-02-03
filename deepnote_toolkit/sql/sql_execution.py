@@ -534,7 +534,9 @@ class CursorTrackingDBAPIConnection(wrapt.ObjectProxy):
         try:
             self._self_cursor_registry.add(cursor)
         except TypeError:
-            logger.warning(f"DBAPI Cursor of type {type(cursor)} can't be added to weakset and thus can't be tracked.")
+            logger.warning(
+                f"DBAPI Cursor of type {type(cursor)} can't be added to weakset and thus can't be tracked."
+            )
         return cursor
 
     def cancel_all_cursors(self):
@@ -561,7 +563,9 @@ class CursorTrackingSQLAlchemyConnection(wrapt.ObjectProxy):
             # Access the internal DBAPI connection
             dbapi_conn = self.__wrapped__._dbapi_connection
             if dbapi_conn is None:
-                logger.warning(f"DBAPI connection is None (connection type {type(self.__wrapped__)}), cannot install tracking")
+                logger.warning(
+                    f"DBAPI connection is None (connection type {type(self.__wrapped__)}), cannot install tracking"
+                )
                 return
 
             self.__wrapped__._dbapi_connection = CursorTrackingDBAPIConnection(
