@@ -576,20 +576,8 @@ class CursorTrackingSQLAlchemyConnection(wrapt.ObjectProxy):
 def _cancel_cursor(cursor):
     """Best-effort cancel a cursor using available methods."""
     try:
-        # BigQuery: cancel via query_job if available
-        query_job = getattr(cursor, "query_job", None)
-        if query_job is not None and hasattr(query_job, "cancel"):
-            try:
-                query_job.cancel()
-            except (Exception, KeyboardInterrupt):
-                pass
-
-        # Generic DBAPI: try cursor.cancel() if available (Trino, etc.)
         if hasattr(cursor, "cancel"):
-            try:
-                cursor.cancel()
-            except (Exception, KeyboardInterrupt):
-                pass
+            cursor.cancel()
     except (Exception, KeyboardInterrupt):
         pass  # Best effort, ignore all errors
 

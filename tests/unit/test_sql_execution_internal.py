@@ -41,6 +41,27 @@ def _setup_mock_engine_with_cursor(mock_cursor):
     return mock_engine
 
 
+def test_bigquery_wait_or_cancel_handles_keyboard_interrupt():
+    import google.cloud.bigquery._job_helpers as _job_helpers
+
+    mock_job = mock.Mock()
+    mock_job.result.side_effect = KeyboardInterrupt("User interrupted")
+    mock_job.cancel = mock.Mock()
+
+    with pytest.raises(KeyboardInterrupt):
+        # _wait_or_cancel should be monkeypatched by `_monkeypatch_bigquery_wait_or_cancel`
+        _job_helpers._wait_or_cancel(
+            job_obj=mock_job,
+            api_timeout=30.0,
+            wait_timeout=60.0,
+            retry=None,
+            page_size=None,
+            max_results=None,
+        )
+
+    mock_job.cancel.assert_called_once_with(retry=None, timeout=30.0)
+
+
 def test_execute_sql_on_engine_cancels_cursor_on_keyboard_interrupt():
     """Test that _execute_sql_on_engine cancels cursors on KeyboardInterrupt.
 
