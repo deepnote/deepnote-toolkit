@@ -92,6 +92,58 @@ def test_execute_sql_on_engine_handles_cancel_errors_gracefully():
     mock_cursor.cancel.assert_called_once()
 
 
+def test_cursor_tracking_dbapi_connection_cancel_all_cursors():
+    """Test that CursorTrackingDBAPIConnection.cancel_all_cursors cancels all tracked cursors."""
+    mock_wrapped_conn = mock.Mock()
+    cursor1 = mock.Mock()
+    cursor2 = mock.Mock()
+    mock_wrapped_conn.cursor.side_effect = [cursor1, cursor2]
+
+    tracking_conn = se.CursorTrackingDBAPIConnection(mock_wrapped_conn)
+
+    # Create two cursors
+    tracking_conn.cursor()
+    tracking_conn.cursor()
+
+    # Cancel all cursors
+    tracking_conn.cancel_all_cursors()
+
+    cursor1.cancel.assert_called_once()
+    cursor2.cancel.assert_called_once()
+
+
+def test_cursor_tracking_dbapi_connection_handles_unhashable_cursor():
+    """Test that CursorTrackingDBAPIConnection handles cursors that can't be added to weakset."""
+    mock_wrapped_conn = mock.Mock()
+
+    class UnhashableCursor:
+        __hash__ = None
+
+    unhashable_cursor = UnhashableCursor()
+    mock_wrapped_conn.cursor.return_value = unhashable_cursor
+
+    tracking_conn = se.CursorTrackingDBAPIConnection(mock_wrapped_conn)
+
+    with mock.patch.object(se.logger, "warning") as mock_warning:
+        result = tracking_conn.cursor()
+
+    assert result is unhashable_cursor
+    mock_warning.assert_called_once()
+    assert "can't be added to weakset" in mock_warning.call_args[0][0]
+
+
+def test_cursor_tracking_sqlalchemy_connection_handles_none_dbapi_connection():
+    """Test that CursorTrackingSQLAlchemyConnection handles None dbapi connection."""
+    mock_sa_conn = mock.Mock()
+    mock_sa_conn._dbapi_connection = None
+
+    with mock.patch.object(se.logger, "warning") as mock_warning:
+        se.CursorTrackingSQLAlchemyConnection(mock_sa_conn)
+
+    mock_warning.assert_called_once()
+    assert "DBAPI connection is None" in mock_warning.call_args[0][0]
+
+
 def test_build_params_for_bigquery_oauth_ok():
     with mock.patch(
         "deepnote_toolkit.sql.sql_execution.bigquery.Client"
