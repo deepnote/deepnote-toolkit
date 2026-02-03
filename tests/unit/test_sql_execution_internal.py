@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 from unittest import mock
 
 import numpy as np
@@ -9,14 +10,14 @@ from google.api_core.client_info import ClientInfo
 from deepnote_toolkit.sql import sql_execution as se
 
 
-def _setup_mock_engine_with_cursor(mock_cursor):
+def _setup_mock_engine_with_cursor(mock_cursor: mock.Mock) -> mock.Mock:
     """Helper to set up mock engine and connection with a custom cursor.
 
     Returns mock_engine that can be passed to _execute_sql_on_engine.
     """
     import sqlalchemy
 
-    mock_dbapi_connection = mock.Mock()
+    mock_dbapi_connection: mock.Mock = mock.Mock()
     mock_dbapi_connection.cursor.return_value = mock_cursor
 
     mock_sa_connection = mock.Mock(spec=sqlalchemy.engine.Connection)
@@ -24,9 +25,8 @@ def _setup_mock_engine_with_cursor(mock_cursor):
     mock_sa_connection.connection = mock_dbapi_connection
     mock_sa_connection.in_transaction.return_value = False
 
-    # Mock exec_driver_sql to simulate cursor creation and execute
-    def mock_exec_driver_sql(sql, *args):
-        cursor = mock_sa_connection._dbapi_connection.cursor()
+    def mock_exec_driver_sql(sql: str, *args: Any) -> mock.Mock:
+        cursor: mock.Mock = mock_sa_connection._dbapi_connection.cursor()
         cursor.execute(sql, *args)
         return cursor
 
