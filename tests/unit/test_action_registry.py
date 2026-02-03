@@ -210,6 +210,40 @@ class TestActionRegistry:
         mock_context.logger.warning.assert_called_once()
         assert "insecure" in mock_context.logger.warning.call_args[0][0]
 
+    def test_jupyter_server_with_root_dir(self):
+        """Test JupyterServerSpec with custom root directory."""
+        action = JupyterServerSpec(
+            host="0.0.0.0",
+            port=8888,
+            root_dir="/work",
+        )
+
+        mock_context = mock.Mock()
+        mock_context.python_executable.return_value = "python"
+        mock_context.logger = logging.getLogger("test")
+        mock_proc = mock.Mock()
+        mock_context.spawn.return_value = mock_proc
+
+        result = execute_action(action, mock_context)
+
+        assert result.success is True
+        assert result.is_long_running is True
+
+        # Verify the command includes --ServerApp.root_dir
+        expected_argv = [
+            "python",
+            "-m",
+            "jupyter",
+            "server",
+            "--ip",
+            "0.0.0.0",
+            "--port",
+            "8888",
+            "--no-browser",
+            "--ServerApp.root_dir=/work",
+        ]
+        mock_context.spawn.assert_called_once_with(expected_argv, env_override={})
+
     def test_python_lsp_action(self):
         """Test PythonLSPSpec execution."""
         action = PythonLSPSpec(host="localhost", port=2087, verbose=True)

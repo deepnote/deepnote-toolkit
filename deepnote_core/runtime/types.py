@@ -17,6 +17,9 @@ class JupyterServerSpec(BaseModel):
     no_browser: bool = Field(default=True, description="Disable browser auto-open")
     allow_root: bool = Field(default=False, description="Allow root execution")
     enable_terminals: bool = Field(default=True, description="Enable terminal support")
+    root_dir: Optional[str] = Field(
+        default=None, description="Root directory for Jupyter file browser and API"
+    )
     extra_args: List[str] = Field(
         default_factory=list, description="Additional arguments"
     )

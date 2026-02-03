@@ -151,64 +151,23 @@ $ ./bin/test-local
 
 ## Development Workflow for Deepnote maintainers
 
-### Using in Deepnote Projects
+### Local Toolkit development with Deepnote Cloud
 
-When you push a commit, a new version of `deepnote/jupyter-for-local` is built with your commit hash (shortened!). Use it in projects by updating `common.yml`:
+To develop deepnote-toolkit against a locally running Deepnote Cloud with hot-reload:
 
-```yaml
-jupyter:
-  image: "deepnote/jupyter-for-local:SHORTENED_COMMIT_SHA"
-```
+1. Build the local development image:
+    ```bash
+    docker build -t deepnote/jupyter-for-local:local -f ./dockerfiles/jupyter-for-local-hotreload/Dockerfile .
+    ```
 
-Alternatively, to develop against a local copy of Deepnote Toolkit, first run this command to build the image:
+2. Setup `DEEPNOTE_TOOLKIT_SOURCE_PATH` env variable pointing to folder with toolkit source. This can go either in `.zshrc` (or similar file for your shell) or set per shell session with `export DEEPNOTE_TOOLKIT_SOURCE_PATH=...`. If not set, Deepnote Cloud will try to resolve it to `../deepnote-toolkit` relative to Deepnote Cloud root folder.
 
-```bash
-docker build \
-  --build-arg "FROM_PYTHON_TAG=3.11" \
-  -t deepnote/deepnote-toolkit-local-hotreload \
-  -f ./dockerfiles/jupyter-for-local-hotreload/Dockerfile .
-```
+3. In the Deepnote Cloud repository, run:
+    ```bash
+    pnpm dev:app:local-toolkit
+    ```
 
-Then start the container:
-
-```bash
-# To include server logs in the output add this argument
-#  -e WITH_SERVER_LOGS=1 \
-
-# Some toolkit features (e.g. feature flags support) require
-# DEEPNOTE_PROJECT_ID to be set to work correctly. Add this
-# argument with your project id
-# -e DEEPNOTE_PROJECT_ID=981af2c1-fe8b-41b7-94bf-006b74cf0641 \
-
-docker run \
-  -v "$(pwd)":/deepnote-toolkit \
-  -v /tmp/deepnote-mounts:/deepnote-mounts:shared \
-  -p 8888:8888 \
-  -p 2087:2087 \
-  -p 8051:8051 \
-  -w /deepnote-toolkit \
-  --add-host=localstack.dev.deepnote.org:host-gateway \
-  --rm \
-  --name deepnote-toolkit-local-hotreload-container \
-    deepnote/deepnote-toolkit-local-hotreload
-```
-
-This will start a container with Deepnote Toolkit mounted inside and expose all required ports. If you change code that runs in the kernel (e.g. you updated the DataFrame formatter), you only need to restart the kernel from Deepnote's UI. If you update code that starts Jupyter itself, you need to restart the container. And if you add or modify dependencies you need to rebuild the image.
-
-Now, you need to modify `common.yml` in the Deepnote app. First, replace `jupyter` service with noop image:
-
-```yml
-jupyter:
-    image: 'screwdrivercd/noop-container'
-```
-
-And change `JUPYTER_HOST` variable of executor to point to host machine:
-
-```yml
-executor:
-  environment:
-    JUPYTER_HOST: host.docker.internal
-```
+This mounts your toolkit source into the container and installs it in editable mode. Toolkit module code changes are reflected after kernel restart (use "Restart kernel" action in the Deepnote Cloud).
 
 ### Review Applications
 
@@ -227,7 +186,9 @@ We use Docker to ensure reproducible environments due to Jupyter libraries' bina
 
 - `test.Dockerfile`: Provides consistent test environment for running unit and integration tests across Python versions using nox. Used both locally and in CI/CD pipeline.
 
-- `jupyter-for-local.Dockerfile`: Creates development environment with Jupyter integration, used for local development from docker-compose used in main monorepo.
+- `jupyter-for-local.Dockerfile`: Creates development environment with Jupyter integration, used for local development from docker-compose used in Deepnote Cloud.
+
+- `jupyter-for-local-hotreload.Dockerfile`: Creates development environment which expects toolkit source to be mounted at `/toolkit`. Used for development against locally running Deepnote Cloud by Deepnote employees.
 
 ### Production Releases
 
