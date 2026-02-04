@@ -5,7 +5,7 @@ import re
 import uuid
 import warnings
 import weakref
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import quote
 
 import google.oauth2.credentials
@@ -19,7 +19,6 @@ from google.cloud import bigquery
 from packaging.version import parse as parse_version
 from pydantic import BaseModel
 from sqlalchemy.engine import URL, Connection, create_engine, make_url
-from sqlalchemy.engine.interfaces import DBAPIConnection, DBAPICursor
 from sqlalchemy.exc import ResourceClosedError
 
 from deepnote_core.pydantic_compat_helpers import model_validate_compat
@@ -39,6 +38,14 @@ from deepnote_toolkit.sql.sql_caching import get_sql_cache, upload_sql_cache
 from deepnote_toolkit.sql.sql_query_chaining import add_limit_clause, unchain_sql_query
 from deepnote_toolkit.sql.sql_utils import is_single_select_query
 from deepnote_toolkit.sql.url_utils import replace_user_pass_in_pg_url
+
+if TYPE_CHECKING:
+    try:
+        from sqlalchemy.engine.interfaces import DBAPIConnection, DBAPICursor
+    except ImportError:
+        # Not available in SQLAlchemy < 2.0. We use them only for typing, so replace with Any
+        DBAPIConnection = Any
+        DBAPICursor = Any
 
 logger = LoggerManager().get_logger()
 
@@ -525,8 +532,8 @@ class CursorTrackingDBAPIConnection(wrapt.ObjectProxy):
 
     def __init__(
         self,
-        wrapped: DBAPIConnection,
-        cursor_registry: Optional[weakref.WeakSet[DBAPICursor]] = None,
+        wrapped: "DBAPIConnection",
+        cursor_registry: Optional[weakref.WeakSet["DBAPICursor"]] = None,
     ) -> None:
         super().__init__(wrapped)
         # Use provided registry or create our own
@@ -585,7 +592,7 @@ class CursorTrackingSQLAlchemyConnection(wrapt.ObjectProxy):
             _cancel_cursor(cursor)
 
 
-def _cancel_cursor(cursor: DBAPICursor) -> None:
+def _cancel_cursor(cursor: "DBAPICursor") -> None:
     """Best-effort cancel a cursor using available methods."""
     try:
         if hasattr(cursor, "cancel") and callable(cursor.cancel):
