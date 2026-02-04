@@ -5,7 +5,7 @@ import re
 import uuid
 import warnings
 import weakref
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import quote
 
 import google.oauth2.credentials
@@ -18,7 +18,8 @@ from google.api_core.client_info import ClientInfo
 from google.cloud import bigquery
 from packaging.version import parse as parse_version
 from pydantic import BaseModel
-from sqlalchemy.engine import URL, create_engine, make_url
+from sqlalchemy.engine import URL, Connection, create_engine, make_url
+from sqlalchemy.engine.interfaces import DBAPIConnection, DBAPICursor
 from sqlalchemy.exc import ResourceClosedError
 
 from deepnote_core.pydantic_compat_helpers import model_validate_compat
@@ -522,7 +523,11 @@ def _query_data_source(
 class CursorTrackingDBAPIConnection(wrapt.ObjectProxy):
     """Wraps DBAPI connection to track cursors as they're created."""
 
-    def __init__(self, wrapped, cursor_registry=None):
+    def __init__(
+        self,
+        wrapped: DBAPIConnection,
+        cursor_registry: Optional[weakref.WeakSet[DBAPICursor]] = None,
+    ) -> None:
         super().__init__(wrapped)
         # Use provided registry or create our own
         self._self_cursor_registry = (
@@ -552,9 +557,9 @@ class CursorTrackingSQLAlchemyConnection(wrapt.ObjectProxy):
     so all cursors created (including by exec_driver_sql) are tracked.
     """
 
-    def __init__(self, wrapped):
+    def __init__(self, wrapped: Connection) -> None:
         super().__init__(wrapped)
-        self._self_cursors = weakref.WeakSet()
+        self._self_cursors: weakref.WeakSet[DBAPICursor] = weakref.WeakSet()
         self._install_dbapi_wrapper()
 
     def _install_dbapi_wrapper(self):
@@ -580,10 +585,10 @@ class CursorTrackingSQLAlchemyConnection(wrapt.ObjectProxy):
             _cancel_cursor(cursor)
 
 
-def _cancel_cursor(cursor):
+def _cancel_cursor(cursor: DBAPICursor) -> None:
     """Best-effort cancel a cursor using available methods."""
     try:
-        if hasattr(cursor, "cancel"):
+        if hasattr(cursor, "cancel") and callable(cursor.cancel):
             cursor.cancel()
     except (Exception, KeyboardInterrupt):
         pass  # Best effort, ignore all errors
