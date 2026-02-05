@@ -573,15 +573,23 @@ class CursorTrackingSQLAlchemyConnection(wrapt.ObjectProxy):
         """Replace SQLAlchemy's internal DBAPI connection with our tracking wrapper."""
         try:
             # Access the internal DBAPI connection
-            dbapi_conn = self.__wrapped__.connection.dbapi_connection
+            if hasattr(self.__wrapped__.connection, "dbapi_connection"):
+                dbapi_conn = self.__wrapped__.connection.dbapi_connection
+                dbapi_connection_attr_name = "dbapi_connection"
+            else:
+                # SQLAlchemy pre v1.4
+                dbapi_conn = self.__wrapped__.connection.connection
+                dbapi_connection_attr_name = "connection"
             if dbapi_conn is None:
                 logger.warning(
                     f"DBAPI connection is None (connection type {type(self.__wrapped__)}), cannot install tracking"
                 )
                 return
 
-            self.__wrapped__.connection.dbapi_connection = CursorTrackingDBAPIConnection(
-                dbapi_conn, self._self_cursors
+            setattr(
+                self.__wrapped__.connection,
+                dbapi_connection_attr_name,
+                CursorTrackingDBAPIConnection(dbapi_conn, self._self_cursors),
             )
         except Exception as e:
             logger.warning(f"Could not install DBAPI wrapper: {e}")
