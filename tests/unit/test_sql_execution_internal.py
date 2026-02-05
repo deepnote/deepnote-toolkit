@@ -20,13 +20,18 @@ def _setup_mock_engine_with_cursor(mock_cursor: mock.Mock) -> mock.Mock:
     mock_dbapi_connection: mock.Mock = mock.Mock()
     mock_dbapi_connection.cursor.return_value = mock_cursor
 
+    mock_pool_connection = mock.Mock()
+    mock_pool_connection.dbapi_connection = mock_dbapi_connection
+    mock_pool_connection.cursor.side_effect = (
+        lambda: mock_pool_connection.dbapi_connection.cursor()
+    )
+
     mock_sa_connection = mock.Mock(spec=sqlalchemy.engine.Connection)
-    mock_sa_connection._dbapi_connection = mock_dbapi_connection
-    mock_sa_connection.connection = mock_dbapi_connection
+    mock_sa_connection.connection = mock_pool_connection
     mock_sa_connection.in_transaction.return_value = False
 
     def mock_exec_driver_sql(sql: str, *args: Any) -> mock.Mock:
-        cursor: mock.Mock = mock_sa_connection._dbapi_connection.cursor()
+        cursor: mock.Mock = mock_sa_connection.connection.cursor()
         cursor.execute(sql, *args)
         return cursor
 
@@ -134,8 +139,11 @@ def test_cursor_tracking_dbapi_connection_handles_unhashable_cursor():
 
 def test_cursor_tracking_sqlalchemy_connection_handles_none_dbapi_connection():
     """Test that CursorTrackingSQLAlchemyConnection handles None dbapi connection."""
+    mock_conn_pool = mock.Mock()
+    mock_conn_pool.dbapi_connection = None
+
     mock_sa_conn = mock.Mock()
-    mock_sa_conn._dbapi_connection = None
+    mock_sa_conn.connection = mock_conn_pool
 
     with mock.patch.object(se.logger, "warning") as mock_warning:
         se.CursorTrackingSQLAlchemyConnection(mock_sa_conn)
