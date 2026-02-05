@@ -553,7 +553,7 @@ class CursorTrackingDBAPIConnection(wrapt.ObjectProxy):
 
     def cancel_all_cursors(self):
         """Cancel all tracked cursors. Best-effort, ignores errors."""
-        for cursor in list(self._self_cursor_registry):
+        for cursor in self._self_cursor_registry:
             _cancel_cursor(cursor)
 
 
@@ -573,14 +573,14 @@ class CursorTrackingSQLAlchemyConnection(wrapt.ObjectProxy):
         """Replace SQLAlchemy's internal DBAPI connection with our tracking wrapper."""
         try:
             # Access the internal DBAPI connection
-            dbapi_conn = self.__wrapped__._dbapi_connection
+            dbapi_conn = self.__wrapped__.connection.dbapi_connection
             if dbapi_conn is None:
                 logger.warning(
                     f"DBAPI connection is None (connection type {type(self.__wrapped__)}), cannot install tracking"
                 )
                 return
 
-            self.__wrapped__._dbapi_connection = CursorTrackingDBAPIConnection(
+            self.__wrapped__.connection.dbapi_connection = CursorTrackingDBAPIConnection(
                 dbapi_conn, self._self_cursors
             )
         except Exception as e:
@@ -588,7 +588,7 @@ class CursorTrackingSQLAlchemyConnection(wrapt.ObjectProxy):
 
     def cancel_all_cursors(self):
         """Cancel all tracked cursors. Best-effort, ignores errors."""
-        for cursor in list(self._self_cursors):
+        for cursor in self._self_cursors:
             _cancel_cursor(cursor)
 
 
