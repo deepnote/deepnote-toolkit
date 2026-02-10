@@ -660,7 +660,7 @@ def _execute_sql_on_engine(engine, query, bind_params):
         except ResourceClosedError:
             # this happens if the query is e.g. UPDATE and pandas tries to create a dataframe from its result
             return None
-        except BaseException:
+        except KeyboardInterrupt:
             tracking_connection.cancel_all_cursors()
             raise
 
