@@ -133,7 +133,7 @@ dependencies = [
 
     # Security constraint updates for transitive dependencies
     "urllib3>=2.6.3,<3",
-    "cryptography>=44.0.1,<45",
+    "cryptography>=46.0.5,<47",
     "protobuf>=4.25.8,<6",
     "requests>=2.32.4,<3",
     "tornado>=6.5,<7",
