@@ -255,6 +255,7 @@ def test_is_large_number():
     assert se._is_large_number(Decimal("1e40")) is True
     assert se._is_large_number(Decimal("100")) is False
     assert se._is_large_number(Decimal("NaN")) is False
+    assert se._is_large_number(Decimal("sNaN")) is False
     assert se._is_large_number(Decimal("Infinity")) is True
     assert se._is_large_number("not a number") is False
     assert se._is_large_number(None) is False

@@ -1,11 +1,16 @@
 import unittest
+from unittest import mock
 from unittest.mock import patch
 
 import pandas as pd
 from parameterized import parameterized
 from pyarrow import ArrowInvalid
 
-from deepnote_toolkit.sql.sql_caching import _generate_cache_key, get_sql_cache
+from deepnote_toolkit.sql.sql_caching import (
+    _generate_cache_key,
+    get_sql_cache,
+    upload_sql_cache,
+)
 from deepnote_toolkit.sql.sql_utils import is_single_select_query
 
 
@@ -331,3 +336,61 @@ class TestGetSqlCache(unittest.TestCase):
 
         self.assertIsNone(result_df)
         self.assertIsNone(upload_url)
+
+
+class TestUploadSqlCache(unittest.TestCase):
+    @patch("deepnote_toolkit.sql.sql_caching.requests.put")
+    def test_upload_parquet_success(self, mock_put):
+        mock_put.return_value = mock.Mock(raise_for_status=mock.Mock())
+        df = pd.DataFrame({"a": [1, 2, 3]})
+
+        upload_sql_cache(df, "https://example.com/upload")
+
+        mock_put.assert_called_once()
+        args, _ = mock_put.call_args
+        self.assertEqual(args[0], "https://example.com/upload")
+
+    @patch("deepnote_toolkit.sql.sql_caching.requests.put")
+    def test_overflow_error_falls_back_to_pickle(self, mock_put):
+        """Large Python int triggers OverflowError in to_parquet, upload succeeds via pickle."""
+        uploaded_bytes = None
+
+        def capture_put(_url, data):
+            nonlocal uploaded_bytes
+            uploaded_bytes = data.read()
+            return mock.Mock(raise_for_status=mock.Mock())
+
+        mock_put.side_effect = capture_put
+        df = pd.DataFrame({"x": pd.array([2**100, 1], dtype=object)})
+
+        upload_sql_cache(df, "https://example.com/upload")
+
+        roundtripped = pd.read_pickle(pd.io.common.BytesIO(uploaded_bytes))
+        pd.testing.assert_frame_equal(roundtripped, df)
+
+    @patch("deepnote_toolkit.sql.sql_caching.requests.put")
+    def test_pickle_fallback_truncates_partial_parquet_bytes(self, mock_put):
+        """When to_parquet writes partial bytes before failing, truncate clears them."""
+        mock_put.return_value = mock.Mock(raise_for_status=mock.Mock())
+
+        def write_garbage_then_overflow(f, **_kwargs):
+            f.write(b"partial parquet data")
+            raise OverflowError("Python int too large")
+
+        pickle_pos = None
+        pickle_size = None
+
+        def capture_file_state(f, **_kwargs):
+            nonlocal pickle_pos, pickle_size
+            pickle_pos = f.tell()
+            pickle_size = f.seek(0, 2)
+            f.seek(0)
+
+        df = mock.Mock()
+        df.to_parquet.side_effect = write_garbage_then_overflow
+        df.to_pickle.side_effect = capture_file_state
+
+        upload_sql_cache(df, "https://example.com/upload")
+
+        self.assertEqual(pickle_pos, 0, "file should be at position 0")
+        self.assertEqual(pickle_size, 0, "file should be empty after truncate")
