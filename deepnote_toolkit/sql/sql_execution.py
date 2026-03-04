@@ -687,7 +687,7 @@ def _build_params_for_bigquery_oauth(params):
     return {"connect_args": {"client": client}}
 
 
-def _is_large_number(x) -> bool:
+def _is_large_number(x: Any) -> bool:
     """Return True if *x* is a numeric value that exceeds the int64 range"""
     try:
         return isinstance(x, (int, float, Decimal)) and abs(x) > 2**63 - 1

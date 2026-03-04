@@ -102,6 +102,8 @@ def upload_sql_cache(dataframe, upload_url):
                 # see NB-1684
                 # we fallback to pickle if parquet serialization fails (which will throw either of first 2 errors)
                 # OverflowError: PyArrow raises this for Python int / Decimal values exceeding int64 range
+                temp_file.seek(0)
+                temp_file.truncate()
                 dataframe.to_pickle(temp_file)
 
             temp_file.seek(0)
