@@ -200,6 +200,66 @@ def test_sanitize_dataframe_for_parquet_conversions():
     assert pd.api.types.is_integer_dtype(data["i"]) is True
 
 
+def test_sanitize_dataframe_for_parquet_decimal_large_numbers():
+    """Large decimal.Decimal values must be converted to strings."""
+    from decimal import Decimal
+
+    data = pd.DataFrame(
+        {
+            "d": [Decimal("99999999999999999999999999999999"), Decimal("1.5")],
+            "i": [1, 2],
+        }
+    )
+    se._sanitize_dataframe_for_parquet(data)
+    assert data["d"].dtype == object
+    assert data["d"].iloc[0] == "99999999999999999999999999999999"
+    assert data["d"].iloc[1] == "1.5"
+    assert pd.api.types.is_integer_dtype(data["i"]) is True
+
+
+def test_sanitize_dataframe_for_parquet_decimal_small_numbers():
+    """Decimal values within int64 range should not be converted."""
+    from decimal import Decimal
+
+    data = pd.DataFrame(
+        {
+            "d": [Decimal("100"), Decimal("200")],
+        }
+    )
+    se._sanitize_dataframe_for_parquet(data)
+    assert data["d"].iloc[0] == Decimal("100")
+
+
+def test_sanitize_dataframe_for_parquet_decimal_nan():
+    """Decimal('NaN') must not crash the sanitizer."""
+    from decimal import Decimal
+
+    data = pd.DataFrame(
+        {
+            "d": [Decimal("NaN"), Decimal("42")],
+        }
+    )
+    se._sanitize_dataframe_for_parquet(data)
+    assert data["d"].iloc[1] == Decimal("42")
+
+
+def test_is_large_number():
+    from decimal import Decimal
+
+    assert se._is_large_number(2**63) is True
+    assert se._is_large_number(-(2**63) - 1) is True
+    assert se._is_large_number(2**63 - 1) is False
+    assert se._is_large_number(42) is False
+    assert se._is_large_number(float("inf")) is True
+    assert se._is_large_number(float("nan")) is False
+    assert se._is_large_number(Decimal("1e40")) is True
+    assert se._is_large_number(Decimal("100")) is False
+    assert se._is_large_number(Decimal("NaN")) is False
+    assert se._is_large_number(Decimal("Infinity")) is True
+    assert se._is_large_number("not a number") is False
+    assert se._is_large_number(None) is False
+
+
 def test_create_sql_ssh_uri_no_ssh():
     with se._create_sql_ssh_uri(False, {}) as url:
         assert url is None

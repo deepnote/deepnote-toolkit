@@ -98,9 +98,10 @@ def upload_sql_cache(dataframe, upload_url):
         with tempfile.TemporaryFile() as temp_file:
             try:
                 dataframe.to_parquet(temp_file)
-            except (ArrowNotImplementedError, ArrowInvalid):
+            except (ArrowNotImplementedError, ArrowInvalid, OverflowError):
                 # see NB-1684
-                # we fallback to pickle if parquet serialization fails (which will throw either of these 2 errors)
+                # we fallback to pickle if parquet serialization fails (which will throw either of first 2 errors)
+                # OverflowError: PyArrow raises this for Python int / Decimal values exceeding int64 range
                 dataframe.to_pickle(temp_file)
 
             temp_file.seek(0)
