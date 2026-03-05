@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 import datetime
 import os
+import shutil
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -82,6 +83,46 @@ def submit_downloading(
                 sys.exit(1)
 
 
+def cleanup_old_versions(
+    base_path: str, current_release_name: str, versions_to_keep: int = 2
+):
+    """Remove old toolkit versions, keeping only the most recent ones.
+
+    Sorts existing version directories by modification time and removes all
+    but the ``versions_to_keep`` newest. The directory for
+    ``current_release_name`` (about to be downloaded) is excluded from
+    removal so the subsequent download can populate it cleanly.
+
+    After cleanup there will be at most ``versions_to_keep`` old versions on
+    disk. Once the new version finishes downloading the total will be
+    ``versions_to_keep + 1``.
+    """
+
+    if not os.path.isdir(base_path):
+        return
+
+    version_dirs = [
+        entry
+        for entry in os.scandir(base_path)
+        if entry.is_dir() and entry.name != current_release_name
+    ]
+
+    if len(version_dirs) <= versions_to_keep:
+        return
+
+    # Newest first
+    version_dirs.sort(key=lambda e: e.stat().st_mtime, reverse=True)
+
+    for entry in version_dirs[versions_to_keep:]:
+        print(f"{datetime.datetime.now()}: Removing old toolkit version: {entry.path}")
+        try:
+            shutil.rmtree(entry.path)
+        except OSError as exc:
+            print(
+                f"{datetime.datetime.now()}: Warning: failed to remove {entry.path}: {exc}"
+            )
+
+
 def main():
     """Main function to download the toolkit dependencies for the given Python versions."""
 
@@ -93,6 +134,7 @@ def main():
     release_name = os.getenv("RELEASE_NAME")
     toolkit_index_bucket_name = os.getenv("TOOLKIT_INDEX_BUCKET_NAME")
 
+    cleanup_old_versions(BASE_PATH, release_name)
     submit_downloading(python_versions, release_name, toolkit_index_bucket_name)
 
     end_time = datetime.datetime.now()
