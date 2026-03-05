@@ -5,6 +5,7 @@ import re
 import uuid
 import warnings
 import weakref
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import quote
 
@@ -686,6 +687,14 @@ def _build_params_for_bigquery_oauth(params):
     return {"connect_args": {"client": client}}
 
 
+def _is_large_number(x: Any) -> bool:
+    """Return True if *x* is a numeric value that exceeds the int64 range"""
+    try:
+        return isinstance(x, (int, float, Decimal)) and abs(x) > 2**63 - 1
+    except (TypeError, OverflowError, ArithmeticError):
+        return False
+
+
 def _sanitize_dataframe_for_parquet(dataframe):
     """Sanitizes the dataframe so that we can safely call .to_parquet on it"""
 
@@ -707,11 +716,7 @@ def _sanitize_dataframe_for_parquet(dataframe):
 
     # Convert columns with large numbers to strings
     for column in dataframe.columns:
-        if (
-            dataframe[column]
-            .apply(lambda x: isinstance(x, (int, float)) and abs(x) > 2**63 - 1)
-            .any()
-        ):
+        if dataframe[column].apply(_is_large_number).any():
             dataframe[column] = dataframe[column].astype(str)
 
 
