@@ -3,6 +3,8 @@ import os
 import shutil
 from unittest.mock import patch
 
+import pytest
+
 # The cache-downloader script is not a regular package, so we load it by path.
 _spec = importlib.util.spec_from_file_location(
     "cache_downloader",
@@ -136,6 +138,12 @@ class TestCleanupOldVersions:
     def test_empty_base_path(self, tmp_path):
         """An empty base directory should not cause errors."""
         cleanup_old_versions(str(tmp_path), "new-release")
+
+    def test_negative_versions_to_keep_raises(self, tmp_path):
+        """A negative versions_to_keep should raise ValueError."""
+        (tmp_path / "v1").mkdir()
+        with pytest.raises(ValueError, match="non-negative"):
+            cleanup_old_versions(str(tmp_path), "new-release", versions_to_keep=-1)
 
     def test_continues_on_rmtree_oserror(self, tmp_path):
         """A failed removal should not prevent other removals."""

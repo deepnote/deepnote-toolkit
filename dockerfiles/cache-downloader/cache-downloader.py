@@ -101,6 +101,11 @@ def cleanup_old_versions(
     if not os.path.isdir(base_path):
         return
 
+    if versions_to_keep < 0:
+        raise ValueError(
+            f"versions_to_keep must be non-negative, got {versions_to_keep}"
+        )
+
     version_dirs = [
         entry
         for entry in os.scandir(base_path)
@@ -132,6 +137,10 @@ def main():
     python_versions_env = os.getenv("PYTHON_VERSIONS")
     python_versions = [version.strip() for version in python_versions_env.split(",")]
     release_name = os.getenv("RELEASE_NAME")
+    if not release_name:
+        print("Error: RELEASE_NAME environment variable is not set")
+        sys.exit(1)
+
     toolkit_index_bucket_name = os.getenv("TOOLKIT_INDEX_BUCKET_NAME")
 
     cleanup_old_versions(BASE_PATH, release_name)
