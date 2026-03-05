@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 from typing import List
 
 BASE_PATH = "/deepnote-toolkit/"
@@ -85,7 +86,7 @@ def submit_downloading(
 
 def cleanup_old_versions(
     base_path: str, current_release_name: str, versions_to_keep: int = 2
-):
+) -> None:
     """Remove old toolkit versions, keeping only the most recent ones.
 
     Sorts existing version directories by modification time and removes all
@@ -98,7 +99,9 @@ def cleanup_old_versions(
     ``versions_to_keep + 1``.
     """
 
-    if not os.path.isdir(base_path):
+    root = Path(base_path)
+
+    if not root.is_dir():
         return
 
     if versions_to_keep < 0:
@@ -108,7 +111,7 @@ def cleanup_old_versions(
 
     version_dirs = [
         entry
-        for entry in os.scandir(base_path)
+        for entry in root.iterdir()
         if entry.is_dir() and entry.name != current_release_name
     ]
 
@@ -119,12 +122,12 @@ def cleanup_old_versions(
     version_dirs.sort(key=lambda e: e.stat().st_mtime, reverse=True)
 
     for entry in version_dirs[versions_to_keep:]:
-        print(f"{datetime.datetime.now()}: Removing old toolkit version: {entry.path}")
+        print(f"{datetime.datetime.now()}: Removing old toolkit version: {entry}")
         try:
-            shutil.rmtree(entry.path)
+            shutil.rmtree(entry)
         except OSError as exc:
             print(
-                f"{datetime.datetime.now()}: Warning: failed to remove {entry.path}: {exc}"
+                f"{datetime.datetime.now()}: Warning: failed to remove {entry}: {exc}"
             )
 
 
