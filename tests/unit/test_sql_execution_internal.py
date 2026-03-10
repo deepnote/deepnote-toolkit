@@ -218,7 +218,7 @@ def test_sanitize_dataframe_for_parquet_decimal_large_numbers():
 
 
 def test_sanitize_dataframe_for_parquet_decimal_small_numbers():
-    """Decimal values within int64 range should not be converted."""
+    """Decimal values within float64 exact range should not be converted."""
     from decimal import Decimal
 
     data = pd.DataFrame(
@@ -246,19 +246,128 @@ def test_sanitize_dataframe_for_parquet_decimal_nan():
 def test_is_large_number():
     from decimal import Decimal
 
-    assert se._is_large_number(2**63) is True
-    assert se._is_large_number(-(2**63) - 1) is True
-    assert se._is_large_number(2**63 - 1) is False
+    # 2**53 boundary: float64 can represent integers exactly up to 2**53
+    assert se._is_large_number(2**53) is False
+    assert se._is_large_number(2**53 + 1) is True
+    assert se._is_large_number(-(2**53)) is False
+    assert se._is_large_number(-(2**53) - 1) is True
+
+    # Small integers should not trigger
+    assert se._is_large_number(0) is False
+    assert se._is_large_number(1) is False
+    assert se._is_large_number(-1) is False
     assert se._is_large_number(42) is False
+
+    # Large ints well beyond 2**53 should trigger
+    assert se._is_large_number(2**63 - 1) is True
+    assert se._is_large_number(2**63) is True
+    assert se._is_large_number(10**18) is True
+
+    # Floats
     assert se._is_large_number(float("inf")) is True
     assert se._is_large_number(float("nan")) is False
+    assert se._is_large_number(1.0) is False
+
+    # Decimals
     assert se._is_large_number(Decimal("1e40")) is True
+    assert se._is_large_number(Decimal("9007199254740994")) is True
     assert se._is_large_number(Decimal("100")) is False
     assert se._is_large_number(Decimal("NaN")) is False
     assert se._is_large_number(Decimal("sNaN")) is False
     assert se._is_large_number(Decimal("Infinity")) is True
+
+    # Non-numeric types should not trigger
     assert se._is_large_number("not a number") is False
     assert se._is_large_number(None) is False
+
+
+def test_sanitize_dataframe_for_parquet_large_int_precision_loss():
+    """Integers above 2**53 must be converted to strings to preserve precision."""
+    val_above = 2**53 + 1  # 9007199254740993
+    val_exact = 2**53  # 9007199254740992
+
+    data = pd.DataFrame(
+        {
+            "lossy": [val_above, val_exact],
+            "safe": [42, 100],
+        }
+    )
+    se._sanitize_dataframe_for_parquet(data)
+    assert data["lossy"].dtype == object
+    assert data["lossy"].iloc[0] == str(val_above)
+    assert data["lossy"].iloc[1] == str(val_exact)
+    assert pd.api.types.is_integer_dtype(data["safe"])
+
+
+def test_sanitize_dataframe_for_parquet_large_int_negative():
+    """Negative integers beyond -2**53 must also be converted."""
+    data = pd.DataFrame(
+        {
+            "neg": [-(2**53) - 1, 0],
+        }
+    )
+    se._sanitize_dataframe_for_parquet(data)
+    assert data["neg"].dtype == object
+    assert data["neg"].iloc[0] == str(-(2**53) - 1)
+
+
+def test_sanitize_dataframe_for_parquet_int_at_boundary():
+    """Integers exactly at 2**53 should not be converted (still exact in float64)."""
+    data = pd.DataFrame(
+        {
+            "boundary": [2**53, -(2**53)],
+        }
+    )
+    se._sanitize_dataframe_for_parquet(data)
+    assert pd.api.types.is_integer_dtype(data["boundary"])
+
+
+def test_sanitize_dataframe_for_parquet_mixed_int_with_none():
+    """Mixed object column with None and large int should convert to strings."""
+    data = pd.DataFrame(
+        {
+            "mixed": pd.array([2**53 + 1, None, 42], dtype=object),
+        }
+    )
+    se._sanitize_dataframe_for_parquet(data)
+    assert data["mixed"].dtype == object
+    assert data["mixed"].iloc[0] == str(2**53 + 1)
+
+
+def test_sanitize_dataframe_for_parquet_decimal_int_precision_loss():
+    """Integer-valued Decimals above 2**53 should be converted to strings."""
+    from decimal import Decimal
+
+    data = pd.DataFrame(
+        {
+            "d": [Decimal("9007199254740993"), Decimal("42")],
+        }
+    )
+    se._sanitize_dataframe_for_parquet(data)
+    assert data["d"].dtype == object
+    assert data["d"].iloc[0] == str(Decimal("9007199254740993"))
+
+
+def test_sanitize_dataframe_for_parquet_precision_loss_preserves_value():
+    """Verify the string conversion preserves the exact integer value."""
+    val = 9007199254740993
+    assert float(val) == float(9007199254740992)  # proves precision loss in float64
+
+    data = pd.DataFrame({"x": [val]})
+    se._sanitize_dataframe_for_parquet(data)
+    assert data["x"].iloc[0] == "9007199254740993"  # exact value preserved
+
+
+def test_sanitize_dataframe_for_parquet_very_large_int():
+    """Integers far beyond 2**53 (e.g. 2**64) must also be converted."""
+    data = pd.DataFrame(
+        {
+            "huge": [2**64, 42],
+        }
+    )
+    se._sanitize_dataframe_for_parquet(data)
+    assert data["huge"].dtype == object
+    assert data["huge"].iloc[0] == str(2**64)
 
 
 def test_create_sql_ssh_uri_no_ssh():

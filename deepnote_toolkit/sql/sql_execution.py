@@ -688,9 +688,14 @@ def _build_params_for_bigquery_oauth(params):
 
 
 def _is_large_number(x: Any) -> bool:
-    """Return True if *x* is a numeric value that exceeds the int64 range"""
+    """Return True if *x* is a numeric value that would lose precision as float64.
+
+    float64 can represent integers exactly only up to 2**53, so any
+    int, float, or Decimal whose absolute value exceeds that threshold
+    is considered "large" and will be converted to a string.
+    """
     try:
-        return isinstance(x, (int, float, Decimal)) and abs(x) > 2**63 - 1
+        return isinstance(x, (int, float, Decimal)) and abs(x) > 2**53
     except (TypeError, OverflowError, ArithmeticError):
         return False
 
@@ -714,7 +719,9 @@ def _sanitize_dataframe_for_parquet(dataframe):
         ):
             dataframe[column] = dataframe[column].astype(str)
 
-    # Convert columns with large numbers to strings
+    # Convert columns with large numbers to strings to preserve precision.
+    # float64 can only represent integers exactly up to 2**53; values
+    # above that threshold are converted to strings.
     for column in dataframe.columns:
         if dataframe[column].apply(_is_large_number).any():
             dataframe[column] = dataframe[column].astype(str)
