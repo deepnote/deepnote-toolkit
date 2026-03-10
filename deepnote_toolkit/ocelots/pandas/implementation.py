@@ -13,6 +13,7 @@ from deepnote_toolkit.ocelots.types import Column, ColumnsStatsRecord
 
 from .analyze import analyze_columns
 from .utils import (
+    cast_large_numbers_to_string,
     cast_objects_to_string,
     deduplicate_columns,
     fill_nat,
@@ -303,6 +304,7 @@ class PandasImplementation:
         if mode == "json":
             fill_nat(df_copy, "NaT")
             cast_objects_to_string(df_copy)
+            cast_large_numbers_to_string(df_copy)
         return df_copy.to_dict("records")
 
     def to_csv(self, path_or_buf: Union[str, TextIO]) -> None:

@@ -31,7 +31,7 @@ from deepnote_toolkit.get_webapp_url import (
 )
 from deepnote_toolkit.ipython_utils import output_sql_metadata
 from deepnote_toolkit.logging import LoggerManager
-from deepnote_toolkit.ocelots.pandas.utils import deduplicate_columns
+from deepnote_toolkit.ocelots.pandas.utils import deduplicate_columns, is_large_number
 from deepnote_toolkit.sql.duckdb_sql import execute_duckdb_sql
 from deepnote_toolkit.sql.jinjasql_utils import render_jinja_sql_template
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
@@ -687,19 +687,6 @@ def _build_params_for_bigquery_oauth(params):
     return {"connect_args": {"client": client}}
 
 
-def _is_large_number(x: Any) -> bool:
-    """Return True if *x* is a numeric value that would lose precision as float64.
-
-    float64 can represent integers exactly only up to 2**53, so any
-    int, float, or Decimal whose absolute value exceeds that threshold
-    is considered "large" and will be converted to a string.
-    """
-    try:
-        return isinstance(x, (int, float, Decimal)) and abs(x) > 2**53
-    except (TypeError, OverflowError, ArithmeticError):
-        return False
-
-
 def _sanitize_dataframe_for_parquet(dataframe):
     """Sanitizes the dataframe so that we can safely call .to_parquet on it"""
 
@@ -723,7 +710,7 @@ def _sanitize_dataframe_for_parquet(dataframe):
     # float64 can only represent integers exactly up to 2**53; values
     # above that threshold are converted to strings.
     for column in dataframe.columns:
-        if dataframe[column].apply(_is_large_number).any():
+        if dataframe[column].apply(is_large_number).any():
             dataframe[column] = dataframe[column].astype(str)
 
 

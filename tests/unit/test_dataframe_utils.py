@@ -2,6 +2,7 @@ import json
 import unittest
 from unittest.mock import MagicMock
 
+import numpy as np
 from ipykernel.jsonutil import json_clean
 
 from deepnote_toolkit.dataframe_utils import _describe_dataframe, add_formatters
@@ -187,6 +188,34 @@ class TestDataframeDescribe(unittest.TestCase):
         self.assertEqual(result["row_count"], 1)
         self.assertEqual(result["columns"][0]["stats"]["min"], str(2**53))
         self.assertEqual(result["columns"][0]["stats"]["max"], str(2**53))
+
+    def test_large_numbers_above_threshold_are_strings_in_rows(self):
+        """Integers above 2**53 must be converted to strings in rows to preserve precision."""
+        df = testing_dataframes["large_numbers_above_threshold"]
+        result = describe_and_json_clean(df)
+        self.assertEqual(result["row_count"], 3)
+        for row in result["rows"]:
+            self.assertIsInstance(row["col1"], str)
+        self.assertEqual(result["rows"][0]["col1"], str(2**53 + 1))
+        self.assertEqual(result["rows"][1]["col1"], "42")
+        self.assertEqual(result["rows"][2]["col1"], str(2**53 + 100))
+
+    def test_large_numbers_mixed_columns_only_affects_large_column(self):
+        """Only columns containing values above 2**53 should be converted; safe columns stay numeric."""
+        df = testing_dataframes["large_numbers_mixed_columns"]
+        result = describe_and_json_clean(df)
+        self.assertEqual(result["row_count"], 3)
+        for row in result["rows"]:
+            self.assertIsInstance(row["safe_col"], int)
+            self.assertIsInstance(row["large_col"], str)
+        self.assertEqual(result["rows"][0]["large_col"], str(2**53 + 1))
+
+    def test_large_numbers_at_boundary_stay_numeric(self):
+        """Integers exactly at 2**53 should remain as numbers (still exact in float64)."""
+        df = testing_dataframes["large_numbers"]
+        result = describe_and_json_clean(df)
+        for row in result["rows"]:
+            self.assertIsInstance(row["col1"], (int, np.integer))
 
     def test_infinity(self):
         df = testing_dataframes["infinity"]
