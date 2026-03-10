@@ -125,7 +125,7 @@ def is_large_number(x) -> bool:
         return False
 
 
-def cast_large_numbers_to_string(df):
+def cast_large_numbers_to_string(df: pd.DataFrame) -> pd.DataFrame:
     """Convert columns containing numbers beyond float64 safe integer range to strings.
 
     JavaScript's JSON.parse() reads all numbers as float64, which can only
