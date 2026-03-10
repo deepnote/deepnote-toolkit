@@ -5,7 +5,6 @@ import re
 import uuid
 import warnings
 import weakref
-from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Optional
 from urllib.parse import quote
 
