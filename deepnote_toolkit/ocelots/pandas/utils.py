@@ -117,7 +117,10 @@ def is_large_number(x) -> bool:
     considered "large" and should be converted to a string.
     """
     try:
-        return isinstance(x, (int, float, Decimal, np.integer, np.floating)) and abs(x) > MAX_SAFE_FLOAT64_INTEGER
+        return (
+            isinstance(x, (int, float, Decimal, np.integer, np.floating))
+            and abs(x) > MAX_SAFE_FLOAT64_INTEGER
+        )
     except (TypeError, OverflowError, ArithmeticError):
         return False
 
@@ -131,7 +134,10 @@ def cast_large_numbers_to_string(df):
     exact value.
     """
     for column in df:
-        if is_pure_numeric(df[column].dtype) and df[column].apply(is_large_number).any():
+        if (
+            is_pure_numeric(df[column].dtype)
+            and df[column].apply(is_large_number).any()
+        ):
             df[column] = df[column].apply(safe_convert_to_string)
     return df
 

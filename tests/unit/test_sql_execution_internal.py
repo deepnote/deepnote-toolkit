@@ -246,39 +246,41 @@ def test_sanitize_dataframe_for_parquet_decimal_nan():
 def test_is_large_number():
     from decimal import Decimal
 
+    from deepnote_toolkit.ocelots.pandas.utils import is_large_number
+
     # 2**53 boundary: float64 can represent integers exactly up to 2**53
-    assert se._is_large_number(2**53) is False
-    assert se._is_large_number(2**53 + 1) is True
-    assert se._is_large_number(-(2**53)) is False
-    assert se._is_large_number(-(2**53) - 1) is True
+    assert is_large_number(2**53) is False
+    assert is_large_number(2**53 + 1) is True
+    assert is_large_number(-(2**53)) is False
+    assert is_large_number(-(2**53) - 1) is True
 
     # Small integers should not trigger
-    assert se._is_large_number(0) is False
-    assert se._is_large_number(1) is False
-    assert se._is_large_number(-1) is False
-    assert se._is_large_number(42) is False
+    assert is_large_number(0) is False
+    assert is_large_number(1) is False
+    assert is_large_number(-1) is False
+    assert is_large_number(42) is False
 
     # Large ints well beyond 2**53 should trigger
-    assert se._is_large_number(2**63 - 1) is True
-    assert se._is_large_number(2**63) is True
-    assert se._is_large_number(10**18) is True
+    assert is_large_number(2**63 - 1) is True
+    assert is_large_number(2**63) is True
+    assert is_large_number(10**18) is True
 
     # Floats
-    assert se._is_large_number(float("inf")) is True
-    assert se._is_large_number(float("nan")) is False
-    assert se._is_large_number(1.0) is False
+    assert is_large_number(float("inf")) is True
+    assert is_large_number(float("nan")) is False
+    assert is_large_number(1.0) is False
 
     # Decimals
-    assert se._is_large_number(Decimal("1e40")) is True
-    assert se._is_large_number(Decimal("9007199254740994")) is True
-    assert se._is_large_number(Decimal("100")) is False
-    assert se._is_large_number(Decimal("NaN")) is False
-    assert se._is_large_number(Decimal("sNaN")) is False
-    assert se._is_large_number(Decimal("Infinity")) is True
+    assert is_large_number(Decimal("1e40")) is True
+    assert is_large_number(Decimal("9007199254740994")) is True
+    assert is_large_number(Decimal("100")) is False
+    assert is_large_number(Decimal("NaN")) is False
+    assert is_large_number(Decimal("sNaN")) is False
+    assert is_large_number(Decimal("Infinity")) is True
 
     # Non-numeric types should not trigger
-    assert se._is_large_number("not a number") is False
-    assert se._is_large_number(None) is False
+    assert is_large_number("not a number") is False
+    assert is_large_number(None) is False
 
 
 def test_sanitize_dataframe_for_parquet_large_int_precision_loss():
