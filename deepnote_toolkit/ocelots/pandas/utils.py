@@ -1,4 +1,5 @@
 from decimal import Decimal
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -109,7 +110,7 @@ def cast_objects_to_string(df):
 MAX_SAFE_FLOAT64_INTEGER = 2**53
 
 
-def is_large_number(x) -> bool:
+def is_large_number(x: Any) -> bool:
     """Return True if *x* is a numeric value that would lose precision as float64.
 
     float64 can represent integers exactly only up to 2**53, so any
