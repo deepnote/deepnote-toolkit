@@ -1,3 +1,6 @@
+from decimal import Decimal
+from typing import Any
+
 import numpy as np
 import pandas as pd
 from packaging.requirements import Requirement
@@ -101,6 +104,42 @@ def cast_objects_to_string(df):
             # if the dtype is not a number, we want to convert it to string and truncate
             df[column] = df[column].apply(to_string_truncated)
 
+    return df
+
+
+MAX_SAFE_FLOAT64_INTEGER = 2**53
+
+
+def is_large_number(x: Any) -> bool:
+    """Return True if *x* is a numeric value that would lose precision as float64.
+
+    float64 can represent integers exactly only up to 2**53, so any
+    numeric value whose absolute value exceeds that threshold is
+    considered "large" and should be converted to a string.
+    """
+    try:
+        return (
+            isinstance(x, (int, float, Decimal, np.integer, np.floating))
+            and abs(x) > MAX_SAFE_FLOAT64_INTEGER
+        )
+    except (TypeError, OverflowError, ArithmeticError):
+        return False
+
+
+def cast_large_numbers_to_string(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert columns containing numbers beyond float64 safe integer range to strings.
+
+    JavaScript's JSON.parse() reads all numbers as float64, which can only
+    represent integers exactly up to 2**53. Values above that threshold lose
+    precision, so we convert the entire column to strings to preserve the
+    exact value.
+    """
+    for column in df:
+        if (
+            is_pure_numeric(df[column].dtype)
+            and df[column].apply(is_large_number).any()
+        ):
+            df[column] = df[column].apply(safe_convert_to_string)
     return df
 
 

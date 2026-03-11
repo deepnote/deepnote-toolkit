@@ -113,6 +113,17 @@ testing_dataframes = {
             "col1": [2**53],
         }
     ),
+    "large_numbers_above_threshold": pd.DataFrame(
+        data={
+            "col1": [2**53 + 1, 42, 2**53 + 100],
+        }
+    ),
+    "large_numbers_mixed_columns": pd.DataFrame(
+        data={
+            "safe_col": [1, 2, 3],
+            "large_col": [2**53 + 1, 2**53 + 2, 2**53 + 3],
+        }
+    ),
     "infinity": pd.DataFrame(
         data={
             "col1": [0, np.inf, -np.inf],
