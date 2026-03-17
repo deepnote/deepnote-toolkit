@@ -30,7 +30,9 @@ class TestSqlparseLimits:
     def test_sets_custom_values(self):
         expected_tokens = 50_000
         expected_depth = 200
-        configure_sqlparse_limits(max_grouping_tokens=expected_tokens, max_grouping_depth=expected_depth)
+        configure_sqlparse_limits(
+            max_grouping_tokens=expected_tokens, max_grouping_depth=expected_depth
+        )
         assert sqlparse.engine.grouping.MAX_GROUPING_TOKENS == expected_tokens
         assert sqlparse.engine.grouping.MAX_GROUPING_DEPTH == expected_depth
 
