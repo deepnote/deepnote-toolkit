@@ -15,6 +15,7 @@ from .output_middleware import add_output_middleware
 from .set_integrations_env import set_integration_env
 from .set_notebook_path import set_notebook_path
 from .sql.spark_sql_magic import SparkSql
+from .sql.sql_utils import configure_sqlparse_limits
 
 
 def init_deepnote_runtime():
@@ -50,6 +51,13 @@ def init_deepnote_runtime():
         add_output_middleware()
     except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("Failed to add output middleware with a error: %s", e)
+
+    # Disable sqlparse grouping limits for large analytical queries
+    try:
+        logger.debug("Configuring sqlparse limits.")
+        configure_sqlparse_limits()
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Failed to configure sqlparse limits with error: %s", e)
 
     # Set up psycopg2 to make long-running queries interruptible by SIGINT (interrupt kernel)
     try:
