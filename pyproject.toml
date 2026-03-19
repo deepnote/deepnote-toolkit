@@ -127,7 +127,7 @@ dependencies = [
     # NOTE: 1.7.0 is latest version of vl-convert which ships with Vega 5. In webapp we can't update to Vega 6 due to ESM-only issues
     # so we keep vl-convert version pinned as well
     "vl-convert-python==1.7.0",
-    "deepnote-vegafusion>=2.0.8,<3",
+    "deepnote-vegafusion>=2.1.0,<3",
     "matplotlib-inline>=0.1.7,<0.2.0; python_version <= '3.10'",  # 0.2.0 is not compatible with matplotlib 3.6.3 on Python <=3.10
     "matplotlib-inline>=0.2.1,<0.3.0; python_version >= '3.11'",
 
