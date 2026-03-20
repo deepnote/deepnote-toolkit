@@ -61,7 +61,9 @@ def _create_vf_inline_dataset_from_dataframe(oc_df: oc.DataFrame) -> Any:
         from pyspark.sql.pandas.types import to_arrow_schema
 
         spark_df = oc_df.to_native()
-        return to_arrow_schema(spark_df.schema)
+        return vegafusion.ExternalDataset(
+            protocol="spark", schema=to_arrow_schema(spark_df.schema)
+        )
 
     raise TypeError(f"Unsupported DataFrame type: {oc_df.native_type}")
 

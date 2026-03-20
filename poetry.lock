@@ -1369,26 +1369,6 @@ pyarrow = ">=14.0.1"
 sqlalchemy = ">=2.0.21"
 
 [[package]]
-name = "datafusion"
-version = "49.0.0"
-description = "Build and run queries against data"
-optional = false
-python-versions = ">=3.9"
-groups = ["main"]
-files = [
-    {file = "datafusion-49.0.0-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:bb419810c7b1032ec4a374260d289279c5911e3fcdcfb57c9513b6d256fe0330"},
-    {file = "datafusion-49.0.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:95d82ceda75767714629c1b5572a41bc919066156163d1ca3777418ffdbf4916"},
-    {file = "datafusion-49.0.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:e093a8d8cc68bf48376c2f553dcec35829be3ea2c9557516fcf93d2bf4695593"},
-    {file = "datafusion-49.0.0-cp39-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:7e9286f92f9f292a57873f8b83f10796decba98f4c022e92d929511f68e2d79a"},
-    {file = "datafusion-49.0.0-cp39-abi3-win_amd64.whl", hash = "sha256:2079a2ec6e73820a21d6f8d466a1410a94f8ef3171eba2cd2461790fc0437c91"},
-    {file = "datafusion-49.0.0.tar.gz", hash = "sha256:f3ba4f00d56a199a90df145f43667131dbba9aea9b170cc61cd3663241a74a94"},
-]
-
-[package.dependencies]
-pyarrow = ">=11.0.0"
-typing-extensions = {version = "*", markers = "python_version < \"3.13\""}
-
-[[package]]
 name = "db-dtypes"
 version = "1.3.0"
 description = "Pandas Data Types for SQL systems (BigQuery, Spanner)"
@@ -1503,25 +1483,27 @@ sqlalchemy = ">=1.4.15,<3.0.0"
 
 [[package]]
 name = "deepnote-vegafusion"
-version = "2.0.8"
+version = "2.1.0"
 description = "Core tools for using VegaFusion from Python"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "deepnote_vegafusion-2.0.8-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:e04275c2167faddddbc2036c04a7505412a61e272f9e4781c520df643b023c72"},
-    {file = "deepnote_vegafusion-2.0.8-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:d6bd649778104ee502d1590ba81f239d62e5cad7cced56c311723c3140b7187e"},
-    {file = "deepnote_vegafusion-2.0.8-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6be64f7846bc70e191ef4c0b2f356456f317d89f93d2651b83db51bfb38ac5c9"},
-    {file = "deepnote_vegafusion-2.0.8-cp39-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:94f3ab6912b5a05ac51664e6a7219ede48852b85752c8487a41db4dd012525a4"},
-    {file = "deepnote_vegafusion-2.0.8-cp39-abi3-win_amd64.whl", hash = "sha256:6e34c64dd15db10046a4ff62337f72f81529de0028771205d8175b3122f806bd"},
-    {file = "deepnote_vegafusion-2.0.8.tar.gz", hash = "sha256:5292ae89d89518f27e8659a76e2c9378dc818983ced3f4838c0889231a04d26a"},
+    {file = "deepnote_vegafusion-2.1.0-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:3847971dad40d6542b5cf3033379a3f29d7c400dd51adbbba1fe33b5dff152d3"},
+    {file = "deepnote_vegafusion-2.1.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:5278d0e7d98a54835691308ba3853db19607f17b7d1bc7fdc3874984c50cdb52"},
+    {file = "deepnote_vegafusion-2.1.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:76577a98005f8180dc60423a40b9b1f330011dfac2ee846880a5b970d2ca9f21"},
+    {file = "deepnote_vegafusion-2.1.0-cp39-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:56311d3621a44003725431bbf63ab1446b9bedabcba4705769c44d17ce022168"},
+    {file = "deepnote_vegafusion-2.1.0-cp39-abi3-win_amd64.whl", hash = "sha256:45ce94a5fb0b3d3849cd0543ca57cf91416436f35f163c40eb3dd4c91a5c913c"},
+    {file = "deepnote_vegafusion-2.1.0.tar.gz", hash = "sha256:357851e7b6e50674c4f91ba07b373f3ec10b5b50e2815574b856da6e1e008725"},
 ]
 
 [package.dependencies]
 arro3-core = "*"
-datafusion = ">=49.0.0,<50.0.0"
 narwhals = ">=1.42"
 packaging = "*"
+
+[package.extras]
+plan-resolver = ["protobuf"]
 
 [[package]]
 name = "defusedxml"
@@ -7387,4 +7369,4 @@ server = ["deepnote-python-lsp-server", "jupyter-resource-usage", "jupyter-serve
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10.0,<3.14"
-content-hash = "5c88ba3a2aa3a5cf4d659d8079470761ee00b744f85eba9c9811ee46316e2b64"
+content-hash = "97469a3bfec017430d55e822455499fea5d9a6724a70f2cf4009adca019a2a66"
