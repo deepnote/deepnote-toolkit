@@ -4200,6 +4200,89 @@ tomlkit = ">=0.4"
 plugin = ["poetry (>=1.2.0)"]
 
 [[package]]
+name = "polars"
+version = "1.39.3"
+description = "Blazingly fast DataFrame library"
+optional = false
+python-versions = ">=3.10"
+groups = ["dev"]
+files = [
+    {file = "polars-1.39.3-py3-none-any.whl", hash = "sha256:c2b955ccc0a08a2bc9259785decf3d5c007b489b523bf2390cf21cec2bb82a56"},
+    {file = "polars-1.39.3.tar.gz", hash = "sha256:2e016c7f3e8d14fa777ef86fe0477cec6c67023a20ba4c94d6e8431eefe4a63c"},
+]
+
+[package.dependencies]
+polars-runtime-32 = "1.39.3"
+polars-runtime-compat = {version = "1.39.3", optional = true, markers = "extra == \"rtcompat\""}
+
+[package.extras]
+adbc = ["adbc-driver-manager[dbapi]", "adbc-driver-sqlite[dbapi]"]
+all = ["polars[async,cloudpickle,database,deltalake,excel,fsspec,graph,iceberg,numpy,pandas,plot,pyarrow,pydantic,style,timezone]"]
+async = ["gevent"]
+calamine = ["fastexcel (>=0.9)"]
+cloudpickle = ["cloudpickle"]
+connectorx = ["connectorx (>=0.3.2)"]
+database = ["polars[adbc,connectorx,sqlalchemy]"]
+deltalake = ["deltalake (>=1.0.0)"]
+excel = ["polars[calamine,openpyxl,xlsx2csv,xlsxwriter]"]
+fsspec = ["fsspec"]
+gpu = ["cudf-polars-cu12"]
+graph = ["matplotlib"]
+iceberg = ["pyiceberg (>=0.7.1)"]
+numpy = ["numpy (>=1.16.0)"]
+openpyxl = ["openpyxl (>=3.0.0)"]
+pandas = ["pandas", "polars[pyarrow]"]
+plot = ["altair (>=5.4.0)"]
+polars-cloud = ["polars_cloud (>=0.4.0)"]
+pyarrow = ["pyarrow (>=7.0.0)"]
+pydantic = ["pydantic"]
+rt64 = ["polars-runtime-64 (==1.39.3)"]
+rtcompat = ["polars-runtime-compat (==1.39.3)"]
+sqlalchemy = ["polars[pandas]", "sqlalchemy"]
+style = ["great-tables (>=0.8.0)"]
+timezone = ["tzdata ; platform_system == \"Windows\""]
+xlsx2csv = ["xlsx2csv (>=0.8.0)"]
+xlsxwriter = ["xlsxwriter"]
+
+[[package]]
+name = "polars-runtime-32"
+version = "1.39.3"
+description = "Blazingly fast DataFrame library"
+optional = false
+python-versions = ">=3.10"
+groups = ["dev"]
+files = [
+    {file = "polars_runtime_32-1.39.3-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:425c0b220b573fa097b4042edff73114cc6d23432a21dfd2dc41adf329d7d2e9"},
+    {file = "polars_runtime_32-1.39.3-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:ef5884711e3c617d7dc93519a7d038e242f5741cfe5fe9afd32d58845d86c562"},
+    {file = "polars_runtime_32-1.39.3-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:06b47f535eb1f97a9a1e5b0053ef50db3a4276e241178e37bbb1a38b1fa53b14"},
+    {file = "polars_runtime_32-1.39.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:8bc9e13dc1d2e828331f2fe8ccbc9757554dc4933a8d3e85e906b988178f95ed"},
+    {file = "polars_runtime_32-1.39.3-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:363d49e3a3e638fc943e2b9887940300a7d06789930855a178a4727949259dc2"},
+    {file = "polars_runtime_32-1.39.3-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:7c206bdcc7bc62ea038d6adea8e44b02f0e675e0191a54c810703b4895208ea4"},
+    {file = "polars_runtime_32-1.39.3-cp310-abi3-win_amd64.whl", hash = "sha256:d66ca522517554a883446957539c40dc7b75eb0c2220357fb28bc8940d305339"},
+    {file = "polars_runtime_32-1.39.3-cp310-abi3-win_arm64.whl", hash = "sha256:f49f51461de63f13e5dd4eb080421c8f23f856945f3f8bd5b2b1f59da52c2860"},
+    {file = "polars_runtime_32-1.39.3.tar.gz", hash = "sha256:c728e4f469cafab501947585f36311b8fb222d3e934c6209e83791e0df20b29d"},
+]
+
+[[package]]
+name = "polars-runtime-compat"
+version = "1.39.3"
+description = "Blazingly fast DataFrame library"
+optional = false
+python-versions = ">=3.10"
+groups = ["dev"]
+files = [
+    {file = "polars_runtime_compat-1.39.3-cp310-abi3-macosx_10_12_x86_64.whl", hash = "sha256:69cab86e18fdbc8f5a64cfd3042cf57b03ac47062a925b0d1f99971786661da5"},
+    {file = "polars_runtime_compat-1.39.3-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:41e0a36e9c0ec1db6c5bb48a2408f2e992cacebcc4912556fa336e4b721c7efb"},
+    {file = "polars_runtime_compat-1.39.3-cp310-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:3377d57e586c3bcf0b6293ce626aa05890285957451efb539a8a997f11918ece"},
+    {file = "polars_runtime_compat-1.39.3-cp310-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1e54d6acda9db5653ffd7fc5923a56082be65de20e41e4d33b6068efd67ecb85"},
+    {file = "polars_runtime_compat-1.39.3-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:54d185a47c317be09e45d0bf9d35dcf7ef2f817624fe72fe963efe07295b73ee"},
+    {file = "polars_runtime_compat-1.39.3-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:3f164478766306fdd353633a5964b25ac6520752003426a1b872fe7b972314a8"},
+    {file = "polars_runtime_compat-1.39.3-cp310-abi3-win_amd64.whl", hash = "sha256:9dfebd1c8af0329d2bf2047c9af8fd1d28f99660f53f060e9a7a13fbe8e66dc1"},
+    {file = "polars_runtime_compat-1.39.3-cp310-abi3-win_arm64.whl", hash = "sha256:0c50da78e656dcc6164e6eb43d0406750153a382c6fdccdd932368534fb6108c"},
+    {file = "polars_runtime_compat-1.39.3.tar.gz", hash = "sha256:8fc1f40f44d9f3c4b9da86469e25636dd28ac212250eaf5da2c13613612277cc"},
+]
+
+[[package]]
 name = "pre-commit"
 version = "3.8.0"
 description = "A framework for managing and maintaining multi-language pre-commit hooks."

@@ -3,7 +3,12 @@ import sys
 import pandas as pd
 from typing_extensions import TypeGuard
 
-from deepnote_toolkit.ocelots.types import PandasDF, PandasOnSparkDF, PysparkDF
+from deepnote_toolkit.ocelots.types import (
+    PandasDF,
+    PandasOnSparkDF,
+    PolarsDF,
+    PysparkDF,
+)
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
 
 
@@ -32,6 +37,14 @@ def is_pandas_on_spark_dataframe(df) -> TypeGuard[PandasOnSparkDF]:
     if pandas_on_spark_module is not None and isinstance(
         df, pandas_on_spark_module.DataFrame
     ):
+        return True
+
+    return False
+
+
+def is_polars_dataframe(df) -> TypeGuard[PolarsDF]:
+    polars_module = sys.modules.get("polars")
+    if polars_module is not None and isinstance(df, polars_module.DataFrame):
         return True
 
     return False

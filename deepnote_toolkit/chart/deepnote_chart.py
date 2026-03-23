@@ -28,7 +28,7 @@ logger = LoggerManager().get_logger()
 def _create_vf_runtime_for_dataframe(
     oc_df: oc.DataFrame, name: str
 ) -> vegafusion.VegaFusionRuntime:
-    if oc_df.native_type == "pandas":
+    if oc_df.native_type in ("pandas", "polars-eager"):
         return vegafusion.VegaFusionRuntime()
     elif oc_df.native_type == "pyspark":
         spark_df = oc_df.to_native()
@@ -55,7 +55,7 @@ def _create_vf_runtime_for_dataframe(
 
 
 def _create_vf_inline_dataset_from_dataframe(oc_df: oc.DataFrame) -> Any:
-    if oc_df.native_type == "pandas":
+    if oc_df.native_type in ("pandas", "polars-eager"):
         return oc_df.to_native()
     elif oc_df.native_type == "pyspark":
         from pyspark.sql.pandas.types import to_arrow_schema
@@ -140,6 +140,12 @@ class DeepnoteChart:
             filtered_df = oc_df.filter(*self.filters).prepare_for_serialization()
             if filtered_df.native_type == "pandas":
                 sanitized_pandas = sanitize_dataframe_for_chart(filtered_df.to_native())
+                oc_sanitized_df = oc.DataFrame.from_native(sanitized_pandas)
+            elif filtered_df.native_type == "polars-eager":
+                # TODO: should we implement sanitize_dataframe_for_chart for Polars instead?
+                sanitized_pandas = sanitize_dataframe_for_chart(
+                    filtered_df.to_native().to_pandas()
+                )
                 oc_sanitized_df = oc.DataFrame.from_native(sanitized_pandas)
             elif filtered_df.native_type == "pyspark":
                 oc_sanitized_df = filtered_df

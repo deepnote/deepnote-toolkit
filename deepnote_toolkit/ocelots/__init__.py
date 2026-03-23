@@ -7,6 +7,7 @@ from .data_preview import (
 from .dataframe import (
     DataFrame,
     is_wrapped_pandas_dataframe,
+    is_wrapped_polars_dataframe,
     is_wrapped_pyspark_dataframe,
 )
 from .filters import Filter, FilterOperator
@@ -19,11 +20,13 @@ from .types import (
     NativeOutputType,
     PandasDF,
     PandasOnSparkDF,
+    PolarsDF,
     PysparkDF,
     UnsupportedDataFrameException,
 )
 from .utils import (
     is_pandas_dataframe,
     is_pandas_on_spark_dataframe,
+    is_polars_dataframe,
     is_pyspark_dataframe,
 )

@@ -22,6 +22,7 @@ class PysparkImplementation:
     """Implementation of DataFrame methods for PySpark dataframes."""
 
     name: Literal["pyspark"] = "pyspark"
+    lazy: bool = True
 
     def __init__(self, df: PysparkDF):
         self._df = df

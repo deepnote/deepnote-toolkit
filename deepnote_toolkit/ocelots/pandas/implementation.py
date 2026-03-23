@@ -26,6 +26,7 @@ class PandasImplementation:
     """Implementation of DataFrame methods for pandas dataframes."""
 
     name: Literal["pandas"] = "pandas"
+    lazy: bool = False
 
     def __init__(self, df: pd.DataFrame):
         self._df = df

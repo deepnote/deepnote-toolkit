@@ -1,10 +1,12 @@
 import io
+import sys
 import unittest
 import warnings
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Union
 
 import pandas as pd
+import polars as pl
 from pyspark.sql import SparkSession
 
 from deepnote_toolkit.ocelots.constants import DEEPNOTE_INDEX_COLUMN
@@ -34,6 +36,10 @@ def create_spark_df(pandas_df: pd.DataFrame, schema=None):
         return spark.createDataFrame(pandas_df, schema)
 
 
+def create_polars_df(pandas_df: pd.DataFrame) -> pl.DataFrame:
+    return pl.from_pandas(pandas_df)
+
+
 def _test_with_all_backends(
     test_df: Optional[Union[List[Dict[str, Any]], pd.DataFrame, Dict[str, Any]]] = None,
     *,
@@ -46,8 +52,9 @@ def _test_with_all_backends(
         test_data: List of dictionaries representing the test data or Pandas DataFrame.
                   Each dictionary represents a row with column names as keys.
                   Defaults to basic testing DataFrame if not provided.
+        include_polars: Whether to include Polars in the test run. Set to False for tests
+                  where Polars serialization semantics differ intentionally from pandas/PySpark.
     """
-    import sys
 
     if not isinstance(test_df, pd.DataFrame):
         if test_df is None:
@@ -71,9 +78,20 @@ def _test_with_all_backends(
                     ),
                 )
 
+            polars_df = create_polars_df(test_df)
+            with self.subTest(implementation="polars-eager"):
+                test_func(
+                    self,
+                    (
+                        DataFrame.from_native(polars_df)
+                        if initialize_ocelots_dataframe
+                        else polars_df
+                    ),
+                )
+
             # Skip PySpark tests for Python 3.12 since PySpark doesn't support it yet
             if sys.version_info < (3, 12):
-                pyspark_df = create_spark_df(test_df)
+                pyspark_df = create_spark_df(test_df, pyspark_schema)
                 with self.subTest(implementation="pyspark"):
                     test_func(
                         self,
@@ -83,19 +101,6 @@ def _test_with_all_backends(
                             else pyspark_df
                         ),
                     )
-            else:
-                self.skipTest("PySpark does not yet support Python 3.12")
-
-            pyspark_df = create_spark_df(test_df, pyspark_schema)
-            with self.subTest(implementation="pyspark"):
-                test_func(
-                    self,
-                    (
-                        DataFrame.from_native(pyspark_df)
-                        if initialize_ocelots_dataframe
-                        else pyspark_df
-                    ),
-                )
 
         return wrapper
 
@@ -113,13 +118,16 @@ class TestDataFrame(unittest.TestCase):
         self.assertEqual(ocelots_df.native_type, "pandas")
 
     def test_native_type_pyspark(self):
-        import sys
-
         if sys.version_info >= (3, 12):
             self.skipTest("PySpark does not yet support Python 3.12")
         pyspark_df = create_spark_df(testing_dataframes["basic"])
         ocelots_df = DataFrame.from_native(pyspark_df)
         self.assertEqual(ocelots_df.native_type, "pyspark")
+
+    def test_native_type_polars(self):
+        polars_df = create_polars_df(testing_dataframes["basic"])
+        ocelots_df = DataFrame.from_native(polars_df)
+        self.assertEqual(ocelots_df.native_type, "polars-eager")
 
     @_test_with_all_backends(testing_dataframes["many_rows_10k"])
     def test_columns(self, df: DataFrame):
@@ -154,14 +162,18 @@ class TestDataFrame(unittest.TestCase):
         self.assertIsInstance(df.sort([("col1", True)]).to_native(), pd.DataFrame)
 
     def test_to_native_spark(self):
-        import sys
-
         if sys.version_info >= (3, 12):
             self.skipTest("PySpark does not yet support Python 3.12")
         spark_df = create_spark_df(testing_dataframes["basic"])
         df = DataFrame.from_native(spark_df)
         self.assertIs(df.to_native(), spark_df)
         self.assertIsInstance(df.sort([("col1", True)]).to_native(), spark_df.__class__)
+
+    def test_to_native_polars(self):
+        polars_df = create_polars_df(testing_dataframes["basic"])
+        df = DataFrame.from_native(polars_df)
+        self.assertIs(df.to_native(), polars_df)
+        self.assertIsInstance(df.sort([("col1", True)]).to_native(), pl.DataFrame)
 
     @_test_with_all_backends()
     def test_to_records(self, df: DataFrame):
@@ -203,8 +215,8 @@ class TestDataFrame(unittest.TestCase):
         self.assertEqual(df.get_column_distinct_values("col2"), ["a", "b", "c"])
 
     def test_get_column_distinct_values_mixed_content(self):
-        # Spark doesn't allow mixed content, so we test only with Pandas
-        df = DataFrame.from_native(testing_dataframes["column_distinct_values"])
+        # Spark and Polars doesn't allow mixed content, so we test only with Pandas
+        df = DataFrame.from_native(testing_dataframes["column_distinct_values_mixed"])
         self.assertEqual(
             df.get_column_distinct_values("col3"), [2, 1, "wow", "test"]
         )  # Mixed content can't be sorted
@@ -217,6 +229,22 @@ class TestDataFrame(unittest.TestCase):
         correct_size = 1_766_685
         delta = correct_size * 0.1  # Allow 10% variation
         self.assertAlmostEqual(estimated_size, correct_size, delta=delta)
+
+    def test_lazy_pandas(self):
+        df = DataFrame.from_native(testing_dataframes["basic"])
+        self.assertFalse(df.lazy)
+
+    def test_lazy_pyspark(self):
+        if sys.version_info >= (3, 12):
+            self.skipTest("PySpark does not yet support Python 3.12")
+        pyspark_df = create_spark_df(testing_dataframes["basic"])
+        df = DataFrame.from_native(pyspark_df)
+        self.assertTrue(df.lazy)
+
+    def test_lazy_polars(self):
+        polars_df = create_polars_df(testing_dataframes["basic"])
+        df = DataFrame.from_native(polars_df)
+        self.assertFalse(df.lazy)
 
     @_test_with_all_backends(testing_dataframes["basic"])
     def test_to_csv(self, df: DataFrame):

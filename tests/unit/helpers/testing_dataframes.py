@@ -47,6 +47,10 @@ testing_dataframes = {
         data={
             "col1": [2, 2, 2, 4, 42, 77, 4],
             "col2": ["a", "b", "a", "c", "a", "b", "a"],
+        }
+    ),
+    "column_distinct_values_mixed": pd.DataFrame(
+        data={
             "col3": [2, 1, 1, "wow", "test", "wow", 1],
         }
     ),

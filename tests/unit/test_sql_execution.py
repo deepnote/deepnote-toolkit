@@ -573,7 +573,7 @@ class TestSanitizeDataframe(unittest.TestCase):
             "multi_level_columns",
             "period_index",
             "non_serializable_values",
-            "column_distinct_values",
+            "column_distinct_values_mixed",
         }
 
         if key in skipped_dataframes:
