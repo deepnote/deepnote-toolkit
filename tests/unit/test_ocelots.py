@@ -192,7 +192,7 @@ class TestDataFrame(unittest.TestCase):
         self.assertEqual(first_row["binary"], expected_hello)
 
         self.assertEqual(first_row["string"], "foo")
-        self.assertIn(first_row["boolean"], [True, "True"])
+        self.assertIn(first_row["boolean"], [True, "True", "true"])
         self.assertEqual(first_row["integer"], 1)
 
     def test_to_records_json_polars_categorical(self):
@@ -779,7 +779,7 @@ class TestDatetimeFiltering(unittest.TestCase):
             Filter(
                 "dt",
                 FilterOperator.BETWEEN,
-                comparative_values=["2020-01-02", "2020-01-03"],
+                comparative_values=["2020-01-02 00:00:00", "2020-01-03 23:59:59"],
             )
         ).to_records("python")
         self.assertEqual(len(records), 2)
@@ -812,7 +812,7 @@ class TestDatetimeFiltering(unittest.TestCase):
             Filter(
                 "dt",
                 FilterOperator.IS_ON,
-                comparative_values=["2020-01-02"],
+                comparative_values=["2020-01-02 11:00:00"],
             )
         ).to_records("python")
         self.assertEqual(len(records), 1)

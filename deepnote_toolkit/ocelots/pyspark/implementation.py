@@ -158,10 +158,14 @@ class PysparkImplementation:
                 elif filter_obj.operator == FilterOperator.BETWEEN:
                     if len(filter_obj.comparative_values) < 2:
                         continue
-                    min_val, max_val = float(filter_obj.comparative_values[0]), float(
-                        filter_obj.comparative_values[1]
-                    )
-                    condition = (col >= min_val) & (col <= max_val)
+                    try:
+                        min_val = float(filter_obj.comparative_values[0])
+                        max_val = float(filter_obj.comparative_values[1])
+                        condition = (col >= min_val) & (col <= max_val)
+                    except (ValueError, TypeError):
+                        min_ts = F.to_timestamp(F.lit(filter_obj.comparative_values[0]))
+                        max_ts = F.to_timestamp(F.lit(filter_obj.comparative_values[1]))
+                        condition = (col >= min_ts) & (col <= max_ts)
                 elif filter_obj.operator == FilterOperator.IS_AFTER:
                     if not filter_obj.comparative_values:
                         continue
