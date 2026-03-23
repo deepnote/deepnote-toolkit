@@ -277,6 +277,9 @@ testing_dataframes = {
                     datetime.datetime(2023, 1, 2, 12, 0, 0),
                 ],
                 "binary": [b"hello", b"world"],
+                "string": ["foo", "bar"],
+                "boolean": [True, False],
+                "integer": [1, 2],
             }
         ),
         "pyspark_schema": pst.StructType(
@@ -284,6 +287,9 @@ testing_dataframes = {
                 pst.StructField("list", pst.ArrayType(pst.IntegerType()), True),
                 pst.StructField("datetime", pst.TimestampType(), True),
                 pst.StructField("binary", pst.BinaryType(), True),
+                pst.StructField("string", pst.StringType(), True),
+                pst.StructField("boolean", pst.BooleanType(), True),
+                pst.StructField("integer", pst.IntegerType(), True),
             ]
         ),
     },

@@ -232,6 +232,9 @@ class PolarsEagerImplementation:
                     relative = filter_obj.comparative_values[0]
                     dt_col = self._resolve_temporal_col(filter_obj.column)
                     now = datetime.now(timezone.utc)
+                    # Use naive UTC datetime for comparisons so it is
+                    # compatible with both naive and tz-aware columns.
+                    now_naive = now.replace(tzinfo=None)
 
                     if relative == "today":
                         condition = dt_col.dt.date() == pl.lit(now.date())
@@ -240,15 +243,15 @@ class PolarsEagerImplementation:
                             (now - timedelta(days=1)).date()
                         )
                     elif relative == "week-ago":
-                        condition = dt_col >= pl.lit(now - timedelta(weeks=1))
+                        condition = dt_col >= pl.lit(now_naive - timedelta(weeks=1))
                     elif relative == "month-ago":
-                        condition = dt_col >= pl.lit(now - timedelta(days=30))
+                        condition = dt_col >= pl.lit(now_naive - timedelta(days=30))
                     elif relative == "quarter-ago":
-                        condition = dt_col >= pl.lit(now - timedelta(days=90))
+                        condition = dt_col >= pl.lit(now_naive - timedelta(days=90))
                     elif relative == "half-year-ago":
-                        condition = dt_col >= pl.lit(now - timedelta(days=180))
+                        condition = dt_col >= pl.lit(now_naive - timedelta(days=180))
                     elif relative == "year-ago":
-                        condition = dt_col >= pl.lit(now - timedelta(days=365))
+                        condition = dt_col >= pl.lit(now_naive - timedelta(days=365))
                     else:
                         continue
                 else:
@@ -348,20 +351,6 @@ class PolarsEagerImplementation:
         import polars as pl
 
         df = self._df.select(self._df.columns[:MAX_COLUMNS_TO_DISPLAY])
-
-        seen: Dict[str, int] = {}
-        new_names = []
-        for name in df.columns:
-            str_name = str(name)
-            if str_name in seen:
-                seen[str_name] += 1
-                new_names.append(f"{str_name}.{seen[str_name]}")
-            else:
-                seen[str_name] = 0
-                new_names.append(str_name)
-
-        if new_names != df.columns:
-            df = df.rename(dict(zip(df.columns, new_names)))
 
         df = df.with_row_index(DEEPNOTE_INDEX_COLUMN)
         df = df.with_columns(pl.col(DEEPNOTE_INDEX_COLUMN).cast(pl.Int64))
