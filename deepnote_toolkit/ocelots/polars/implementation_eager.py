@@ -1,6 +1,6 @@
 import functools
 import operator
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional, TextIO, Tuple, Union
 
 from typing_extensions import Self
@@ -231,7 +231,7 @@ class PolarsEagerImplementation:
                         continue
                     relative = filter_obj.comparative_values[0]
                     dt_col = self._resolve_temporal_col(filter_obj.column)
-                    now = datetime.now().astimezone()
+                    now = datetime.now(timezone.utc)
 
                     if relative == "today":
                         condition = dt_col.dt.date() == pl.lit(now.date())
@@ -279,9 +279,9 @@ class PolarsEagerImplementation:
         select_exprs = []
         for name, dtype in zip(self._df.columns, self._df.dtypes):
             col = pl.col(name)
-            if dtype.is_integer() or dtype.is_float():
+            if dtype.is_integer() or dtype.is_float() or dtype == pl.Boolean:
                 select_exprs.append(col)
-            elif dtype == pl.String or dtype == pl.Utf8:
+            elif dtype == pl.String:
                 select_exprs.append(
                     col.str.slice(0, MAX_STRING_CELL_LENGTH).alias(name)
                 )

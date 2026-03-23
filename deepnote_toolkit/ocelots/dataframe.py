@@ -446,5 +446,7 @@ def is_wrapped_pyspark_dataframe(df: DataFrame) -> TypeGuard[DataFrame[PysparkDF
     return df.native_type == "pyspark"
 
 
-def is_wrapped_polars_eager_dataframe(df: DataFrame) -> TypeGuard[DataFrame[PolarsEagerDF]]:
+def is_wrapped_polars_eager_dataframe(
+    df: DataFrame,
+) -> TypeGuard[DataFrame[PolarsEagerDF]]:
     return df.native_type == "polars-eager"

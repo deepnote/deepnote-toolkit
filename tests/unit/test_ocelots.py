@@ -36,10 +36,6 @@ def create_spark_df(pandas_df: pd.DataFrame, schema=None):
         return spark.createDataFrame(pandas_df, schema)
 
 
-def create_polars_df(pandas_df: pd.DataFrame) -> pl.DataFrame:
-    return pl.from_pandas(pandas_df)
-
-
 def _test_with_all_backends(
     test_df: Optional[Union[List[Dict[str, Any]], pd.DataFrame, Dict[str, Any]]] = None,
     *,
@@ -76,7 +72,7 @@ def _test_with_all_backends(
                     ),
                 )
 
-            polars_df = create_polars_df(test_df)
+            polars_df = pl.from_pandas(test_df)
             with self.subTest(implementation="polars-eager"):
                 test_func(
                     self,
@@ -123,7 +119,7 @@ class TestDataFrame(unittest.TestCase):
         self.assertEqual(ocelots_df.native_type, "pyspark")
 
     def test_native_type_polars(self):
-        polars_df = create_polars_df(testing_dataframes["basic"])
+        polars_df = pl.from_pandas(testing_dataframes["basic"])
         ocelots_df = DataFrame.from_native(polars_df)
         self.assertEqual(ocelots_df.native_type, "polars-eager")
 
@@ -168,7 +164,7 @@ class TestDataFrame(unittest.TestCase):
         self.assertIsInstance(df.sort([("col1", True)]).to_native(), spark_df.__class__)
 
     def test_to_native_polars(self):
-        polars_df = create_polars_df(testing_dataframes["basic"])
+        polars_df = pl.from_pandas(testing_dataframes["basic"])
         df = DataFrame.from_native(polars_df)
         self.assertIs(df.to_native(), polars_df)
         self.assertIsInstance(df.sort([("col1", True)]).to_native(), pl.DataFrame)
@@ -240,7 +236,7 @@ class TestDataFrame(unittest.TestCase):
         self.assertTrue(df.lazy)
 
     def test_lazy_polars(self):
-        polars_df = create_polars_df(testing_dataframes["basic"])
+        polars_df = pl.from_pandas(testing_dataframes["basic"])
         df = DataFrame.from_native(polars_df)
         self.assertFalse(df.lazy)
 
