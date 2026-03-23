@@ -141,13 +141,11 @@ class DeepnoteChart:
             if filtered_df.native_type == "pandas":
                 sanitized_pandas = sanitize_dataframe_for_chart(filtered_df.to_native())
                 oc_sanitized_df = oc.DataFrame.from_native(sanitized_pandas)
-            elif filtered_df.native_type == "polars-eager":
-                # TODO: should we implement sanitize_dataframe_for_chart for Polars instead?
-                sanitized_pandas = sanitize_dataframe_for_chart(
-                    filtered_df.to_native().to_pandas()
-                )
-                oc_sanitized_df = oc.DataFrame.from_native(sanitized_pandas)
-            elif filtered_df.native_type == "pyspark":
+            elif filtered_df.native_type in ("pyspark", "polars-eager"):
+                # We don't need to sanitize Spark DFs because they will processed by Spark itself and it can handle
+                # all data types by itself
+                # Polars is powered by Arrow, which is same format used internally by VegaFusion so there is no need
+                # to do any additional sanitization for it either
                 oc_sanitized_df = filtered_df
             else:
                 raise TypeError(
