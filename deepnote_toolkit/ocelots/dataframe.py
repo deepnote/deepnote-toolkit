@@ -23,7 +23,9 @@ if TYPE_CHECKING:
 
 from deepnote_toolkit.ocelots.filters import Filter
 from deepnote_toolkit.ocelots.pandas.implementation import PandasImplementation
-from deepnote_toolkit.ocelots.polars.implementation import PolarsImplementation
+from deepnote_toolkit.ocelots.polars.implementation_eager import (
+    PolarsEagerImplementation,
+)
 from deepnote_toolkit.ocelots.pyspark.implementation import PysparkImplementation
 from deepnote_toolkit.ocelots.types import (
     Column,
@@ -33,19 +35,19 @@ from deepnote_toolkit.ocelots.types import (
     NativeOutputType,
     PandasDF,
     PandasOnSparkDF,
-    PolarsDF,
+    PolarsEagerDF,
     PysparkDF,
     UnsupportedDataFrameException,
 )
 from deepnote_toolkit.ocelots.utils import (
     is_pandas_dataframe,
     is_pandas_on_spark_dataframe,
-    is_polars_dataframe,
+    is_polars_eager_dataframe,
     is_pyspark_dataframe,
 )
 
 Implementation = Union[
-    PandasImplementation, PysparkImplementation, PolarsImplementation
+    PandasImplementation, PysparkImplementation, PolarsEagerImplementation
 ]
 
 T = TypeVar("T", bound=NativeOutputDF)
@@ -91,7 +93,7 @@ class DataFrame(Generic[T]):
             is_pandas_dataframe(df)
             or is_pyspark_dataframe(df)
             or is_pandas_on_spark_dataframe(df)
-            or is_polars_dataframe(df)
+            or is_polars_eager_dataframe(df)
         )
 
     # Special case for Pandas-on-Spark DFs, as they aren't wrapped directly, but converted
@@ -123,8 +125,8 @@ class DataFrame(Generic[T]):
             return cls(PandasImplementation(df))
         if is_pyspark_dataframe(df):
             return cls(PysparkImplementation(df))
-        if is_polars_dataframe(df):
-            return cls(PolarsImplementation(df))
+        if is_polars_eager_dataframe(df):
+            return cls(PolarsEagerImplementation(df))
         if is_pandas_on_spark_dataframe(df):
             # NOTE: we accept Pandas-on-Spark dataframes, but we convert them into Spark and
             # work like with it same as with normal Spark DF from that.
@@ -444,5 +446,5 @@ def is_wrapped_pyspark_dataframe(df: DataFrame) -> TypeGuard[DataFrame[PysparkDF
     return df.native_type == "pyspark"
 
 
-def is_wrapped_polars_dataframe(df: DataFrame) -> TypeGuard[DataFrame[PolarsDF]]:
+def is_wrapped_polars_eager_dataframe(df: DataFrame) -> TypeGuard[DataFrame[PolarsEagerDF]]:
     return df.native_type == "polars-eager"

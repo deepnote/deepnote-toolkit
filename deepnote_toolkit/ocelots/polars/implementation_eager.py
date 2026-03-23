@@ -11,7 +11,7 @@ from deepnote_toolkit.ocelots.constants import (
     MAX_STRING_CELL_LENGTH,
 )
 from deepnote_toolkit.ocelots.filters import Filter, FilterOperator
-from deepnote_toolkit.ocelots.types import Column, ColumnsStatsRecord, PolarsDF
+from deepnote_toolkit.ocelots.types import Column, ColumnsStatsRecord, PolarsEagerDF
 
 
 def _stringify_element(v) -> str:
@@ -27,13 +27,13 @@ def _stringify_element(v) -> str:
     return str(v)[:MAX_STRING_CELL_LENGTH]
 
 
-class PolarsImplementation:
+class PolarsEagerImplementation:
     """Implementation of DataFrame methods for Polars dataframes."""
 
     name: Literal["polars-eager"] = "polars-eager"
     lazy: bool = False
 
-    def __init__(self, df: PolarsDF):
+    def __init__(self, df: PolarsEagerDF):
         self._df = df
 
     @property
@@ -265,7 +265,7 @@ class PolarsImplementation:
 
         return self.__class__(self._df.clone())
 
-    def to_native(self) -> PolarsDF:
+    def to_native(self) -> PolarsEagerDF:
         """Get the underlying native dataframe."""
         return self._df
 

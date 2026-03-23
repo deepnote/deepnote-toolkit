@@ -52,8 +52,6 @@ def _test_with_all_backends(
         test_data: List of dictionaries representing the test data or Pandas DataFrame.
                   Each dictionary represents a row with column names as keys.
                   Defaults to basic testing DataFrame if not provided.
-        include_polars: Whether to include Polars in the test run. Set to False for tests
-                  where Polars serialization semantics differ intentionally from pandas/PySpark.
     """
 
     if not isinstance(test_df, pd.DataFrame):

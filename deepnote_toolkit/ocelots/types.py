@@ -5,8 +5,8 @@ import pandas as pd
 from typing_extensions import TypeAlias
 
 if TYPE_CHECKING:
-    # These import here is only to make module types available, so
-    # it's okay for it to fail if user doesn't have it installed (as we do not
+    # These imports here are only to make module types available, so
+    # it's okay for them to fail if user doesn't have some of them installed (as we do not
     # include them as dependency of the toolkit)
 
     try:
@@ -71,9 +71,9 @@ PysparkDF: TypeAlias = Union[
     "pyspark.sql.connect.dataframe.DataFrame", "pyspark.sql.DataFrame"
 ]
 PandasOnSparkDF: TypeAlias = "pyspark.pandas.DataFrame"
-PolarsDF: TypeAlias = "polars.DataFrame"
+PolarsEagerDF: TypeAlias = "polars.DataFrame"
 
 # Union of all supported dataframe types
-NativeInputDF = Union[PandasDF, PysparkDF, PandasOnSparkDF, PolarsDF]
-NativeOutputDF = Union[PandasDF, PysparkDF, PolarsDF]
+NativeInputDF = Union[PandasDF, PysparkDF, PandasOnSparkDF, PolarsEagerDF]
+NativeOutputDF = Union[PandasDF, PysparkDF, PolarsEagerDF]
 NativeOutputType = Literal["pandas", "pyspark", "polars-eager"]

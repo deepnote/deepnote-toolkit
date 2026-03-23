@@ -6,7 +6,7 @@ from typing_extensions import TypeGuard
 from deepnote_toolkit.ocelots.types import (
     PandasDF,
     PandasOnSparkDF,
-    PolarsDF,
+    PolarsEagerDF,
     PysparkDF,
 )
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
@@ -42,7 +42,7 @@ def is_pandas_on_spark_dataframe(df) -> TypeGuard[PandasOnSparkDF]:
     return False
 
 
-def is_polars_dataframe(df) -> TypeGuard[PolarsDF]:
+def is_polars_eager_dataframe(df) -> TypeGuard[PolarsEagerDF]:
     polars_module = sys.modules.get("polars")
     if polars_module is not None and isinstance(df, polars_module.DataFrame):
         return True
