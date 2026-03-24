@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Literal, Optional, TextIO, Tuple, Union
 
 from typing_extensions import Self
 
+from deepnote_toolkit.logging import LoggerManager
 from deepnote_toolkit.ocelots.constants import (
     MAX_COLUMNS_TO_DISPLAY,
     MAX_STRING_CELL_LENGTH,
@@ -16,6 +17,8 @@ from deepnote_toolkit.ocelots.types import (
     ColumnStats,
     PysparkDF,
 )
+
+logger = LoggerManager().get_logger()
 
 
 class PysparkImplementation:
@@ -210,7 +213,8 @@ class PysparkImplementation:
 
                 conditions.append(condition)
 
-            except (ValueError, TypeError):
+            except (ValueError, TypeError) as e:
+                logger.warning("Skipping filter on column %r: %s", filter_obj.column, e)
                 continue
 
         if conditions:

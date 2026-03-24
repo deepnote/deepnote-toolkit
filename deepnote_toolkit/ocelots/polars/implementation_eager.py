@@ -1,10 +1,11 @@
 import functools
 import operator
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional, TextIO, Tuple, Union
 
 from typing_extensions import Self
 
+from deepnote_toolkit.logging import LoggerManager
 from deepnote_toolkit.ocelots.constants import (
     DEEPNOTE_INDEX_COLUMN,
     MAX_COLUMNS_TO_DISPLAY,
@@ -12,6 +13,8 @@ from deepnote_toolkit.ocelots.constants import (
 )
 from deepnote_toolkit.ocelots.filters import Filter, FilterOperator
 from deepnote_toolkit.ocelots.types import Column, ColumnsStatsRecord, PolarsEagerDF
+
+logger = LoggerManager().get_logger()
 
 
 def _stringify_element(v) -> str:
@@ -231,27 +234,32 @@ class PolarsEagerImplementation:
                         continue
                     relative = filter_obj.comparative_values[0]
                     dt_col = self._resolve_temporal_col(filter_obj.column)
-                    now = datetime.now(timezone.utc)
-                    # Use naive UTC datetime for comparisons so it is
-                    # compatible with both naive and tz-aware columns.
-                    now_naive = now.replace(tzinfo=None)
+
+                    col_dtype = self._df.schema[filter_obj.column]
+                    col_tz = getattr(col_dtype, "time_zone", None)
+                    if col_tz:
+                        now_lit = pl.lit(
+                            datetime.now(timezone.utc)
+                        ).dt.convert_time_zone(col_tz)
+                    else:
+                        now_lit = pl.lit(datetime.now())
 
                     if relative == "today":
-                        condition = dt_col.dt.date() == pl.lit(now.date())
+                        condition = dt_col.dt.date() == now_lit.dt.date()
                     elif relative == "yesterday":
-                        condition = dt_col.dt.date() == pl.lit(
-                            (now - timedelta(days=1)).date()
+                        condition = (
+                            dt_col.dt.date() == now_lit.dt.offset_by("-1d").dt.date()
                         )
                     elif relative == "week-ago":
-                        condition = dt_col >= pl.lit(now_naive - timedelta(weeks=1))
+                        condition = dt_col >= now_lit.dt.offset_by("-1w")
                     elif relative == "month-ago":
-                        condition = dt_col >= pl.lit(now_naive - timedelta(days=30))
+                        condition = dt_col >= now_lit.dt.offset_by("-1mo")
                     elif relative == "quarter-ago":
-                        condition = dt_col >= pl.lit(now_naive - timedelta(days=90))
+                        condition = dt_col >= now_lit.dt.offset_by("-3mo")
                     elif relative == "half-year-ago":
-                        condition = dt_col >= pl.lit(now_naive - timedelta(days=180))
+                        condition = dt_col >= now_lit.dt.offset_by("-6mo")
                     elif relative == "year-ago":
-                        condition = dt_col >= pl.lit(now_naive - timedelta(days=365))
+                        condition = dt_col >= now_lit.dt.offset_by("-1y")
                     else:
                         continue
                 else:
@@ -259,12 +267,19 @@ class PolarsEagerImplementation:
 
                 conditions.append(condition)
 
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, pl.exceptions.PolarsError) as e:
+                logger.warning("Skipping filter on column %r: %s", filter_obj.column, e)
                 continue
 
         if conditions:
             combined = functools.reduce(operator.and_, conditions)
-            return self.__class__(self._df.filter(combined))
+            try:
+                return self.__class__(self._df.filter(combined))
+            except pl.exceptions.PolarsError as e:
+                logger.warning(
+                    "Filter evaluation failed, returning unfiltered data: %s", e
+                )
+                return self.__class__(self._df.clone())
 
         return self.__class__(self._df.clone())
 
