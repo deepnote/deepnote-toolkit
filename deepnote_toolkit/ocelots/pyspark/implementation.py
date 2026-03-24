@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Literal, Optional, TextIO, Tuple, Union
 
 from typing_extensions import Self
 
+from deepnote_toolkit.logging import LoggerManager
 from deepnote_toolkit.ocelots.constants import (
     MAX_COLUMNS_TO_DISPLAY,
     MAX_STRING_CELL_LENGTH,
@@ -17,11 +18,14 @@ from deepnote_toolkit.ocelots.types import (
     PysparkDF,
 )
 
+logger = LoggerManager().get_logger()
+
 
 class PysparkImplementation:
     """Implementation of DataFrame methods for PySpark dataframes."""
 
     name: Literal["pyspark"] = "pyspark"
+    lazy: bool = True
 
     def __init__(self, df: PysparkDF):
         self._df = df
@@ -157,10 +161,14 @@ class PysparkImplementation:
                 elif filter_obj.operator == FilterOperator.BETWEEN:
                     if len(filter_obj.comparative_values) < 2:
                         continue
-                    min_val, max_val = float(filter_obj.comparative_values[0]), float(
-                        filter_obj.comparative_values[1]
-                    )
-                    condition = (col >= min_val) & (col <= max_val)
+                    try:
+                        min_val = float(filter_obj.comparative_values[0])
+                        max_val = float(filter_obj.comparative_values[1])
+                        condition = (col >= min_val) & (col <= max_val)
+                    except (ValueError, TypeError):
+                        min_ts = F.to_timestamp(F.lit(filter_obj.comparative_values[0]))
+                        max_ts = F.to_timestamp(F.lit(filter_obj.comparative_values[1]))
+                        condition = (col >= min_ts) & (col <= max_ts)
                 elif filter_obj.operator == FilterOperator.IS_AFTER:
                     if not filter_obj.comparative_values:
                         continue
@@ -205,7 +213,8 @@ class PysparkImplementation:
 
                 conditions.append(condition)
 
-            except (ValueError, TypeError):
+            except (ValueError, TypeError) as e:
+                logger.warning("Skipping filter on column %r: %s", filter_obj.column, e)
                 continue
 
         if conditions:

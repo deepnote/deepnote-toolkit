@@ -102,6 +102,9 @@ def add_formatters():
     mimebundle_formatter.for_type_by_name(
         "pyspark.pandas.frame", "DataFrame", dataframe_formatter
     )
+    mimebundle_formatter.for_type_by_name(
+        "polars.dataframe.frame", "DataFrame", dataframe_formatter
+    )
     logger.info("Attached mimebundle formatters")
 
 

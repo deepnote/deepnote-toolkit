@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from typing_extensions import Self
 
+from deepnote_toolkit.logging import LoggerManager
 from deepnote_toolkit.ocelots.constants import (
     DEEPNOTE_INDEX_COLUMN,
     MAX_COLUMNS_TO_DISPLAY,
@@ -21,11 +22,14 @@ from .utils import (
     flatten_column_name,
 )
 
+logger = LoggerManager().get_logger()
+
 
 class PandasImplementation:
     """Implementation of DataFrame methods for pandas dataframes."""
 
     name: Literal["pandas"] = "pandas"
+    lazy: bool = False
 
     def __init__(self, df: pd.DataFrame):
         self._df = df
@@ -284,7 +288,8 @@ class PandasImplementation:
 
                 masks.append(mask)
 
-            except (ValueError, TypeError):
+            except (ValueError, TypeError) as e:
+                logger.warning("Skipping filter on column %r: %s", filter_obj.column, e)
                 continue
 
         if masks:

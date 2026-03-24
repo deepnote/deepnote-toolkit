@@ -23,6 +23,9 @@ if TYPE_CHECKING:
 
 from deepnote_toolkit.ocelots.filters import Filter
 from deepnote_toolkit.ocelots.pandas.implementation import PandasImplementation
+from deepnote_toolkit.ocelots.polars.implementation_eager import (
+    PolarsEagerImplementation,
+)
 from deepnote_toolkit.ocelots.pyspark.implementation import PysparkImplementation
 from deepnote_toolkit.ocelots.types import (
     Column,
@@ -32,16 +35,20 @@ from deepnote_toolkit.ocelots.types import (
     NativeOutputType,
     PandasDF,
     PandasOnSparkDF,
+    PolarsEagerDF,
     PysparkDF,
     UnsupportedDataFrameException,
 )
 from deepnote_toolkit.ocelots.utils import (
     is_pandas_dataframe,
     is_pandas_on_spark_dataframe,
+    is_polars_eager_dataframe,
     is_pyspark_dataframe,
 )
 
-Implementation = Union[PandasImplementation, PysparkImplementation]
+Implementation = Union[
+    PandasImplementation, PysparkImplementation, PolarsEagerImplementation
+]
 
 T = TypeVar("T", bound=NativeOutputDF)
 FromNativeT = TypeVar("FromNativeT", bound=NativeOutputDF)
@@ -86,6 +93,7 @@ class DataFrame(Generic[T]):
             is_pandas_dataframe(df)
             or is_pyspark_dataframe(df)
             or is_pandas_on_spark_dataframe(df)
+            or is_polars_eager_dataframe(df)
         )
 
     # Special case for Pandas-on-Spark DFs, as they aren't wrapped directly, but converted
@@ -117,6 +125,8 @@ class DataFrame(Generic[T]):
             return cls(PandasImplementation(df))
         if is_pyspark_dataframe(df):
             return cls(PysparkImplementation(df))
+        if is_polars_eager_dataframe(df):
+            return cls(PolarsEagerImplementation(df))
         if is_pandas_on_spark_dataframe(df):
             # NOTE: we accept Pandas-on-Spark dataframes, but we convert them into Spark and
             # work like with it same as with normal Spark DF from that.
@@ -144,7 +154,7 @@ class DataFrame(Generic[T]):
             return cls(PysparkImplementation(df.to_spark()))
 
         raise UnsupportedDataFrameException(
-            f"expected Pandas or PySpark dataframe, got {type(df)}"
+            f"expected Pandas, PySpark, or Polars dataframe, got {type(df)}"
         )
 
     @property
@@ -152,9 +162,18 @@ class DataFrame(Generic[T]):
         """Get the native type of the dataframe.
 
         Returns:
-            NativeType: Either 'pandas' or 'pyspark'
+            NativeOutputType: Either 'pandas', 'pyspark', or 'polars-eager'
         """
         return self._implementation.name
+
+    @property
+    def lazy(self) -> bool:
+        """Whether the underlying dataframe uses lazy evaluation.
+
+        Lazy dataframes (e.g. PySpark) defer computation until results are collected,
+        while eager ones (e.g. pandas, Polars) evaluate immediately.
+        """
+        return self._implementation.lazy
 
     @property
     def columns(self) -> Tuple[Column, ...]:
@@ -425,3 +444,9 @@ def is_wrapped_pandas_dataframe(df: DataFrame) -> TypeGuard[DataFrame[PandasDF]]
 
 def is_wrapped_pyspark_dataframe(df: DataFrame) -> TypeGuard[DataFrame[PysparkDF]]:
     return df.native_type == "pyspark"
+
+
+def is_wrapped_polars_eager_dataframe(
+    df: DataFrame,
+) -> TypeGuard[DataFrame[PolarsEagerDF]]:
+    return df.native_type == "polars-eager"

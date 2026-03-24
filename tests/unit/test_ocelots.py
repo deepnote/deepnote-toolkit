@@ -1,10 +1,12 @@
 import io
+import sys
 import unittest
 import warnings
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Union
 
 import pandas as pd
+import polars as pl
 from pyspark.sql import SparkSession
 
 from deepnote_toolkit.ocelots.constants import DEEPNOTE_INDEX_COLUMN
@@ -47,7 +49,6 @@ def _test_with_all_backends(
                   Each dictionary represents a row with column names as keys.
                   Defaults to basic testing DataFrame if not provided.
     """
-    import sys
 
     if not isinstance(test_df, pd.DataFrame):
         if test_df is None:
@@ -71,9 +72,20 @@ def _test_with_all_backends(
                     ),
                 )
 
+            polars_df = pl.from_pandas(test_df)
+            with self.subTest(implementation="polars-eager"):
+                test_func(
+                    self,
+                    (
+                        DataFrame.from_native(polars_df)
+                        if initialize_ocelots_dataframe
+                        else polars_df
+                    ),
+                )
+
             # Skip PySpark tests for Python 3.12 since PySpark doesn't support it yet
             if sys.version_info < (3, 12):
-                pyspark_df = create_spark_df(test_df)
+                pyspark_df = create_spark_df(test_df, pyspark_schema)
                 with self.subTest(implementation="pyspark"):
                     test_func(
                         self,
@@ -83,19 +95,6 @@ def _test_with_all_backends(
                             else pyspark_df
                         ),
                     )
-            else:
-                self.skipTest("PySpark does not yet support Python 3.12")
-
-            pyspark_df = create_spark_df(test_df, pyspark_schema)
-            with self.subTest(implementation="pyspark"):
-                test_func(
-                    self,
-                    (
-                        DataFrame.from_native(pyspark_df)
-                        if initialize_ocelots_dataframe
-                        else pyspark_df
-                    ),
-                )
 
         return wrapper
 
@@ -113,13 +112,16 @@ class TestDataFrame(unittest.TestCase):
         self.assertEqual(ocelots_df.native_type, "pandas")
 
     def test_native_type_pyspark(self):
-        import sys
-
         if sys.version_info >= (3, 12):
             self.skipTest("PySpark does not yet support Python 3.12")
         pyspark_df = create_spark_df(testing_dataframes["basic"])
         ocelots_df = DataFrame.from_native(pyspark_df)
         self.assertEqual(ocelots_df.native_type, "pyspark")
+
+    def test_native_type_polars(self):
+        polars_df = pl.from_pandas(testing_dataframes["basic"])
+        ocelots_df = DataFrame.from_native(polars_df)
+        self.assertEqual(ocelots_df.native_type, "polars-eager")
 
     @_test_with_all_backends(testing_dataframes["many_rows_10k"])
     def test_columns(self, df: DataFrame):
@@ -154,14 +156,18 @@ class TestDataFrame(unittest.TestCase):
         self.assertIsInstance(df.sort([("col1", True)]).to_native(), pd.DataFrame)
 
     def test_to_native_spark(self):
-        import sys
-
         if sys.version_info >= (3, 12):
             self.skipTest("PySpark does not yet support Python 3.12")
         spark_df = create_spark_df(testing_dataframes["basic"])
         df = DataFrame.from_native(spark_df)
         self.assertIs(df.to_native(), spark_df)
         self.assertIsInstance(df.sort([("col1", True)]).to_native(), spark_df.__class__)
+
+    def test_to_native_polars(self):
+        polars_df = pl.from_pandas(testing_dataframes["basic"])
+        df = DataFrame.from_native(polars_df)
+        self.assertIs(df.to_native(), polars_df)
+        self.assertIsInstance(df.sort([("col1", True)]).to_native(), pl.DataFrame)
 
     @_test_with_all_backends()
     def test_to_records(self, df: DataFrame):
@@ -185,6 +191,19 @@ class TestDataFrame(unittest.TestCase):
         expected_hello = "b'hello'"
         self.assertEqual(first_row["binary"], expected_hello)
 
+        self.assertEqual(first_row["string"], "foo")
+        self.assertIn(first_row["boolean"], [True, "True", "true"])
+        self.assertEqual(first_row["integer"], 1)
+
+    def test_to_records_json_polars_categorical(self):
+        """Test that Polars categorical columns are cast to string in JSON mode."""
+        polars_df = pl.DataFrame({"cat": ["a", "b", "c"]}).with_columns(
+            pl.col("cat").cast(pl.Categorical)
+        )
+        df = DataFrame.from_native(polars_df)
+        records = df.to_records(mode="json")
+        self.assertEqual([r["cat"] for r in records], ["a", "b", "c"])
+
     @_test_with_all_backends(testing_dataframes["many_rows_10k"])
     def test_analyze_columns(self, df: DataFrame):
         summary = df.analyze_columns(["col1"])
@@ -203,8 +222,8 @@ class TestDataFrame(unittest.TestCase):
         self.assertEqual(df.get_column_distinct_values("col2"), ["a", "b", "c"])
 
     def test_get_column_distinct_values_mixed_content(self):
-        # Spark doesn't allow mixed content, so we test only with Pandas
-        df = DataFrame.from_native(testing_dataframes["column_distinct_values"])
+        # Spark and Polars doesn't allow mixed content, so we test only with Pandas
+        df = DataFrame.from_native(testing_dataframes["column_distinct_values_mixed"])
         self.assertEqual(
             df.get_column_distinct_values("col3"), [2, 1, "wow", "test"]
         )  # Mixed content can't be sorted
@@ -217,6 +236,22 @@ class TestDataFrame(unittest.TestCase):
         correct_size = 1_766_685
         delta = correct_size * 0.1  # Allow 10% variation
         self.assertAlmostEqual(estimated_size, correct_size, delta=delta)
+
+    def test_lazy_pandas(self):
+        df = DataFrame.from_native(testing_dataframes["basic"])
+        self.assertFalse(df.lazy)
+
+    def test_lazy_pyspark(self):
+        if sys.version_info >= (3, 12):
+            self.skipTest("PySpark does not yet support Python 3.12")
+        pyspark_df = create_spark_df(testing_dataframes["basic"])
+        df = DataFrame.from_native(pyspark_df)
+        self.assertTrue(df.lazy)
+
+    def test_lazy_polars(self):
+        polars_df = pl.from_pandas(testing_dataframes["basic"])
+        df = DataFrame.from_native(polars_df)
+        self.assertFalse(df.lazy)
 
     @_test_with_all_backends(testing_dataframes["basic"])
     def test_to_csv(self, df: DataFrame):
@@ -235,6 +270,36 @@ class TestDataFrame(unittest.TestCase):
 
             # Check no index column
             self.assertNotIn(DEEPNOTE_INDEX_COLUMN, content)
+
+
+class TestPrepareForSerialization(unittest.TestCase):
+    @_test_with_all_backends(testing_dataframes["basic"])
+    def test_adds_index_column(self, df: DataFrame):
+        """Test that prepare_for_serialization adds the deepnote index column.
+
+        PySpark intentionally skips this — it relies on DataPreview for indexing.
+        """
+        prepared = df.prepare_for_serialization()
+        col_names = [col.name for col in prepared.columns]
+        if df.native_type == "pyspark":
+            self.assertNotIn(DEEPNOTE_INDEX_COLUMN, col_names)
+        else:
+            self.assertIn(DEEPNOTE_INDEX_COLUMN, col_names)
+
+    @_test_with_all_backends(testing_dataframes["basic"])
+    def test_preserves_data_columns(self, df: DataFrame):
+        """Test that original data columns are preserved."""
+        prepared = df.prepare_for_serialization()
+        col_names = [col.name for col in prepared.columns]
+        self.assertIn("col1", col_names)
+        self.assertIn("col2", col_names)
+
+    @_test_with_all_backends(testing_dataframes["many_columns"])
+    def test_truncates_columns(self, df: DataFrame):
+        """Test that columns are truncated to MAX_COLUMNS_TO_DISPLAY."""
+        prepared = df.prepare_for_serialization()
+        # +1 for the index column added during serialization
+        self.assertLessEqual(len(prepared.columns), 501)
 
 
 class TestDataFrameSorting(unittest.TestCase):
@@ -677,6 +742,164 @@ class TestDataFrameFiltering(unittest.TestCase):
         self.assertEqual(
             records[0]["date_col"], YESTERDAY.strftime("%Y-%m-%d %H:%M:%S")
         )
+
+
+def _datetime_df(dates: list) -> pd.DataFrame:
+    """Create a DataFrame with a single datetime column 'dt'."""
+    return pd.DataFrame(data={"dt": pd.to_datetime(dates)})
+
+
+def _relative_date_df(offsets_days: list) -> pd.DataFrame:
+    """Create a datetime DataFrame with rows offset from now by given day counts.
+
+    Positive values are in the past, negative values are in the future.
+    """
+    now = datetime.now()
+    return _datetime_df(
+        [(now - timedelta(days=d)).strftime("%Y-%m-%d %H:%M:%S") for d in offsets_days]
+    )
+
+
+FIXED_DATES_DF = _datetime_df(
+    [
+        "2020-01-01 10:00:00",
+        "2020-01-02 11:00:00",
+        "2020-01-03 12:00:00",
+        "2020-01-04 13:00:00",
+    ]
+)
+
+
+class TestDatetimeFiltering(unittest.TestCase):
+    """Tests for date/datetime filter operators using native datetime columns."""
+
+    @_test_with_all_backends(FIXED_DATES_DF)
+    def test_filter_between_datetime(self, df: DataFrame):
+        records = df.filter(
+            Filter(
+                "dt",
+                FilterOperator.BETWEEN,
+                comparative_values=["2020-01-02 00:00:00", "2020-01-03 23:59:59"],
+            )
+        ).to_records("python")
+        self.assertEqual(len(records), 2)
+
+    @_test_with_all_backends(FIXED_DATES_DF)
+    def test_filter_is_after_datetime(self, df: DataFrame):
+        records = df.filter(
+            Filter(
+                "dt",
+                FilterOperator.IS_AFTER,
+                comparative_values=["2020-01-02"],
+            )
+        ).to_records("python")
+        self.assertEqual(len(records), 3)
+
+    @_test_with_all_backends(FIXED_DATES_DF)
+    def test_filter_is_before_datetime(self, df: DataFrame):
+        records = df.filter(
+            Filter(
+                "dt",
+                FilterOperator.IS_BEFORE,
+                comparative_values=["2020-01-03"],
+            )
+        ).to_records("python")
+        self.assertEqual(len(records), 2)
+
+    @_test_with_all_backends(FIXED_DATES_DF)
+    def test_filter_is_on_datetime(self, df: DataFrame):
+        records = df.filter(
+            Filter(
+                "dt",
+                FilterOperator.IS_ON,
+                comparative_values=["2020-01-02 11:00:00"],
+            )
+        ).to_records("python")
+        self.assertEqual(len(records), 1)
+
+
+class TestRelativeDateFiltering(unittest.TestCase):
+    """Tests for IS_RELATIVE_TODAY with all relative date variants."""
+
+    # past_days=1, today, future_days=1
+    @_test_with_all_backends(_relative_date_df([1, 0, -1]))
+    def test_relative_today(self, df: DataFrame):
+        records = df.filter(
+            Filter("dt", FilterOperator.IS_RELATIVE_TODAY, comparative_values=["today"])
+        ).to_records("python")
+        self.assertEqual(len(records), 1)
+
+    # 2 days ago, 1 day ago (yesterday), today
+    @_test_with_all_backends(_relative_date_df([2, 1, 0]))
+    def test_relative_yesterday(self, df: DataFrame):
+        records = df.filter(
+            Filter(
+                "dt",
+                FilterOperator.IS_RELATIVE_TODAY,
+                comparative_values=["yesterday"],
+            )
+        ).to_records("python")
+        self.assertEqual(len(records), 1)
+
+    # 10 days ago (outside), 5 days ago (inside), 1 day ago (inside)
+    @_test_with_all_backends(_relative_date_df([10, 5, 1]))
+    def test_relative_week_ago(self, df: DataFrame):
+        records = df.filter(
+            Filter(
+                "dt",
+                FilterOperator.IS_RELATIVE_TODAY,
+                comparative_values=["week-ago"],
+            )
+        ).to_records("python")
+        self.assertEqual(len(records), 2)
+
+    # 60 days ago (outside), 15 days ago (inside), 1 day ago (inside)
+    @_test_with_all_backends(_relative_date_df([60, 15, 1]))
+    def test_relative_month_ago(self, df: DataFrame):
+        records = df.filter(
+            Filter(
+                "dt",
+                FilterOperator.IS_RELATIVE_TODAY,
+                comparative_values=["month-ago"],
+            )
+        ).to_records("python")
+        self.assertEqual(len(records), 2)
+
+    # 120 days ago (outside), 60 days ago (inside), 1 day ago (inside)
+    @_test_with_all_backends(_relative_date_df([120, 60, 1]))
+    def test_relative_quarter_ago(self, df: DataFrame):
+        records = df.filter(
+            Filter(
+                "dt",
+                FilterOperator.IS_RELATIVE_TODAY,
+                comparative_values=["quarter-ago"],
+            )
+        ).to_records("python")
+        self.assertEqual(len(records), 2)
+
+    # 200 days ago (outside), 100 days ago (inside), 1 day ago (inside)
+    @_test_with_all_backends(_relative_date_df([200, 100, 1]))
+    def test_relative_half_year_ago(self, df: DataFrame):
+        records = df.filter(
+            Filter(
+                "dt",
+                FilterOperator.IS_RELATIVE_TODAY,
+                comparative_values=["half-year-ago"],
+            )
+        ).to_records("python")
+        self.assertEqual(len(records), 2)
+
+    # 400 days ago (outside), 200 days ago (inside), 1 day ago (inside)
+    @_test_with_all_backends(_relative_date_df([400, 200, 1]))
+    def test_relative_year_ago(self, df: DataFrame):
+        records = df.filter(
+            Filter(
+                "dt",
+                FilterOperator.IS_RELATIVE_TODAY,
+                comparative_values=["year-ago"],
+            )
+        ).to_records("python")
+        self.assertEqual(len(records), 2)
 
 
 if __name__ == "__main__":
