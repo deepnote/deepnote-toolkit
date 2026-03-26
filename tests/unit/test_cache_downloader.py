@@ -1,7 +1,7 @@
 import importlib.util
 import os
 import shutil
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -21,6 +21,7 @@ _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
 
 cleanup_old_versions = _mod.cleanup_old_versions
+download_dependency = _mod.download_dependency
 
 
 class TestCleanupOldVersions:
@@ -169,3 +170,44 @@ class TestCleanupOldVersions:
         assert (tmp_path / "v1").exists()
         assert (tmp_path / "v2").exists()
         assert (tmp_path / "v3").exists()
+
+
+class TestDownloadDependency:
+    def test_skips_download_when_done_file_exists(self, tmp_path):
+        """Already-cached version should not trigger a download."""
+        release = "v1.0.0"
+        py_ver = "3.11"
+        version_path = tmp_path / release / f"python{py_ver}"
+        version_path.mkdir(parents=True)
+        (version_path / f"{py_ver}-done").write_text("ok")
+
+        with patch.object(_mod, "BASE_PATH", str(tmp_path)):
+            with patch.object(_mod.subprocess, "Popen") as mock_popen:
+                download_dependency(release, py_ver, "fake-bucket")
+
+        mock_popen.assert_not_called()
+
+    def test_downloads_when_done_file_missing(self, tmp_path):
+        """Missing done file should trigger the download."""
+        release = "v1.0.0"
+        py_ver = "3.11"
+        version_path = tmp_path / release / f"python{py_ver}"
+        version_path.mkdir(parents=True)
+
+        mock_aws = MagicMock()
+        mock_aws.stdout = MagicMock()
+        mock_aws.stderr = MagicMock(read=MagicMock(return_value=b""))
+        mock_aws.wait.return_value = 0
+
+        mock_tar = MagicMock()
+        mock_tar.communicate.return_value = (b"", b"")
+        mock_tar.returncode = 0
+
+        with patch.object(_mod, "BASE_PATH", str(tmp_path)):
+            with patch.object(
+                _mod.subprocess, "Popen", side_effect=[mock_aws, mock_tar]
+            ) as mock_popen:
+                download_dependency(release, py_ver, "fake-bucket")
+
+        assert mock_popen.call_count == 2
+        assert (version_path / f"{py_ver}-done").exists()
