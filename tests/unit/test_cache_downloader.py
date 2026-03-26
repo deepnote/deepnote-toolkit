@@ -181,9 +181,10 @@ class TestDownloadDependency:
         version_path.mkdir(parents=True)
         (version_path / f"{py_ver}-done").write_text("ok")
 
-        with patch.object(_mod, "BASE_PATH", str(tmp_path)):
-            with patch.object(_mod.subprocess, "Popen") as mock_popen:
-                download_dependency(release, py_ver, "fake-bucket")
+        with patch.object(_mod, "BASE_PATH", str(tmp_path)), patch.object(
+            _mod.subprocess, "Popen"
+        ) as mock_popen:
+            download_dependency(release, py_ver, "fake-bucket")
 
         mock_popen.assert_not_called()
 
@@ -203,11 +204,10 @@ class TestDownloadDependency:
         mock_tar.communicate.return_value = (b"", b"")
         mock_tar.returncode = 0
 
-        with patch.object(_mod, "BASE_PATH", str(tmp_path)):
-            with patch.object(
-                _mod.subprocess, "Popen", side_effect=[mock_aws, mock_tar]
-            ) as mock_popen:
-                download_dependency(release, py_ver, "fake-bucket")
+        with patch.object(_mod, "BASE_PATH", str(tmp_path)), patch.object(
+            _mod.subprocess, "Popen", side_effect=[mock_aws, mock_tar]
+        ) as mock_popen:
+            download_dependency(release, py_ver, "fake-bucket")
 
         assert mock_popen.call_count == 2
         assert (version_path / f"{py_ver}-done").exists()

@@ -19,7 +19,7 @@ def download_dependency(
     version_path = os.path.join(BASE_PATH, release_name, f"python{python_version}")
     done_file = os.path.join(version_path, f"{python_version}-done")
 
-    if os.path.isfile(done_file):
+    if Path(done_file).is_file():
         print(
             f"{datetime.datetime.now()}: {release_name} python{python_version} already cached, skipping download"
         )
