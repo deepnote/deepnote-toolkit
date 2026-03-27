@@ -19,6 +19,12 @@ def download_dependency(
     version_path = os.path.join(BASE_PATH, release_name, f"python{python_version}")
     done_file = os.path.join(version_path, f"{python_version}-done")
 
+    if Path(done_file).is_file():
+        print(
+            f"{datetime.datetime.now()}: {release_name} python{python_version} already cached, skipping download"
+        )
+        return
+
     # Create the version directory if it doesn't exist
     os.makedirs(version_path, exist_ok=True)
 
@@ -57,7 +63,7 @@ def download_dependency(
         f"{datetime.datetime.now()}: Done downloading {release_name} {s3_path} and extracting to {version_path}"
     )
     # Create the "done" file
-    open(done_file, "a").close()
+    Path(done_file).touch()
 
 
 def submit_downloading(
