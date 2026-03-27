@@ -18,4 +18,4 @@
 
 # NOTE: very broad match, putting it first so later more specific directives
 # can overwrite parts of it
-* @deepnote/platform
+* @deepnote/blue
