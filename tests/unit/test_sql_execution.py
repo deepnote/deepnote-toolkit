@@ -1047,7 +1047,9 @@ class TestCreateRetrySession(unittest.TestCase):
         """Test that _generate_temporary_credentials uses a retry session."""
         from deepnote_toolkit.sql.sql_execution import _generate_temporary_credentials
 
-        mock_get_url.return_value = "https://api.example.com/integrations/credentials/test-id"
+        mock_get_url.return_value = (
+            "https://api.example.com/integrations/credentials/test-id"
+        )
         mock_get_headers.return_value = {"Authorization": "Bearer token"}
 
         with mock.patch(
@@ -1079,7 +1081,9 @@ class TestCreateRetrySession(unittest.TestCase):
         """Test that _get_federated_auth_credentials uses a retry session."""
         from deepnote_toolkit.sql.sql_execution import _get_federated_auth_credentials
 
-        mock_get_url.return_value = "https://api.example.com/integrations/federated-auth-token/test-id"
+        mock_get_url.return_value = (
+            "https://api.example.com/integrations/federated-auth-token/test-id"
+        )
         mock_get_headers.return_value = {"Authorization": "Bearer token"}
 
         with mock.patch(
