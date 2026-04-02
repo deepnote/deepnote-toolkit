@@ -11,6 +11,7 @@ from urllib.parse import quote
 import google.oauth2.credentials
 import numpy as np
 import requests
+from requests.adapters import HTTPAdapter, Retry
 import wrapt
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
@@ -263,13 +264,28 @@ def execute_sql(
     )
 
 
+def _create_retry_session() -> requests.Session:
+    """Create a requests session with retry on 5xx for POST requests."""
+    session = requests.Session()
+    retries = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=[500, 502, 503, 504],
+        allowed_methods=["POST"],
+    )
+    session.mount("http://", HTTPAdapter(max_retries=retries))
+    session.mount("https://", HTTPAdapter(max_retries=retries))
+    return session
+
+
 def _generate_temporary_credentials(integration_id):
     url = get_absolute_userpod_api_url(f"integrations/credentials/{integration_id}")
 
     # Add project credentials in detached mode
     headers = get_project_auth_headers()
 
-    response = requests.post(url, timeout=10, headers=headers)
+    session = _create_retry_session()
+    response = session.post(url, timeout=10, headers=headers)
 
     response.raise_for_status()
 
@@ -291,7 +307,8 @@ def _get_federated_auth_credentials(
     headers = get_project_auth_headers()
     headers["UserPodAuthContextToken"] = user_pod_auth_context_token
 
-    response = requests.post(url, timeout=10, headers=headers)
+    session = _create_retry_session()
+    response = session.post(url, timeout=10, headers=headers)
 
     response.raise_for_status()
 
