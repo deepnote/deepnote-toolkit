@@ -271,6 +271,7 @@ def _create_retry_session() -> requests.Session:
         total=3,
         backoff_factor=0.5,
         status_forcelist=[500, 502, 503, 504],
+        allowed_methods=["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "TRACE"],
     )
     session.mount("http://", HTTPAdapter(max_retries=retries))
     session.mount("https://", HTTPAdapter(max_retries=retries))

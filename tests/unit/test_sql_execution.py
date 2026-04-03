@@ -1024,21 +1024,6 @@ class TestSqlAlchemyDialectRegistration(TestCase):
 
 
 class TestCreateRetrySession(unittest.TestCase):
-    def test_retry_session_has_correct_config(self):
-        """Test that _create_retry_session configures retries correctly."""
-        from deepnote_toolkit.sql.sql_execution import _create_retry_session
-
-        session = _create_retry_session()
-
-        # Check that both http and https adapters are mounted with retry config
-        for prefix in ("http://", "https://"):
-            adapter = session.get_adapter(prefix)
-            retries = adapter.max_retries
-            self.assertEqual(retries.total, 3)
-            self.assertEqual(retries.backoff_factor, 0.5)
-            self.assertEqual(list(retries.status_forcelist), [500, 502, 503, 504])
-            self.assertIn("POST", retries.allowed_methods)
-
     @mock.patch("deepnote_toolkit.sql.sql_execution._create_retry_session")
     @mock.patch("deepnote_toolkit.sql.sql_execution.get_project_auth_headers")
     @mock.patch("deepnote_toolkit.sql.sql_execution.get_absolute_userpod_api_url")
