@@ -11,7 +11,6 @@ from urllib.parse import quote
 import google.oauth2.credentials
 import numpy as np
 import requests
-from requests.adapters import HTTPAdapter, Retry
 import wrapt
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
@@ -19,6 +18,7 @@ from google.api_core.client_info import ClientInfo
 from google.cloud import bigquery
 from packaging.version import parse as parse_version
 from pydantic import BaseModel
+from requests.adapters import HTTPAdapter, Retry
 from sqlalchemy.engine import URL, Connection, create_engine, make_url
 from sqlalchemy.exc import ResourceClosedError
 
@@ -271,14 +271,13 @@ def _create_retry_session() -> requests.Session:
         total=3,
         backoff_factor=0.5,
         status_forcelist=[500, 502, 503, 504],
-        allowed_methods=["POST"],
     )
     session.mount("http://", HTTPAdapter(max_retries=retries))
     session.mount("https://", HTTPAdapter(max_retries=retries))
     return session
 
 
-def _generate_temporary_credentials(integration_id):
+def _generate_temporary_credentials(integration_id) -> tuple[str, str]:
     url = get_absolute_userpod_api_url(f"integrations/credentials/{integration_id}")
 
     # Add project credentials in detached mode

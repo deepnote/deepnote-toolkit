@@ -1039,10 +1039,11 @@ class TestCreateRetrySession(unittest.TestCase):
             self.assertEqual(list(retries.status_forcelist), [500, 502, 503, 504])
             self.assertIn("POST", retries.allowed_methods)
 
+    @mock.patch("deepnote_toolkit.sql.sql_execution._create_retry_session")
     @mock.patch("deepnote_toolkit.sql.sql_execution.get_project_auth_headers")
     @mock.patch("deepnote_toolkit.sql.sql_execution.get_absolute_userpod_api_url")
     def test_generate_temporary_credentials_uses_retry_session(
-        self, mock_get_url, mock_get_headers
+        self, mock_get_url, mock_get_headers, mock_create_session
     ):
         """Test that _generate_temporary_credentials uses a retry session."""
         from deepnote_toolkit.sql.sql_execution import _generate_temporary_credentials
@@ -1052,31 +1053,29 @@ class TestCreateRetrySession(unittest.TestCase):
         )
         mock_get_headers.return_value = {"Authorization": "Bearer token"}
 
-        with mock.patch(
-            "deepnote_toolkit.sql.sql_execution._create_retry_session"
-        ) as mock_create_session:
-            mock_session = mock.Mock()
-            mock_response = mock.Mock()
-            mock_response.json.return_value = {
-                "username": "user",
-                "password": "pass",
-            }
-            mock_session.post.return_value = mock_response
-            mock_create_session.return_value = mock_session
+        mock_session = mock.Mock()
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "username": "user",
+            "password": "pass",
+        }
+        mock_session.post.return_value = mock_response
+        mock_create_session.return_value = mock_session
 
-            _generate_temporary_credentials("test-id")
+        _generate_temporary_credentials("test-id")
 
-            mock_create_session.assert_called_once()
-            mock_session.post.assert_called_once_with(
-                "https://api.example.com/integrations/credentials/test-id",
-                timeout=10,
-                headers={"Authorization": "Bearer token"},
-            )
+        mock_create_session.assert_called_once()
+        mock_session.post.assert_called_once_with(
+            "https://api.example.com/integrations/credentials/test-id",
+            timeout=10,
+            headers={"Authorization": "Bearer token"},
+        )
 
+    @mock.patch("deepnote_toolkit.sql.sql_execution._create_retry_session")
     @mock.patch("deepnote_toolkit.sql.sql_execution.get_project_auth_headers")
     @mock.patch("deepnote_toolkit.sql.sql_execution.get_absolute_userpod_api_url")
     def test_get_federated_auth_credentials_uses_retry_session(
-        self, mock_get_url, mock_get_headers
+        self, mock_get_url, mock_get_headers, mock_create_session
     ):
         """Test that _get_federated_auth_credentials uses a retry session."""
         from deepnote_toolkit.sql.sql_execution import _get_federated_auth_credentials
@@ -1086,26 +1085,23 @@ class TestCreateRetrySession(unittest.TestCase):
         )
         mock_get_headers.return_value = {"Authorization": "Bearer token"}
 
-        with mock.patch(
-            "deepnote_toolkit.sql.sql_execution._create_retry_session"
-        ) as mock_create_session:
-            mock_session = mock.Mock()
-            mock_response = mock.Mock()
-            mock_response.json.return_value = {
-                "integrationType": "trino",
-                "accessToken": "test-token",
-            }
-            mock_session.post.return_value = mock_response
-            mock_create_session.return_value = mock_session
+        mock_session = mock.Mock()
+        mock_response = mock.Mock()
+        mock_response.json.return_value = {
+            "integrationType": "trino",
+            "accessToken": "test-token",
+        }
+        mock_session.post.return_value = mock_response
+        mock_create_session.return_value = mock_session
 
-            _get_federated_auth_credentials("test-id", "auth-context-token")
+        _get_federated_auth_credentials("test-id", "auth-context-token")
 
-            mock_create_session.assert_called_once()
-            mock_session.post.assert_called_once_with(
-                "https://api.example.com/integrations/federated-auth-token/test-id",
-                timeout=10,
-                headers={
-                    "Authorization": "Bearer token",
-                    "UserPodAuthContextToken": "auth-context-token",
-                },
-            )
+        mock_create_session.assert_called_once()
+        mock_session.post.assert_called_once_with(
+            "https://api.example.com/integrations/federated-auth-token/test-id",
+            timeout=10,
+            headers={
+                "Authorization": "Bearer token",
+                "UserPodAuthContextToken": "auth-context-token",
+            },
+        )
