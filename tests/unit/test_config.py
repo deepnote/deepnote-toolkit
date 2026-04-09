@@ -3,6 +3,7 @@ from pydantic import ValidationError
 
 from deepnote_core.config.loader import ConfigurationLoader
 from deepnote_core.config.models import DeepnoteConfig
+from deepnote_toolkit.config import clear_config_cache, get_config
 
 
 def test_port_validation_range():
@@ -24,6 +25,21 @@ def test_runtime_coerce_float_inverted_flag(monkeypatch):
     monkeypatch.setenv("DEEPNOTE_DO_NOT_COERCE_FLOAT", "1")
     cfg = ConfigurationLoader().load_config()
     assert cfg.runtime.coerce_float is False
+
+
+def test_coerce_float_picks_up_late_env_after_cache_clear(monkeypatch):
+    # Config cached before DEEPNOTE_DO_NOT_COERCE_FLOAT is set → stale.
+    # After clear_config_cache(), next get_config() sees the new value.
+    clear_config_cache()
+    monkeypatch.delenv("DEEPNOTE_DO_NOT_COERCE_FLOAT", raising=False)
+
+    assert get_config().runtime.coerce_float is True
+
+    monkeypatch.setenv("DEEPNOTE_DO_NOT_COERCE_FLOAT", "1")
+    assert get_config().runtime.coerce_float is True  # stale
+
+    clear_config_cache()
+    assert get_config().runtime.coerce_float is False
 
 
 def test_loader_precedence_cli_over_env_over_file(tmp_path, monkeypatch):
