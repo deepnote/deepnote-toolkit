@@ -103,7 +103,7 @@ def test_set_integration_env_clears_config_cache(
         "deepnote_toolkit.set_integrations_env.clear_config_cache"
     ) as mock_clear:
         set_integration_env()
-        assert mock_clear.called
+        mock_clear.assert_called_once()
 
 
 def test_set_integration_env_disabled_gate(monkeypatch):
