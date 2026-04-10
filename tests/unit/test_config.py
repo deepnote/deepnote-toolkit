@@ -28,18 +28,21 @@ def test_runtime_coerce_float_inverted_flag(monkeypatch):
 
 
 def test_coerce_float_picks_up_late_env_after_cache_clear(monkeypatch):
-    # Config cached before DEEPNOTE_DO_NOT_COERCE_FLOAT is set → stale.
-    # After clear_config_cache(), next get_config() sees the new value.
+    # Setup: start from a clean cache and confirm the default value
     clear_config_cache()
     monkeypatch.delenv("DEEPNOTE_DO_NOT_COERCE_FLOAT", raising=False)
+    cfg_default = get_config()
+    assert cfg_default.runtime.coerce_float is True
 
-    assert get_config().runtime.coerce_float is True
-
+    # Inject the env var; the cached config should still return the default
     monkeypatch.setenv("DEEPNOTE_DO_NOT_COERCE_FLOAT", "1")
-    assert get_config().runtime.coerce_float is True  # stale
+    cfg_cached = get_config()
+    assert cfg_cached.runtime.coerce_float is True
 
+    # After clearing the cache, the config should pick up the injected value
     clear_config_cache()
-    assert get_config().runtime.coerce_float is False
+    cfg_refreshed = get_config()
+    assert cfg_refreshed.runtime.coerce_float is False
 
 
 def test_loader_precedence_cli_over_env_over_file(tmp_path, monkeypatch):
