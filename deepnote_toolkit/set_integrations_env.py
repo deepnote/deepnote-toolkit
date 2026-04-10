@@ -2,7 +2,7 @@ import requests
 from requests.adapters import HTTPAdapter, Retry
 
 from . import env as dnenv
-from .config import get_config
+from .config import clear_config_cache, get_config
 from .get_webapp_url import get_absolute_userpod_api_url, get_project_auth_headers
 from .logging import LoggerManager
 
@@ -63,5 +63,9 @@ def set_integration_env():
     __DEEPNOTE_ENVS_SET_BY_INTEGRATIONS = [
         v["name"] for v in variables if v.get("name") is not None
     ]
+
+    # New env vars may affect config, so drop the cached config to
+    # force a fresh read on next access.
+    clear_config_cache()
 
     logger.info("Finish set_integration_env")

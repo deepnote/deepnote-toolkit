@@ -74,6 +74,38 @@ def test_set_integration_env_http_error(mock_get_config, monkeypatch):  # noqa: 
         set_integration_env()
 
 
+@mock.patch(
+    "deepnote_toolkit.set_integrations_env.get_config",
+    side_effect=lambda: _mock_cfg(True),
+)
+def test_set_integration_env_clears_config_cache(
+    mock_get_config, monkeypatch  # noqa: ARG001
+):
+    class DummyResp:
+        ok = True
+
+        def json(self):
+            return [{"name": "DEEPNOTE_DO_NOT_COERCE_FLOAT", "value": "1"}]
+
+    class DummySession:
+        def mount(self, *a, **k):
+            pass
+
+        def get(self, *a, **k):
+            return DummyResp()
+
+    monkeypatch.setattr(
+        "deepnote_toolkit.set_integrations_env.requests.Session", lambda: DummySession()
+    )
+    monkeypatch.setenv("DEEPNOTE_PROJECT_ID", "pid")
+
+    with mock.patch(
+        "deepnote_toolkit.set_integrations_env.clear_config_cache"
+    ) as mock_clear:
+        set_integration_env()
+        mock_clear.assert_called_once()
+
+
 def test_set_integration_env_disabled_gate(monkeypatch):
     # get_config returns disabled gate; Session should not be constructed
     from deepnote_toolkit import set_integrations_env as sie
