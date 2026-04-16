@@ -1,4 +1,4 @@
-""" This module provides functions to manage Jupyter kernels. """
+"""This module provides functions to manage Jupyter kernels."""
 
 import json
 import logging

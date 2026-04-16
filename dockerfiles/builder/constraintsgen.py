@@ -1,4 +1,4 @@
-""" Generate a constraints.txt file from installed packages. """
+"""Generate a constraints.txt file from installed packages."""
 
 import argparse
 from importlib.metadata import PackageNotFoundError, distributions, requires

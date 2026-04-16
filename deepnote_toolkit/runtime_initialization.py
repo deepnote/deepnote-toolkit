@@ -1,4 +1,4 @@
-""" This module contains functions to set up the Deepnote runtime environment. """
+"""This module contains functions to set up the Deepnote runtime environment."""
 
 import builtins
 

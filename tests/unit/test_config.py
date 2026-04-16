@@ -48,12 +48,10 @@ def test_coerce_float_picks_up_late_env_after_cache_clear(monkeypatch):
 def test_loader_precedence_cli_over_env_over_file(tmp_path, monkeypatch):
     # File value: 7777
     config_file = tmp_path / "deepnote-toolkit.toml"
-    config_file.write_text(
-        """
+    config_file.write_text("""
     [server]
     jupyter_port = 7777
-    """.strip()
-    )
+    """.strip())
 
     # Env overlay: 8888
     monkeypatch.setenv("DEEPNOTE_SERVER__JUPYTER_PORT", "8888")
@@ -88,12 +86,10 @@ def test_loader_precedence_cli_over_env_over_file(tmp_path, monkeypatch):
 
 def test_runtime_loader_env_over_file(tmp_path, monkeypatch):
     config_file = tmp_path / "conf.toml"
-    config_file.write_text(
-        """
+    config_file.write_text("""
     [server]
     jupyter_port = 7777
-    """.strip()
-    )
+    """.strip())
 
     monkeypatch.setenv("DEEPNOTE_CONFIG_FILE", str(config_file))
     monkeypatch.setenv("DEEPNOTE_SERVER__JUPYTER_PORT", "8888")

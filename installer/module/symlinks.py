@@ -1,4 +1,4 @@
-""" Module to create symlinks as part of installing toolkit."""
+"""Module to create symlinks as part of installing toolkit."""
 
 import logging
 import os

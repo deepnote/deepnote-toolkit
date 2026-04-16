@@ -1,4 +1,4 @@
-""" Constants for the package setup module. """
+"""Constants for the package setup module."""
 
 BASH_PROMPT_SCRIPT = """
 

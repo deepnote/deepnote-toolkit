@@ -7,8 +7,7 @@ def test_set_notebook_path_uses_config_home_and_port(tmp_path, monkeypatch):
     cfg_path = tmp_path / "cfg.toml"
     home_dir = tmp_path / "home"
     (home_dir / "work" / "folder").mkdir(parents=True, exist_ok=True)
-    cfg_path.write_text(
-        f"""
+    cfg_path.write_text(f"""
     [paths]
     home_dir = "{home_dir}"
 
@@ -17,8 +16,7 @@ def test_set_notebook_path_uses_config_home_and_port(tmp_path, monkeypatch):
 
     [runtime]
     running_in_detached_mode = true
-    """.strip()
-    )
+    """.strip())
 
     monkeypatch.setenv("DEEPNOTE_CONFIG_FILE", str(cfg_path))
 
@@ -62,15 +60,13 @@ def test_set_notebook_path_uses_explicit_notebook_root(tmp_path, monkeypatch):
     cfg_path = tmp_path / "cfg.toml"
     root_dir = tmp_path / "root"
     (root_dir / "x" / "y").mkdir(parents=True, exist_ok=True)
-    cfg_path.write_text(
-        f"""
+    cfg_path.write_text(f"""
     [paths]
     notebook_root = "{root_dir}"
 
     [server]
     jupyter_port = 8888
-    """.strip()
-    )
+    """.strip())
 
     monkeypatch.setenv("DEEPNOTE_CONFIG_FILE", str(cfg_path))
 

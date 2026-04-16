@@ -1,4 +1,4 @@
-""" This module contains the Config dataclass. """
+"""This module contains the Config dataclass."""
 
 from dataclasses import dataclass, field
 from typing import Optional

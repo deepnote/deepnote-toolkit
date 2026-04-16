@@ -10,15 +10,11 @@ from deepnote_toolkit.get_webapp_url import (
 def test_attached_mode_local_urls(tmp_path, monkeypatch):
     # Attached mode (not detached, not dev)
     cfg_path = tmp_path / "cfg.toml"
-    cfg_path.write_text(
-        textwrap.dedent(
-            """
+    cfg_path.write_text(textwrap.dedent("""
         [runtime]
         running_in_detached_mode = false
         dev_mode = false
-    """
-        ).strip()
-    )
+    """).strip())
     monkeypatch.setenv("DEEPNOTE_CONFIG_FILE", str(cfg_path))
 
     assert (
@@ -33,17 +29,13 @@ def test_attached_mode_local_urls(tmp_path, monkeypatch):
 
 def test_detached_headers_from_config(tmp_path, monkeypatch):
     cfg_path = tmp_path / "cfg.toml"
-    cfg_path.write_text(
-        textwrap.dedent(
-            """
+    cfg_path.write_text(textwrap.dedent("""
         [runtime]
         running_in_detached_mode = true
         project_id = "pid"
         project_secret = "sec"
         webapp_url = "https://wa.example"
-    """
-        ).strip()
-    )
+    """).strip())
     monkeypatch.setenv("DEEPNOTE_CONFIG_FILE", str(cfg_path))
 
     assert get_project_auth_headers() == {
