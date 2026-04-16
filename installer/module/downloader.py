@@ -1,4 +1,4 @@
-""" This module is responsible for downloading the toolkit bundle from the given URL. """
+"""This module is responsible for downloading the toolkit bundle from the given URL."""
 
 import io
 import logging

@@ -305,12 +305,10 @@ class TestCLIIntegration:
     def test_config_validate_invalid(self, tmp_path, capsys):
         """Test config validate with invalid config."""
         config_file = tmp_path / "invalid.toml"
-        config_file.write_text(
-            """
+        config_file.write_text("""
 [server]
 jupyter_port = "not_a_number"
-        """
-        )
+        """)
 
         ret = main(["config", "validate", "--config", str(config_file)])
         assert ret == 1
@@ -397,12 +395,10 @@ jupyter_port = "not_a_number"
 
         # Create a legacy config
         legacy_config = tmp_path / "legacy.toml"
-        legacy_config.write_text(
-            """
+        legacy_config.write_text("""
 [server]
 jupyter_port = 7777
-        """
-        )
+        """)
 
         # Run migrate
         ret = main(["config", "migrate", "--config", str(legacy_config)])
@@ -436,11 +432,9 @@ class TestCLIErrorHandling:
         config_file = tmp_path / "config.toml"
 
         # Create initial config with non-dict value
-        config_file.write_text(
-            """
+        config_file.write_text("""
 server = "not_a_dict"
-        """
-        )
+        """)
 
         ret = main(["config", "set", "server.port", "8080", "--file", str(config_file)])
 
@@ -463,12 +457,10 @@ class TestCLIWithEnvironment:
     def test_config_from_environment(self, tmp_path, monkeypatch, capsys):
         """Test loading config from environment variable."""
         config_file = tmp_path / "env_config.toml"
-        config_file.write_text(
-            """
+        config_file.write_text("""
 [server]
 jupyter_port = 5555
-        """
-        )
+        """)
 
         monkeypatch.setenv("DEEPNOTE_CONFIG_FILE", str(config_file))
 
