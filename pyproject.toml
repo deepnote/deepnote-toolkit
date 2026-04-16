@@ -140,6 +140,7 @@ dependencies = [
     "pyjwt>=2.12.0,<3",
     "pynacl>=1.6.2,<2",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/8
     "pyopenssl>=26.0.0,<27",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/21
+    "pillow>=12.2.0,<13",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/34 https://github.com/deepnote/deepnote-toolkit/security/dependabot/17
 
     # Config dependencies - they need to be declared both in main and server extras, keep them in sync
     "pydantic>=1.10.0,<3",
