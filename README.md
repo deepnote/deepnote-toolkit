@@ -63,6 +63,31 @@ deepnote-toolkit config set server.jupyter_port 9000
 
 **Security note**: The CLI will warn if Jupyter runs without authentication. For local development only. Set `DEEPNOTE_JUPYTER_TOKEN` for shared environments.
 
+## Environment Variables
+
+### Debugging and Logging
+
+The following environment variables control debug logging and diagnostic output:
+
+- **`DEEPNOTE_ENABLE_DEBUG_LOGGING`**: Set to `true` to enable verbose DEBUG-level logs for tornado, jupyter_server, and jupyter_client. This increases log verbosity which can help troubleshoot server-related issues. Default: `false` (INFO level)
+
+- **`DEEPNOTE_ENABLE_ZMQ_DEBUG`**: Set to `true` to enable detailed ZMQ message flow logging for kernel communication debugging. This logs all messages exchanged between the Jupyter server and kernel, which is useful for diagnosing stuck execution or kernel communication issues. Default: `false`
+
+**Example Usage**:
+
+```bash
+# Enable debug logging
+DEEPNOTE_ENABLE_DEBUG_LOGGING=true deepnote-toolkit server
+
+# Enable ZMQ message debugging
+DEEPNOTE_ENABLE_ZMQ_DEBUG=true deepnote-toolkit server
+
+# Enable both
+DEEPNOTE_ENABLE_DEBUG_LOGGING=true DEEPNOTE_ENABLE_ZMQ_DEBUG=true deepnote-toolkit server
+```
+
+**Note**: Debug logging can significantly increase log volume and may impact performance. Only enable in development or when troubleshooting specific issues.
+
 ## Need help?
 
 - Join our [Community](https://github.com/deepnote/deepnote/discussions)!
