@@ -511,6 +511,7 @@ jobs:
         uses: ./.github/actions/export-version
 
       - name: Update production version
+        id: update-ops
         uses: ./.github/actions/update-config-version
         with:
           env: production
@@ -521,7 +522,32 @@ jobs:
           branch: master
           github_token: ${{ secrets.DEEPNOTE_BOT_USER_TOKEN }}
 
+      - name: Notify Slack - ops production PR created
+        if: always() && steps.update-ops.outcome == 'success' && steps.update-ops.outputs.pr_url != ''
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_PRODUCTION }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "icon_emoji": ":deepnote:",
+              "text": ":loading: ${{ github.actor }} issued <https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}|a new release ${{ github.ref_name }}> of deepnote-toolkit on production.\nPlease <${{ steps.update-ops.outputs.pr_url }}|review, approve, and merge the version-update PR> to start the rollout."
+            }
+
+      - name: Notify Slack - ops production PR failed
+        if: always() && steps.update-ops.outcome == 'failure'
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_PRODUCTION }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "icon_emoji": ":nervous-laughter:",
+              "text": ${{ toJSON(format('Failed to create ops version-update PR for deepnote-toolkit {0}. Error: {1}', github.ref_name, steps.update-ops.outputs.error_message || 'Unknown error')) }}
+            }
+
       - name: Update app-config repo multi-tenant production version
+        id: update-app-config
         uses: ./.github/actions/update-config-version
         with:
           env: production
@@ -533,3 +559,27 @@ jobs:
           target_repo: app-config
           branch: main
           github_token: ${{ secrets.DEEPNOTE_BOT_USER_TOKEN }}
+
+      - name: Notify Slack - app-config production PR created
+        if: always() && steps.update-app-config.outcome == 'success' && steps.update-app-config.outputs.pr_url != ''
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_PRODUCTION }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "icon_emoji": ":deepnote:",
+              "text": ":loading: ${{ github.actor }} issued <https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}|a new release ${{ github.ref_name }}> of deepnote-toolkit on production.\nPlease <${{ steps.update-app-config.outputs.pr_url }}|review, approve, and merge the version-update PR> to start the rollout."
+            }
+
+      - name: Notify Slack - app-config production PR failed
+        if: always() && steps.update-app-config.outcome == 'failure'
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_PRODUCTION }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "icon_emoji": ":nervous-laughter:",
+              "text": ${{ toJSON(format('Failed to create app-config version-update PR for deepnote-toolkit {0}. Error: {1}', github.ref_name, steps.update-app-config.outputs.error_message || 'Unknown error')) }}
+            }

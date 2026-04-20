@@ -21,6 +21,13 @@ inputs:
   target_repo:
     description: 'Target repository name'
     required: true
+outputs:
+  pr_url:
+    description: 'URL of the created or updated PR'
+    value: ${{ steps.octopilot.outputs.pr_url }}
+  error_message:
+    description: 'Error message if octopilot failed'
+    value: ${{ steps.octopilot.outputs.error_message }}
 runs:
   using: 'composite'
   steps:
@@ -70,6 +77,8 @@ runs:
         octopilot --version
 
     - name: Update version using octopilot
+      id: octopilot
+      continue-on-error: true
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.github_token }}
@@ -78,11 +87,6 @@ runs:
         INPUT_BRANCH: ${{ inputs.branch }}
         INPUT_MERGE: ${{ inputs.merge }}
         INPUT_VERSIONS: ${{ inputs.versions }}
-        GITHUB_SERVER_URL: ${{ github.server_url }}
-        GITHUB_REPOSITORY: ${{ github.repository }}
-        GITHUB_RUN_ID: ${{ github.run_id }}
-        GITHUB_SHA: ${{ github.sha }}
-        GITHUB_ACTOR: ${{ github.actor }}
       run: |
         set -euo pipefail
 
@@ -253,4 +257,30 @@ runs:
           "--fail-on-error"
         )
 
+        set +e
         octopilot "${octopilot_args[@]}"
+        OCTOPILOT_EXIT_CODE=$?
+        set -e
+
+        # Extract PR URL and error message from octopilot output
+        PR_URL=""
+        ERROR_MESSAGE=""
+        if [[ -f octopilot-output.json ]]; then
+          PR_URL="$(jq -r '.repos[0].pr.url // empty' octopilot-output.json 2>/dev/null || echo "")"
+          ERROR_MESSAGE="$(jq -r '.repos[0].error // empty' octopilot-output.json 2>/dev/null || echo "")"
+          echo "PR URL: $PR_URL"
+        fi
+
+        if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
+          {
+            echo "pr_url=$PR_URL"
+            echo "error_message=$ERROR_MESSAGE"
+          } >> "$GITHUB_OUTPUT"
+        fi
+
+        exit $OCTOPILOT_EXIT_CODE
+
+    - name: Fail if octopilot failed
+      if: steps.octopilot.outcome == 'failure'
+      shell: bash
+      run: exit 1
