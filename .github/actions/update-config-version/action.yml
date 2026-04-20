@@ -274,7 +274,9 @@ runs:
         if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
           {
             echo "pr_url=$PR_URL"
-            echo "error_message=$ERROR_MESSAGE"
+            echo "error_message<<EOF"
+            echo "$ERROR_MESSAGE"
+            echo "EOF"
           } >> "$GITHUB_OUTPUT"
         fi
 
