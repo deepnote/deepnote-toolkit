@@ -265,6 +265,7 @@ runs:
         # Extract PR URL and error message from octopilot output
         PR_URL=""
         ERROR_MESSAGE=""
+        OUTPUT_DELIMITER="GITHUB_OUTPUT_$(uuidgen)"
         if [[ -f octopilot-output.json ]]; then
           PR_URL="$(jq -r '.repos[0].pr.url // empty' octopilot-output.json 2>/dev/null || echo "")"
           ERROR_MESSAGE="$(jq -r '.repos[0].error // empty' octopilot-output.json 2>/dev/null || echo "")"
@@ -274,9 +275,9 @@ runs:
         if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
           {
             echo "pr_url=$PR_URL"
-            echo "error_message<<EOF"
+            echo "error_message<<$OUTPUT_DELIMITER"
             echo "$ERROR_MESSAGE"
-            echo "EOF"
+            echo "$OUTPUT_DELIMITER"
           } >> "$GITHUB_OUTPUT"
         fi
 
