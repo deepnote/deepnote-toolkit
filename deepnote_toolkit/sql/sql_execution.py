@@ -28,7 +28,10 @@ from deepnote_toolkit.get_webapp_url import (
     get_absolute_userpod_api_url,
     get_project_auth_headers,
 )
-from deepnote_toolkit.ipython_utils import output_sql_metadata
+from deepnote_toolkit.ipython_utils import (
+    output_sql_metadata,
+    register_post_run_cell_hook,
+)
 from deepnote_toolkit.logging import LoggerManager
 from deepnote_toolkit.ocelots.pandas.utils import deduplicate_columns, is_large_number
 from deepnote_toolkit.sql.duckdb_sql import execute_duckdb_sql
@@ -450,6 +453,91 @@ def _execute_sql_with_caching(
     )
 
 
+# Engines created during a single IPython cell are cached here so that
+# multiple _dntk.execute_sql* calls in the same generated cell share the same
+# physical DBAPI connection. This is what allows Snowflake session state set
+# by `USE WAREHOUSE`, `USE ROLE`, `SET ...`, etc. to persist between separate
+# execute_sql calls inside the same cell. Disposed via a post_run_cell hook.
+_per_cell_engine_cache: dict[str, Any] = {}
+_post_run_cell_hook_registered = False
+
+
+def _compute_engine_cache_key(sql_alchemy_dict) -> Optional[str]:
+    """Stable key identifying the engine for *sql_alchemy_dict*, or None when
+    this connection should not be cached.
+
+    SSH-tunneled engines can't be cached because the tunnel only lives inside
+    `_create_sql_ssh_uri`'s context manager. Connections that already specify
+    a custom pool config in user `params` are also skipped to avoid clashing
+    with the `pool_size=1` we set on cached engines.
+    """
+    if sql_alchemy_dict.get("ssh_options", {}).get("enabled"):
+        return None
+
+    params = sql_alchemy_dict.get("params") or {}
+    if "pool_size" in params or "max_overflow" in params or "poolclass" in params:
+        return None
+
+    integration_id = sql_alchemy_dict.get("integration_id")
+    if integration_id:
+        return f"integration:{integration_id}"
+
+    return f"url:{sql_alchemy_dict['url']}"
+
+
+def _dispose_cell_engines(*_args, **_kwargs) -> None:
+    """post_run_cell callback: dispose every engine cached during the cell."""
+    while _per_cell_engine_cache:
+        _, engine = _per_cell_engine_cache.popitem()
+        try:
+            engine.dispose()
+        except Exception:
+            logger.warning("Error disposing cached SQL engine", exc_info=True)
+
+
+def _acquire_engine(sql_alchemy_dict, url) -> tuple[Any, bool]:
+    """Return ``(engine, owns_engine)``.
+
+    When ``owns_engine`` is False the engine is owned by the per-cell cache
+    and the caller must not dispose it; the post_run_cell hook will. When True
+    the caller must dispose, matching the previous per-call behavior.
+    """
+    cache_key = _compute_engine_cache_key(sql_alchemy_dict)
+
+    if cache_key is not None:
+        cached = _per_cell_engine_cache.get(cache_key)
+        if cached is not None:
+            return cached, False
+
+    should_cache = False
+    if cache_key is not None:
+        global _post_run_cell_hook_registered
+        if _post_run_cell_hook_registered:
+            should_cache = True
+        elif register_post_run_cell_hook(_dispose_cell_engines):
+            _post_run_cell_hook_registered = True
+            should_cache = True
+        # else: no IPython available — leave should_cache False so we don't
+        # leak engines in script/CLI contexts that never fire post_run_cell.
+
+    extra_engine_params: dict[str, Any] = {"pool_pre_ping": True}
+    if should_cache:
+        # pool_size=1 + max_overflow=0 makes engine.begin() always check out
+        # the same physical DBAPI connection across calls within the cell,
+        # which is what makes session state (USE WAREHOUSE, ...) persist.
+        extra_engine_params["pool_size"] = 1
+        extra_engine_params["max_overflow"] = 0
+
+    with suppress_third_party_deprecation_warnings():
+        engine = create_engine(url, **sql_alchemy_dict["params"], **extra_engine_params)
+
+    if not should_cache:
+        return engine, True
+
+    _per_cell_engine_cache[cache_key] = engine
+    return engine, False
+
+
 @contextlib.contextmanager
 def suppress_third_party_deprecation_warnings():
     """Suppress known deprecation warnings from third-party SQL packages.
@@ -485,10 +573,7 @@ def _query_data_source(
         if url is None:
             url = sql_alchemy_dict["url"]
 
-        with suppress_third_party_deprecation_warnings():
-            engine = create_engine(
-                url, **sql_alchemy_dict["params"], pool_pre_ping=True
-            )
+        engine, owns_engine = _acquire_engine(sql_alchemy_dict, url)
 
         try:
             dataframe = _execute_sql_on_engine(engine, query, bind_params)
@@ -524,7 +609,8 @@ def _query_data_source(
 
             return dataframe
         finally:
-            engine.dispose()
+            if owns_engine:
+                engine.dispose()
 
 
 class CursorTrackingDBAPIConnection(wrapt.ObjectProxy):
