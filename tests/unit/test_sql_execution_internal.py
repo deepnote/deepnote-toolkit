@@ -377,226 +377,85 @@ def test_create_sql_ssh_uri_no_ssh():
         assert url is None
 
 
-def _make_sql_alchemy_dict(integration_id="integration_a", url=None, params=None):
-    return {
-        "url": url or "postgresql://u:p@localhost:5432/db",
-        "params": params if params is not None else {},
-        "param_style": "qmark",
-        "integration_id": integration_id,
-    }
+def test_execute_sql_on_engine_runs_setup_statements_in_order_before_main_query():
+    """Setup statements must execute on the same connection as the main query,
+    in order, before pandas runs the main query."""
+    import pandas as pd
 
+    mock_cursor = mock.MagicMock()
+    mock_engine = _setup_mock_engine_with_cursor(mock_cursor)
 
-def test_acquire_engine_outside_session_owns_resources():
-    sql_alchemy_dict = _make_sql_alchemy_dict()
+    call_log: list[str] = []
 
-    with mock.patch(
-        "deepnote_toolkit.sql.sql_execution.create_engine", return_value=mock.Mock()
-    ) as create_engine_mock:
-        engine_a, ssh_a, owns_a = se._acquire_engine(sql_alchemy_dict)
-        engine_b, ssh_b, owns_b = se._acquire_engine(sql_alchemy_dict)
+    # Track exec_driver_sql (used for setup) and pd.read_sql_query (the main
+    # query) on the same SA connection, so we can assert ordering.
+    sa_connection = mock_engine.begin.return_value.__enter__.return_value
+    original_exec = sa_connection.exec_driver_sql
 
-    assert owns_a is True
-    assert owns_b is True
-    assert ssh_a is None
-    assert ssh_b is None
-    # Two calls outside a session create two engines; caller disposes each.
-    assert create_engine_mock.call_count == 2
-    # Outside a session we don't impose pool_size on the user.
-    kwargs = create_engine_mock.call_args.kwargs
-    assert "pool_size" not in kwargs
-    assert "max_overflow" not in kwargs
-    assert kwargs["pool_pre_ping"] is True
+    def logging_exec(sql, *args, **kwargs):
+        call_log.append(f"setup:{sql}")
+        return original_exec(sql, *args, **kwargs)
 
+    sa_connection.exec_driver_sql = logging_exec
 
-def test_sql_session_reuses_engine_within_block():
-    sql_alchemy_dict = _make_sql_alchemy_dict()
-    fake_engine = mock.Mock()
+    def fake_read_sql_query(sql, **_kwargs):
+        call_log.append(f"main:{sql}")
+        return pd.DataFrame({"x": [1]})
 
     with mock.patch(
-        "deepnote_toolkit.sql.sql_execution.create_engine", return_value=fake_engine
-    ) as create_engine_mock:
-        with se.sql_session():
-            engine_a, _, owns_a = se._acquire_engine(sql_alchemy_dict)
-            engine_b, _, owns_b = se._acquire_engine(sql_alchemy_dict)
+        "pandas.read_sql_query", side_effect=fake_read_sql_query
+    ) as mock_read:
+        result = se._execute_sql_on_engine(
+            mock_engine,
+            "SELECT 1",
+            {},
+            setup_statements=["USE WAREHOUSE abc", "USE ROLE r"],
+        )
 
-    assert engine_a is fake_engine
-    assert engine_b is fake_engine
-    assert owns_a is False
-    assert owns_b is False
-    assert create_engine_mock.call_count == 1
-    # In-session engines must use a single-connection pool so engine.begin()
-    # returns the same physical DBAPI connection across calls — that is what
-    # makes session state (USE WAREHOUSE, ...) persist between execute_sql
-    # calls in the same block.
-    kwargs = create_engine_mock.call_args.kwargs
-    assert kwargs["pool_size"] == 1
-    assert kwargs["max_overflow"] == 0
-    assert kwargs["pool_pre_ping"] is True
-    # On exit the session disposes the engine it owned.
-    fake_engine.dispose.assert_called_once()
+    assert call_log == [
+        "setup:USE WAREHOUSE abc",
+        "setup:USE ROLE r",
+        "main:SELECT 1",
+    ]
+    assert mock_read.call_count == 1
+    # And the main query was actually run.
+    assert list(result.columns) == ["x"]
 
 
-def test_sql_session_separates_engines_per_integration():
-    dict_a = _make_sql_alchemy_dict(integration_id="int_a")
-    dict_b = _make_sql_alchemy_dict(integration_id="int_b")
-    engines = [mock.Mock(name="engine_a"), mock.Mock(name="engine_b")]
+def test_execute_sql_on_engine_no_setup_statements_runs_only_main_query():
+    """No setup_statements (None or empty) is a no-op — main query runs as before."""
+    import pandas as pd
 
-    with mock.patch(
-        "deepnote_toolkit.sql.sql_execution.create_engine", side_effect=engines
-    ):
-        with se.sql_session():
-            engine_a, _, _ = se._acquire_engine(dict_a)
-            engine_b, _, _ = se._acquire_engine(dict_b)
-            engine_a_again, _, _ = se._acquire_engine(dict_a)
+    mock_cursor = mock.MagicMock()
+    mock_engine = _setup_mock_engine_with_cursor(mock_cursor)
+    sa_connection = mock_engine.begin.return_value.__enter__.return_value
+    sa_connection.exec_driver_sql = mock.Mock()
 
-    assert engine_a is engines[0]
-    assert engine_b is engines[1]
-    assert engine_a_again is engines[0]
+    with mock.patch("pandas.read_sql_query", return_value=pd.DataFrame({"x": [1]})):
+        se._execute_sql_on_engine(mock_engine, "SELECT 1", {})
+        se._execute_sql_on_engine(mock_engine, "SELECT 1", {}, setup_statements=[])
+        se._execute_sql_on_engine(mock_engine, "SELECT 1", {}, setup_statements=None)
 
-
-def test_sql_session_opens_ssh_tunnel_once_and_closes_on_exit():
-    sql_alchemy_dict = _make_sql_alchemy_dict()
-    sql_alchemy_dict["ssh_options"] = {
-        "enabled": True,
-        "host": "h",
-        "port": 22,
-        "user": "u",
-    }
-    fake_engine = mock.Mock()
-    fake_server = mock.Mock()
-    fake_server.is_active = True
-    rewritten_url = "postgresql://u:p@127.0.0.1:65000/db"
-
-    with (
-        mock.patch(
-            "deepnote_toolkit.sql.sql_execution._open_ssh_tunnel",
-            return_value=(fake_server, rewritten_url),
-        ) as open_tunnel,
-        mock.patch(
-            "deepnote_toolkit.sql.sql_execution.create_engine",
-            return_value=fake_engine,
-        ) as create_engine_mock,
-    ):
-        with se.sql_session():
-            _, ssh_a, owns_a = se._acquire_engine(sql_alchemy_dict)
-            _, ssh_b, owns_b = se._acquire_engine(sql_alchemy_dict)
-
-    # Tunnel opened once and reused; not torn down between calls.
-    assert open_tunnel.call_count == 1
-    assert create_engine_mock.call_count == 1
-    assert ssh_a is fake_server
-    assert ssh_b is fake_server
-    assert owns_a is False
-    assert owns_b is False
-    # Engine creation uses the rewritten (tunneled) URL.
-    assert create_engine_mock.call_args.args[0] == rewritten_url
-    # On session exit both the engine and the tunnel are torn down.
-    fake_engine.dispose.assert_called_once()
-    fake_server.close.assert_called_once()
+    sa_connection.exec_driver_sql.assert_not_called()
 
 
-def test_sql_session_skips_sharing_when_user_supplies_pool_config():
-    sql_alchemy_dict = _make_sql_alchemy_dict(params={"pool_size": 5})
+def test_execute_sql_on_engine_aborts_main_query_when_setup_fails():
+    """A failing setup statement must propagate and prevent the main query from running."""
+    mock_cursor = mock.MagicMock()
+    mock_engine = _setup_mock_engine_with_cursor(mock_cursor)
+    sa_connection = mock_engine.begin.return_value.__enter__.return_value
+    sa_connection.exec_driver_sql = mock.Mock(side_effect=RuntimeError("bad warehouse"))
 
-    with mock.patch(
-        "deepnote_toolkit.sql.sql_execution.create_engine", return_value=mock.Mock()
-    ) as create_engine_mock:
-        with se.sql_session():
-            _, _, owns_a = se._acquire_engine(sql_alchemy_dict)
-            _, _, owns_b = se._acquire_engine(sql_alchemy_dict)
+    with mock.patch("pandas.read_sql_query") as mock_read:
+        with pytest.raises(RuntimeError, match="bad warehouse"):
+            se._execute_sql_on_engine(
+                mock_engine,
+                "SELECT 1",
+                {},
+                setup_statements=["USE WAREHOUSE missing"],
+            )
 
-    # Without sharing, caller owns disposal each call and we don't override the
-    # user's pool config (their pool_size=5 passes through unchanged).
-    assert owns_a is True
-    assert owns_b is True
-    assert create_engine_mock.call_count == 2
-    kwargs = create_engine_mock.call_args.kwargs
-    assert kwargs["pool_size"] == 5
-
-
-def test_sql_session_swallows_per_resource_teardown_errors():
-    sql_alchemy_dict = _make_sql_alchemy_dict()
-    failing_engine = mock.Mock()
-    failing_engine.dispose.side_effect = RuntimeError("boom")
-    failing_server = mock.Mock()
-    failing_server.is_active = True
-    failing_server.close.side_effect = RuntimeError("boom")
-
-    with (
-        mock.patch(
-            "deepnote_toolkit.sql.sql_execution.create_engine",
-            return_value=failing_engine,
-        ),
-        mock.patch(
-            "deepnote_toolkit.sql.sql_execution._open_ssh_tunnel",
-            return_value=(failing_server, "postgresql://u@127.0.0.1:1/db"),
-        ),
-        mock.patch.object(se.logger, "warning") as mock_warning,
-    ):
-        sql_alchemy_dict["ssh_options"] = {
-            "enabled": True,
-            "host": "h",
-            "port": 22,
-            "user": "u",
-        }
-        with se.sql_session():
-            se._acquire_engine(sql_alchemy_dict)
-
-    failing_engine.dispose.assert_called_once()
-    failing_server.close.assert_called_once()
-    # One warning per failing resource.
-    assert mock_warning.call_count == 2
-
-
-def test_nested_sql_session_does_not_steal_outer_resources():
-    sql_alchemy_dict = _make_sql_alchemy_dict()
-    fake_engine = mock.Mock()
-
-    with mock.patch(
-        "deepnote_toolkit.sql.sql_execution.create_engine", return_value=fake_engine
-    ) as create_engine_mock:
-        with se.sql_session():
-            engine_outer, _, _ = se._acquire_engine(sql_alchemy_dict)
-            with se.sql_session():
-                engine_inner, _, _ = se._acquire_engine(sql_alchemy_dict)
-            # Inner block must not have disposed the outer-owned engine.
-            fake_engine.dispose.assert_not_called()
-            engine_after_inner, _, _ = se._acquire_engine(sql_alchemy_dict)
-
-    assert engine_outer is fake_engine
-    assert engine_inner is fake_engine
-    assert engine_after_inner is fake_engine
-    assert create_engine_mock.call_count == 1
-    # Outer session disposes once on exit.
-    fake_engine.dispose.assert_called_once()
-
-
-def test_acquire_engine_closes_tunnel_when_engine_creation_fails_outside_session():
-    sql_alchemy_dict = _make_sql_alchemy_dict()
-    sql_alchemy_dict["ssh_options"] = {
-        "enabled": True,
-        "host": "h",
-        "port": 22,
-        "user": "u",
-    }
-    fake_server = mock.Mock()
-    fake_server.is_active = True
-
-    with (
-        mock.patch(
-            "deepnote_toolkit.sql.sql_execution._open_ssh_tunnel",
-            return_value=(fake_server, "postgresql://u@127.0.0.1:1/db"),
-        ),
-        mock.patch(
-            "deepnote_toolkit.sql.sql_execution.create_engine",
-            side_effect=RuntimeError("bad url"),
-        ),
-    ):
-        with pytest.raises(RuntimeError):
-            se._acquire_engine(sql_alchemy_dict)
-
-    # Tunnel must not be left open if engine construction blows up.
-    fake_server.close.assert_called_once()
+    mock_read.assert_not_called()
 
 
 def test_create_sql_ssh_uri_missing_key(monkeypatch):

@@ -1,6 +1,5 @@
 import base64
 import contextlib
-import contextvars
 import json
 import re
 import uuid
@@ -103,6 +102,7 @@ def execute_sql_with_connection_json(
     audit_sql_comment="",
     sql_cache_mode="cache_disabled",
     return_variable_type="dataframe",
+    setup_statements=None,
 ):
     """
     Executes a SQL query using the given connection JSON (string).
@@ -112,6 +112,11 @@ def execute_sql_with_connection_json(
     :param sql_alchemy_json: String containing JSON with the connection details.
                              Mandatory fields: url, params, param_style
     :param sql_cache_mode: SQL caching setting for the query. Possible values: "cache_disabled", "always_write", "read_or_write"
+    :param setup_statements: Optional list of raw SQL statements to run on the
+        same connection right before *template*. Use for session setup such as
+        ``USE WAREHOUSE abc`` whose effect must be visible to the main query.
+        Statements are not Jinja-rendered, parameter-bound, or audit-commented;
+        they are executed in order via ``connection.exec_driver_sql``.
     :return: Pandas dataframe with the result
     """
 
@@ -222,6 +227,7 @@ def execute_sql_with_connection_json(
             sql_cache_mode,
             return_variable_type,
             query_preview_source,
+            setup_statements=setup_statements,
         )
 
 
@@ -231,6 +237,7 @@ def execute_sql(
     audit_sql_comment="",
     sql_cache_mode="cache_disabled",
     return_variable_type="dataframe",
+    setup_statements=None,
 ):
     """
     Wrapper around execute_sql_with_connection_json which reads the connection JSON from
@@ -238,6 +245,7 @@ def execute_sql(
     :param template: Templated SQL
     :param sql_alchemy_json_env_var: Name of the environment variable containing the connection JSON
     :param sql_cache_mode: SQL caching setting for the query. Possible values: "cache_disabled", "always_write", "read_or_write"
+    :param setup_statements: See ``execute_sql_with_connection_json``.
     :return: Pandas dataframe with the result
     """
 
@@ -261,6 +269,7 @@ def execute_sql(
         audit_sql_comment=audit_sql_comment,
         sql_cache_mode=sql_cache_mode,
         return_variable_type=return_variable_type,
+        setup_statements=setup_statements,
     )
 
 
@@ -362,53 +371,40 @@ def _handle_federated_auth_params(sql_alchemy_dict: dict[str, Any]) -> None:
         )
 
 
-def _open_ssh_tunnel(sql_alchemy_dict) -> tuple[Any, Any]:
-    """Open an SSH tunnel for *sql_alchemy_dict* and return ``(server, url)``.
-
-    Caller is responsible for eventually closing the returned server with
-    ``_close_ssh_tunnel``.
-    """
-    base64_encoded_key = dnenv.get_env("PRIVATE_SSH_KEY_BLOB")
-    if not base64_encoded_key:
-        raise Exception(
-            "The private key needed to establish the SSH connection is missing. Please try again or contact support."
-        )
-    original_url = make_url(sql_alchemy_dict["url"])
-    server = create_ssh_tunnel(
-        ssh_host=sql_alchemy_dict["ssh_options"]["host"],
-        ssh_port=int(sql_alchemy_dict["ssh_options"]["port"]),
-        ssh_user=sql_alchemy_dict["ssh_options"]["user"],
-        remote_host=original_url.host,
-        remote_port=int(original_url.port),
-        private_key=base64.b64decode(base64_encoded_key).decode("utf-8"),
-    )
-    url = URL.create(
-        drivername=original_url.drivername,
-        username=original_url.username,
-        password=original_url.password,
-        host=server.local_bind_host,
-        port=server.local_bind_port,
-        database=original_url.database,
-        query=original_url.query,
-    )
-    return server, url
-
-
-def _close_ssh_tunnel(server) -> None:
-    if server is not None and server.is_active:
-        server.close()
-
-
 @contextlib.contextmanager
 def _create_sql_ssh_uri(ssh_enabled, sql_alchemy_dict):
-    if not ssh_enabled:
+    server = None
+    if ssh_enabled:
+        base64_encoded_key = dnenv.get_env("PRIVATE_SSH_KEY_BLOB")
+        if not base64_encoded_key:
+            raise Exception(
+                "The private key needed to establish the SSH connection is missing. Please try again or contact support."
+            )
+        original_url = make_url(sql_alchemy_dict["url"])
+        try:
+            server = create_ssh_tunnel(
+                ssh_host=sql_alchemy_dict["ssh_options"]["host"],
+                ssh_port=int(sql_alchemy_dict["ssh_options"]["port"]),
+                ssh_user=sql_alchemy_dict["ssh_options"]["user"],
+                remote_host=original_url.host,
+                remote_port=int(original_url.port),
+                private_key=base64.b64decode(base64_encoded_key).decode("utf-8"),
+            )
+            url = URL.create(
+                drivername=original_url.drivername,
+                username=original_url.username,
+                password=original_url.password,
+                host=server.local_bind_host,
+                port=server.local_bind_port,
+                database=original_url.database,
+                query=original_url.query,
+            )
+            yield url
+        finally:
+            if server is not None and server.is_active:
+                server.close()
+    else:
         yield None
-        return
-    server, url = _open_ssh_tunnel(sql_alchemy_dict)
-    try:
-        yield url
-    finally:
-        _close_ssh_tunnel(server)
 
 
 def _execute_sql_with_caching(
@@ -420,9 +416,14 @@ def _execute_sql_with_caching(
     sql_cache_mode,
     return_variable_type,
     query_preview_source,
+    setup_statements=None,
 ):
     # duckdb SQL is not cached, so we can skip the logic below for duckdb
     if requires_duckdb:
+        # DuckDB uses a process-wide singleton connection, so session state set
+        # by setup_statements naturally persists for the main query.
+        for stmt in setup_statements or []:
+            execute_duckdb_sql(stmt, {})
         dataframe = execute_duckdb_sql(query, bind_params)
         # for Chained SQL we return the dataframe with the SQL source attached as DeepnoteQueryPreview object
         if return_variable_type == "query_preview":
@@ -461,124 +462,8 @@ def _execute_sql_with_caching(
         cache_upload_url,
         return_variable_type,
         query_preview_source,  # The original query before any transformations such as appending a LIMIT clause
+        setup_statements=setup_statements,
     )
-
-
-# Active sql_session() registry, or None when no session is active.
-# Maps a per-connection key to a (engine, ssh_server) bundle owned by the
-# session: subsequent execute_sql* calls inside the with-block reuse them.
-_session_registry: contextvars.ContextVar[Optional[dict[str, tuple[Any, Any]]]] = (
-    contextvars.ContextVar("deepnote_sql_session_registry", default=None)
-)
-
-
-def _session_resource_key(sql_alchemy_dict) -> Optional[str]:
-    """Key under which to share session resources for this connection, or None
-    when sharing is unsafe (e.g. user already specifies a custom pool config
-    that would clash with our ``pool_size=1``).
-    """
-    params = sql_alchemy_dict.get("params") or {}
-    if "pool_size" in params or "max_overflow" in params or "poolclass" in params:
-        return None
-
-    integration_id = sql_alchemy_dict.get("integration_id")
-    if integration_id:
-        return f"integration:{integration_id}"
-
-    return f"url:{sql_alchemy_dict['url']}"
-
-
-@contextlib.contextmanager
-def sql_session():
-    """Share SQLAlchemy engines, SSH tunnels, and connections across all
-    ``execute_sql*`` calls inside the with-block.
-
-    Inside the session each unique connection (keyed by ``integration_id``,
-    or URL when not present) opens its SSH tunnel and SQLAlchemy engine
-    once; subsequent calls reuse them. Engines are created with
-    ``pool_size=1, max_overflow=0`` so ``engine.begin()`` always checks out
-    the same physical DBAPI connection — that is what makes Snowflake
-    session state set by ``USE WAREHOUSE``, ``USE ROLE``, ``SET ...``
-    persist across multiple ``execute_sql`` calls in a single SQL block.
-
-    Outside a session ``execute_sql*`` falls back to its previous per-call
-    behavior of opening and disposing everything for each invocation.
-
-    Nested ``sql_session()`` blocks are no-ops; only the outermost block
-    owns and tears down the resources.
-    """
-    if _session_registry.get() is not None:
-        yield
-        return
-
-    registry: dict[str, tuple[Any, Any]] = {}
-    token = _session_registry.set(registry)
-    try:
-        yield
-    finally:
-        _session_registry.reset(token)
-        for engine, ssh_server in registry.values():
-            try:
-                engine.dispose()
-            except Exception:
-                logger.warning(
-                    "Error disposing SQL engine on session exit", exc_info=True
-                )
-            try:
-                _close_ssh_tunnel(ssh_server)
-            except Exception:
-                logger.warning(
-                    "Error closing SSH tunnel on session exit", exc_info=True
-                )
-        registry.clear()
-
-
-def _acquire_engine(sql_alchemy_dict) -> tuple[Any, Optional[Any], bool]:
-    """Return ``(engine, ssh_server, owns_resources)``.
-
-    Inside an active ``sql_session()`` for a shareable connection, returns
-    cached resources (creating them on first use); ``owns_resources`` is
-    False and the caller must not dispose. Otherwise opens fresh resources
-    and ``owns_resources`` is True — caller must dispose the engine and
-    close the tunnel.
-    """
-    registry = _session_registry.get()
-    key = _session_resource_key(sql_alchemy_dict) if registry is not None else None
-    in_session = registry is not None and key is not None
-
-    if in_session:
-        cached = registry.get(key)
-        if cached is not None:
-            engine, ssh_server = cached
-            return engine, ssh_server, False
-
-    ssh_server: Optional[Any] = None
-    if sql_alchemy_dict.get("ssh_options", {}).get("enabled"):
-        ssh_server, url = _open_ssh_tunnel(sql_alchemy_dict)
-    else:
-        url = sql_alchemy_dict["url"]
-
-    extra_engine_params: dict[str, Any] = {"pool_pre_ping": True}
-    if in_session:
-        # See sql_session() docstring for why pool_size=1 is required to make
-        # session state (USE WAREHOUSE, ...) persist across calls.
-        extra_engine_params["pool_size"] = 1
-        extra_engine_params["max_overflow"] = 0
-
-    try:
-        with suppress_third_party_deprecation_warnings():
-            engine = create_engine(
-                url, **sql_alchemy_dict["params"], **extra_engine_params
-            )
-    except Exception:
-        _close_ssh_tunnel(ssh_server)
-        raise
-
-    if in_session:
-        registry[key] = (engine, ssh_server)
-        return engine, ssh_server, False
-
-    return engine, ssh_server, True
 
 
 @contextlib.contextmanager
@@ -609,46 +494,56 @@ def _query_data_source(
     cache_upload_url,
     return_variable_type,
     query_preview_source,
+    setup_statements=None,
 ):
-    engine, ssh_server, owns_resources = _acquire_engine(sql_alchemy_dict)
+    sshEnabled = sql_alchemy_dict.get("ssh_options", {}).get("enabled", False)
 
-    try:
-        dataframe = _execute_sql_on_engine(engine, query, bind_params)
+    with _create_sql_ssh_uri(sshEnabled, sql_alchemy_dict) as url:
+        if url is None:
+            url = sql_alchemy_dict["url"]
 
-        if dataframe is None:
-            return None
+        with suppress_third_party_deprecation_warnings():
+            engine = create_engine(
+                url, **sql_alchemy_dict["params"], pool_pre_ping=True
+            )
 
-        # sanitize dataframe so that we can safely call .to_parquet on it
-        _sanitize_dataframe_for_parquet(dataframe)
+        try:
+            dataframe = _execute_sql_on_engine(
+                engine, query, bind_params, setup_statements=setup_statements
+            )
 
-        dataframe_size_in_bytes = int(dataframe.memory_usage(deep=True).sum())
-        output_sql_metadata(
-            {
-                "status": "success_no_cache",
-                "size_in_bytes": dataframe_size_in_bytes,
-                "compiled_query": query,
-                "variable_type": return_variable_type,
-                "integration_id": sql_alchemy_dict.get("integration_id"),
-            }
-        )
+            if dataframe is None:
+                return None
 
-        # for Chained SQL we return the dataframe with the SQL source attached as DeepnoteQueryPreview object
-        if return_variable_type == "query_preview":
-            return _convert_dataframe_to_query_preview(dataframe, query_preview_source)
+            # sanitize dataframe so that we can safely call .to_parquet on it
+            _sanitize_dataframe_for_parquet(dataframe)
 
-        # if df is larger than 5GB, don't upload it. See NB-988
-        dataframe_is_cacheable = dataframe_size_in_bytes < 5 * 1024 * 1024 * 1024
+            dataframe_size_in_bytes = int(dataframe.memory_usage(deep=True).sum())
+            output_sql_metadata(
+                {
+                    "status": "success_no_cache",
+                    "size_in_bytes": dataframe_size_in_bytes,
+                    "compiled_query": query,
+                    "variable_type": return_variable_type,
+                    "integration_id": sql_alchemy_dict.get("integration_id"),
+                }
+            )
 
-        if cache_upload_url is not None and dataframe_is_cacheable:
-            upload_sql_cache(dataframe, cache_upload_url)
+            # for Chained SQL we return the dataframe with the SQL source attached as DeepnoteQueryPreview object
+            if return_variable_type == "query_preview":
+                return _convert_dataframe_to_query_preview(
+                    dataframe, query_preview_source
+                )
 
-        return dataframe
-    finally:
-        if owns_resources:
-            try:
-                engine.dispose()
-            finally:
-                _close_ssh_tunnel(ssh_server)
+            # if df is larger than 5GB, don't upload it. See NB-988
+            dataframe_is_cacheable = dataframe_size_in_bytes < 5 * 1024 * 1024 * 1024
+
+            if cache_upload_url is not None and dataframe_is_cacheable:
+                upload_sql_cache(dataframe, cache_upload_url)
+
+            return dataframe
+        finally:
+            engine.dispose()
 
 
 class CursorTrackingDBAPIConnection(wrapt.ObjectProxy):
@@ -733,12 +628,18 @@ def _cancel_cursor(cursor: "DBAPICursor") -> None:
         pass  # Best effort, ignore all errors
 
 
-def _execute_sql_on_engine(engine, query, bind_params):
+def _execute_sql_on_engine(engine, query, bind_params, setup_statements=None):
     """Run *query* on *engine* and return a DataFrame.
 
     Uses pandas.read_sql_query to execute the query with a SQLAlchemy connection.
     For pandas 2.2+ and SQLAlchemy < 2.0, which requires a raw DB-API connection with a `.cursor()` attribute,
     we use the underlying connection.
+
+    When *setup_statements* is provided, each statement is executed on the
+    same DBAPI connection right before the main query so any session state
+    it sets (e.g. Snowflake ``USE WAREHOUSE``) is in effect when the main
+    query runs. Setup statements are issued via ``connection.exec_driver_sql``
+    and any failure aborts the main query.
 
     On exceptions (including KeyboardInterrupt from cell cancellation), all cursors
     created during execution are cancelled to stop running queries on the server.
@@ -763,6 +664,11 @@ def _execute_sql_on_engine(engine, query, bind_params):
     )
 
     with engine.begin() as connection:
+        # Run setup statements first on the same physical connection so any
+        # session state they set is visible to the main query below.
+        for stmt in setup_statements or []:
+            connection.exec_driver_sql(stmt)
+
         # For pandas 2.2+ with SQLAlchemy < 2.0, use raw DBAPI connection
         if needs_raw_connection:
             tracking_connection = CursorTrackingDBAPIConnection(connection.connection)

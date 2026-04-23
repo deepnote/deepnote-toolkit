@@ -131,6 +131,7 @@ class TestExecuteSql(TestCase):
             mock.ANY,
             mock.ANY,
             mock.ANY,
+            setup_statements=None,
         )
 
     @mock.patch("deepnote_toolkit.sql.sql_execution._query_data_source")
@@ -155,6 +156,7 @@ class TestExecuteSql(TestCase):
             mock.ANY,
             "dataframe",
             mock.ANY,
+            setup_statements=None,
         )
 
         # Test with explicit return_variable_type='query_preview'
@@ -171,6 +173,7 @@ class TestExecuteSql(TestCase):
             mock.ANY,
             "query_preview",
             mock.ANY,
+            setup_statements=None,
         )
 
     @mock.patch("deepnote_toolkit.sql.sql_execution._query_data_source")
@@ -199,6 +202,7 @@ class TestExecuteSql(TestCase):
             mock.ANY,
             "query_preview",
             mock.ANY,
+            setup_statements=None,
         )
 
     @mock.patch("deepnote_toolkit.sql.sql_caching._generate_cache_key")
@@ -234,6 +238,7 @@ class TestExecuteSql(TestCase):
             mock.ANY,
             "dataframe",
             mock.ANY,
+            setup_statements=None,
         )
 
     @mock.patch("deepnote_toolkit.sql.sql_execution._query_data_source")
@@ -329,6 +334,42 @@ class TestExecuteSql(TestCase):
                 "param_style": "pyformat",
             },
         )
+
+
+class TestSetupStatementsPlumbing(TestCase):
+    """Tests that setup_statements is plumbed from the public API down to _query_data_source."""
+
+    @mock.patch("deepnote_toolkit.sql.sql_execution._query_data_source")
+    def test_setup_statements_passed_to_query_data_source(
+        self, mocked_query_data_source
+    ):
+        os.environ["SQL_ENV_VAR"] = (
+            '{"url":"postgresql://postgres:postgres@localhost:5432/postgres",'
+            '"params":{},"param_style":"qmark","integration_id":"int_1"}'
+        )
+
+        execute_sql(
+            "SELECT 1",
+            "SQL_ENV_VAR",
+            setup_statements=["USE WAREHOUSE abc", "USE ROLE r"],
+        )
+
+        _, kwargs = mocked_query_data_source.call_args
+        self.assertEqual(
+            kwargs["setup_statements"], ["USE WAREHOUSE abc", "USE ROLE r"]
+        )
+
+    @mock.patch("deepnote_toolkit.sql.sql_execution._query_data_source")
+    def test_no_setup_statements_passes_none_through(self, mocked_query_data_source):
+        os.environ["SQL_ENV_VAR"] = (
+            '{"url":"postgresql://postgres:postgres@localhost:5432/postgres",'
+            '"params":{},"param_style":"qmark","integration_id":"int_1"}'
+        )
+
+        execute_sql("SELECT 1", "SQL_ENV_VAR")
+
+        _, kwargs = mocked_query_data_source.call_args
+        self.assertIsNone(kwargs["setup_statements"])
 
 
 class TestTrinoParamStyleAutoDetection(TestCase):

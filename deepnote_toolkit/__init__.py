@@ -34,7 +34,6 @@ _IMPORT_MAPPINGS = [
     (".set_notebook_path", "set_notebook_path"),
     (".sql.sql_execution", "execute_sql"),
     (".sql.sql_execution", "execute_sql_with_connection_json"),
-    (".sql.sql_execution", "sql_session"),
     (".variable_explorer", "deepnote_export_df"),
     (".variable_explorer", "deepnote_get_data_preview_json"),
     (".variable_explorer", "get_var_list"),
