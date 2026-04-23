@@ -377,19 +377,6 @@ def test_create_sql_ssh_uri_no_ssh():
         assert url is None
 
 
-@pytest.fixture
-def reset_engine_cache():
-    """Reset the per-cell engine cache and registration flag around a test."""
-    se._per_cell_engine_cache.clear()
-    original_registered = se._post_run_cell_hook_registered
-    se._post_run_cell_hook_registered = False
-    try:
-        yield
-    finally:
-        se._per_cell_engine_cache.clear()
-        se._post_run_cell_hook_registered = original_registered
-
-
 def _make_sql_alchemy_dict(integration_id="integration_a", url=None, params=None):
     return {
         "url": url or "postgresql://u:p@localhost:5432/db",
@@ -399,87 +386,75 @@ def _make_sql_alchemy_dict(integration_id="integration_a", url=None, params=None
     }
 
 
-def test_acquire_engine_caches_engine_when_ipython_available(reset_engine_cache):
+def test_acquire_engine_outside_session_owns_resources():
+    sql_alchemy_dict = _make_sql_alchemy_dict()
+
+    with mock.patch(
+        "deepnote_toolkit.sql.sql_execution.create_engine", return_value=mock.Mock()
+    ) as create_engine_mock:
+        engine_a, ssh_a, owns_a = se._acquire_engine(sql_alchemy_dict)
+        engine_b, ssh_b, owns_b = se._acquire_engine(sql_alchemy_dict)
+
+    assert owns_a is True
+    assert owns_b is True
+    assert ssh_a is None
+    assert ssh_b is None
+    # Two calls outside a session create two engines; caller disposes each.
+    assert create_engine_mock.call_count == 2
+    # Outside a session we don't impose pool_size on the user.
+    kwargs = create_engine_mock.call_args.kwargs
+    assert "pool_size" not in kwargs
+    assert "max_overflow" not in kwargs
+    assert kwargs["pool_pre_ping"] is True
+
+
+def test_sql_session_reuses_engine_within_block():
     sql_alchemy_dict = _make_sql_alchemy_dict()
     fake_engine = mock.Mock()
 
-    with (
-        mock.patch(
-            "deepnote_toolkit.sql.sql_execution.create_engine", return_value=fake_engine
-        ) as create_engine_mock,
-        mock.patch(
-            "deepnote_toolkit.sql.sql_execution.register_post_run_cell_hook",
-            return_value=True,
-        ),
-    ):
-        engine_a, owns_a = se._acquire_engine(sql_alchemy_dict, sql_alchemy_dict["url"])
-        engine_b, owns_b = se._acquire_engine(sql_alchemy_dict, sql_alchemy_dict["url"])
+    with mock.patch(
+        "deepnote_toolkit.sql.sql_execution.create_engine", return_value=fake_engine
+    ) as create_engine_mock:
+        with se.sql_session():
+            engine_a, _, owns_a = se._acquire_engine(sql_alchemy_dict)
+            engine_b, _, owns_b = se._acquire_engine(sql_alchemy_dict)
 
     assert engine_a is fake_engine
     assert engine_b is fake_engine
     assert owns_a is False
     assert owns_b is False
     assert create_engine_mock.call_count == 1
-    # Cached engines must use a single-connection pool so engine.begin() returns
-    # the same physical DBAPI connection across calls — that is what makes
-    # session state (USE WAREHOUSE, ...) persist between execute_sql calls.
-    create_engine_kwargs = create_engine_mock.call_args.kwargs
-    assert create_engine_kwargs["pool_size"] == 1
-    assert create_engine_kwargs["max_overflow"] == 0
-    assert create_engine_kwargs["pool_pre_ping"] is True
+    # In-session engines must use a single-connection pool so engine.begin()
+    # returns the same physical DBAPI connection across calls — that is what
+    # makes session state (USE WAREHOUSE, ...) persist between execute_sql
+    # calls in the same block.
+    kwargs = create_engine_mock.call_args.kwargs
+    assert kwargs["pool_size"] == 1
+    assert kwargs["max_overflow"] == 0
+    assert kwargs["pool_pre_ping"] is True
+    # On exit the session disposes the engine it owned.
+    fake_engine.dispose.assert_called_once()
 
 
-def test_acquire_engine_skips_cache_without_ipython(reset_engine_cache):
-    sql_alchemy_dict = _make_sql_alchemy_dict()
-
-    with (
-        mock.patch(
-            "deepnote_toolkit.sql.sql_execution.create_engine", return_value=mock.Mock()
-        ) as create_engine_mock,
-        mock.patch(
-            "deepnote_toolkit.sql.sql_execution.register_post_run_cell_hook",
-            return_value=False,
-        ),
-    ):
-        engine_a, owns_a = se._acquire_engine(sql_alchemy_dict, sql_alchemy_dict["url"])
-        engine_b, owns_b = se._acquire_engine(sql_alchemy_dict, sql_alchemy_dict["url"])
-
-    assert owns_a is True
-    assert owns_b is True
-    # Caller is responsible for disposal so create_engine runs each call.
-    assert create_engine_mock.call_count == 2
-    assert se._per_cell_engine_cache == {}
-    # Without caching we don't impose pool_size on the user.
-    create_engine_kwargs = create_engine_mock.call_args.kwargs
-    assert "pool_size" not in create_engine_kwargs
-    assert "max_overflow" not in create_engine_kwargs
-    assert create_engine_kwargs["pool_pre_ping"] is True
-
-
-def test_acquire_engine_different_integrations_get_separate_engines(reset_engine_cache):
+def test_sql_session_separates_engines_per_integration():
     dict_a = _make_sql_alchemy_dict(integration_id="int_a")
     dict_b = _make_sql_alchemy_dict(integration_id="int_b")
     engines = [mock.Mock(name="engine_a"), mock.Mock(name="engine_b")]
 
-    with (
-        mock.patch(
-            "deepnote_toolkit.sql.sql_execution.create_engine", side_effect=engines
-        ),
-        mock.patch(
-            "deepnote_toolkit.sql.sql_execution.register_post_run_cell_hook",
-            return_value=True,
-        ),
+    with mock.patch(
+        "deepnote_toolkit.sql.sql_execution.create_engine", side_effect=engines
     ):
-        engine_a, _ = se._acquire_engine(dict_a, dict_a["url"])
-        engine_b, _ = se._acquire_engine(dict_b, dict_b["url"])
-        engine_a_again, _ = se._acquire_engine(dict_a, dict_a["url"])
+        with se.sql_session():
+            engine_a, _, _ = se._acquire_engine(dict_a)
+            engine_b, _, _ = se._acquire_engine(dict_b)
+            engine_a_again, _, _ = se._acquire_engine(dict_a)
 
     assert engine_a is engines[0]
     assert engine_b is engines[1]
     assert engine_a_again is engines[0]
 
 
-def test_acquire_engine_skips_cache_for_ssh_tunnel(reset_engine_cache):
+def test_sql_session_opens_ssh_tunnel_once_and_closes_on_exit():
     sql_alchemy_dict = _make_sql_alchemy_dict()
     sql_alchemy_dict["ssh_options"] = {
         "enabled": True,
@@ -487,66 +462,141 @@ def test_acquire_engine_skips_cache_for_ssh_tunnel(reset_engine_cache):
         "port": 22,
         "user": "u",
     }
+    fake_engine = mock.Mock()
+    fake_server = mock.Mock()
+    fake_server.is_active = True
+    rewritten_url = "postgresql://u:p@127.0.0.1:65000/db"
 
     with (
         mock.patch(
-            "deepnote_toolkit.sql.sql_execution.create_engine", return_value=mock.Mock()
-        ),
+            "deepnote_toolkit.sql.sql_execution._open_ssh_tunnel",
+            return_value=(fake_server, rewritten_url),
+        ) as open_tunnel,
         mock.patch(
-            "deepnote_toolkit.sql.sql_execution.register_post_run_cell_hook",
-            return_value=True,
-        ),
+            "deepnote_toolkit.sql.sql_execution.create_engine",
+            return_value=fake_engine,
+        ) as create_engine_mock,
     ):
-        _, owns = se._acquire_engine(sql_alchemy_dict, sql_alchemy_dict["url"])
+        with se.sql_session():
+            _, ssh_a, owns_a = se._acquire_engine(sql_alchemy_dict)
+            _, ssh_b, owns_b = se._acquire_engine(sql_alchemy_dict)
 
-    assert owns is True
-    assert se._per_cell_engine_cache == {}
+    # Tunnel opened once and reused; not torn down between calls.
+    assert open_tunnel.call_count == 1
+    assert create_engine_mock.call_count == 1
+    assert ssh_a is fake_server
+    assert ssh_b is fake_server
+    assert owns_a is False
+    assert owns_b is False
+    # Engine creation uses the rewritten (tunneled) URL.
+    assert create_engine_mock.call_args.args[0] == rewritten_url
+    # On session exit both the engine and the tunnel are torn down.
+    fake_engine.dispose.assert_called_once()
+    fake_server.close.assert_called_once()
 
 
-def test_acquire_engine_skips_cache_when_user_provides_pool_config(reset_engine_cache):
+def test_sql_session_skips_sharing_when_user_supplies_pool_config():
     sql_alchemy_dict = _make_sql_alchemy_dict(params={"pool_size": 5})
 
-    with (
-        mock.patch(
-            "deepnote_toolkit.sql.sql_execution.create_engine", return_value=mock.Mock()
-        ),
-        mock.patch(
-            "deepnote_toolkit.sql.sql_execution.register_post_run_cell_hook",
-            return_value=True,
-        ),
-    ):
-        _, owns = se._acquire_engine(sql_alchemy_dict, sql_alchemy_dict["url"])
+    with mock.patch(
+        "deepnote_toolkit.sql.sql_execution.create_engine", return_value=mock.Mock()
+    ) as create_engine_mock:
+        with se.sql_session():
+            _, _, owns_a = se._acquire_engine(sql_alchemy_dict)
+            _, _, owns_b = se._acquire_engine(sql_alchemy_dict)
 
-    assert owns is True
-    assert se._per_cell_engine_cache == {}
-
-
-def test_dispose_cell_engines_disposes_and_clears(reset_engine_cache):
-    fake_engine_a = mock.Mock()
-    fake_engine_b = mock.Mock()
-    se._per_cell_engine_cache["a"] = fake_engine_a
-    se._per_cell_engine_cache["b"] = fake_engine_b
-
-    se._dispose_cell_engines()
-
-    fake_engine_a.dispose.assert_called_once()
-    fake_engine_b.dispose.assert_called_once()
-    assert se._per_cell_engine_cache == {}
+    # Without sharing, caller owns disposal each call and we don't override the
+    # user's pool config (their pool_size=5 passes through unchanged).
+    assert owns_a is True
+    assert owns_b is True
+    assert create_engine_mock.call_count == 2
+    kwargs = create_engine_mock.call_args.kwargs
+    assert kwargs["pool_size"] == 5
 
 
-def test_dispose_cell_engines_swallows_individual_failures(reset_engine_cache):
+def test_sql_session_swallows_per_resource_teardown_errors():
+    sql_alchemy_dict = _make_sql_alchemy_dict()
     failing_engine = mock.Mock()
     failing_engine.dispose.side_effect = RuntimeError("boom")
-    healthy_engine = mock.Mock()
-    se._per_cell_engine_cache["fail"] = failing_engine
-    se._per_cell_engine_cache["ok"] = healthy_engine
+    failing_server = mock.Mock()
+    failing_server.is_active = True
+    failing_server.close.side_effect = RuntimeError("boom")
 
-    with mock.patch.object(se.logger, "warning") as mock_warning:
-        se._dispose_cell_engines()
+    with (
+        mock.patch(
+            "deepnote_toolkit.sql.sql_execution.create_engine",
+            return_value=failing_engine,
+        ),
+        mock.patch(
+            "deepnote_toolkit.sql.sql_execution._open_ssh_tunnel",
+            return_value=(failing_server, "postgresql://u@127.0.0.1:1/db"),
+        ),
+        mock.patch.object(se.logger, "warning") as mock_warning,
+    ):
+        sql_alchemy_dict["ssh_options"] = {
+            "enabled": True,
+            "host": "h",
+            "port": 22,
+            "user": "u",
+        }
+        with se.sql_session():
+            se._acquire_engine(sql_alchemy_dict)
 
-    healthy_engine.dispose.assert_called_once()
-    assert se._per_cell_engine_cache == {}
-    mock_warning.assert_called_once()
+    failing_engine.dispose.assert_called_once()
+    failing_server.close.assert_called_once()
+    # One warning per failing resource.
+    assert mock_warning.call_count == 2
+
+
+def test_nested_sql_session_does_not_steal_outer_resources():
+    sql_alchemy_dict = _make_sql_alchemy_dict()
+    fake_engine = mock.Mock()
+
+    with mock.patch(
+        "deepnote_toolkit.sql.sql_execution.create_engine", return_value=fake_engine
+    ) as create_engine_mock:
+        with se.sql_session():
+            engine_outer, _, _ = se._acquire_engine(sql_alchemy_dict)
+            with se.sql_session():
+                engine_inner, _, _ = se._acquire_engine(sql_alchemy_dict)
+            # Inner block must not have disposed the outer-owned engine.
+            fake_engine.dispose.assert_not_called()
+            engine_after_inner, _, _ = se._acquire_engine(sql_alchemy_dict)
+
+    assert engine_outer is fake_engine
+    assert engine_inner is fake_engine
+    assert engine_after_inner is fake_engine
+    assert create_engine_mock.call_count == 1
+    # Outer session disposes once on exit.
+    fake_engine.dispose.assert_called_once()
+
+
+def test_acquire_engine_closes_tunnel_when_engine_creation_fails_outside_session():
+    sql_alchemy_dict = _make_sql_alchemy_dict()
+    sql_alchemy_dict["ssh_options"] = {
+        "enabled": True,
+        "host": "h",
+        "port": 22,
+        "user": "u",
+    }
+    fake_server = mock.Mock()
+    fake_server.is_active = True
+
+    with (
+        mock.patch(
+            "deepnote_toolkit.sql.sql_execution._open_ssh_tunnel",
+            return_value=(fake_server, "postgresql://u@127.0.0.1:1/db"),
+        ),
+        mock.patch(
+            "deepnote_toolkit.sql.sql_execution.create_engine",
+            side_effect=RuntimeError("bad url"),
+        ),
+    ):
+        with pytest.raises(RuntimeError):
+            se._acquire_engine(sql_alchemy_dict)
+
+    # Tunnel must not be left open if engine construction blows up.
+    fake_server.close.assert_called_once()
 
 
 def test_create_sql_ssh_uri_missing_key(monkeypatch):
