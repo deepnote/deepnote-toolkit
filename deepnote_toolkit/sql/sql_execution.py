@@ -34,6 +34,7 @@ from deepnote_toolkit.ocelots.pandas.utils import deduplicate_columns, is_large_
 from deepnote_toolkit.sql.duckdb_sql import execute_duckdb_sql
 from deepnote_toolkit.sql.jinjasql_utils import render_jinja_sql_template
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
+from deepnote_toolkit.sql.setup_statement_parser import extract_setup_statements
 from deepnote_toolkit.sql.sql_caching import get_sql_cache, upload_sql_cache
 from deepnote_toolkit.sql.sql_query_chaining import add_limit_clause, unchain_sql_query
 from deepnote_toolkit.sql.sql_utils import is_single_select_query
@@ -210,6 +211,20 @@ def execute_sql_with_connection_json(
         if not compiled_query.strip():
             return
 
+        # Strip a leading run of session-setup statements (USE WAREHOUSE,
+        # USE ROLE, SET ..., ALTER SESSION ...) off the compiled query and
+        # run them as setup_statements on the same connection as the main
+        # query. Explicit setup_statements from the caller are appended.
+        parsed_setup, compiled_query = extract_setup_statements(
+            compiled_query, param_style
+        )
+        # query_preview_source mirrors the user-visible main query for cache
+        # key/preview purposes — keep it aligned with the post-extraction
+        # remainder.
+        if parsed_setup:
+            query_preview_source = compiled_query
+        final_setup_statements = parsed_setup + list(setup_statements or [])
+
         if (
             not is_single_select_query(compiled_query)
             and return_variable_type == "query_preview"
@@ -227,7 +242,7 @@ def execute_sql_with_connection_json(
             sql_cache_mode,
             return_variable_type,
             query_preview_source,
-            setup_statements=setup_statements,
+            setup_statements=final_setup_statements,
         )
 
 

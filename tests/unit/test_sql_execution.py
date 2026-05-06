@@ -131,7 +131,7 @@ class TestExecuteSql(TestCase):
             mock.ANY,
             mock.ANY,
             mock.ANY,
-            setup_statements=None,
+            setup_statements=[],
         )
 
     @mock.patch("deepnote_toolkit.sql.sql_execution._query_data_source")
@@ -156,7 +156,7 @@ class TestExecuteSql(TestCase):
             mock.ANY,
             "dataframe",
             mock.ANY,
-            setup_statements=None,
+            setup_statements=[],
         )
 
         # Test with explicit return_variable_type='query_preview'
@@ -173,7 +173,7 @@ class TestExecuteSql(TestCase):
             mock.ANY,
             "query_preview",
             mock.ANY,
-            setup_statements=None,
+            setup_statements=[],
         )
 
     @mock.patch("deepnote_toolkit.sql.sql_execution._query_data_source")
@@ -202,7 +202,7 @@ class TestExecuteSql(TestCase):
             mock.ANY,
             "query_preview",
             mock.ANY,
-            setup_statements=None,
+            setup_statements=[],
         )
 
     @mock.patch("deepnote_toolkit.sql.sql_caching._generate_cache_key")
@@ -238,7 +238,7 @@ class TestExecuteSql(TestCase):
             mock.ANY,
             "dataframe",
             mock.ANY,
-            setup_statements=None,
+            setup_statements=[],
         )
 
     @mock.patch("deepnote_toolkit.sql.sql_execution._query_data_source")
@@ -336,40 +336,187 @@ class TestExecuteSql(TestCase):
         )
 
 
-class TestSetupStatementsPlumbing(TestCase):
-    """Tests that setup_statements is plumbed from the public API down to _query_data_source."""
+class TestSetupStatementsAgainstRealSQLite(TestCase):
+    """End-to-end behavior of setup_statements against a real SQLite engine.
 
-    @mock.patch("deepnote_toolkit.sql.sql_execution._query_data_source")
-    def test_setup_statements_passed_to_query_data_source(
-        self, mocked_query_data_source
+    SQLite ``TEMP TABLE``s are connection-scoped: they are only visible from
+    the same physical DBAPI connection that created them. So a successful
+    SELECT here proves the setup statement and the main query ran on the
+    same connection, not just that we called exec_driver_sql in the right
+    order. No mocks of pandas or SQLAlchemy.
+    """
+
+    def test_explicit_setup_statements_share_connection_with_main_query(self):
+        sql_alchemy_json = json.dumps(
+            {
+                "url": "sqlite:///:memory:",
+                "params": {},
+                "param_style": "qmark",
+            }
+        )
+
+        result = execute_sql_with_connection_json(
+            "SELECT x FROM t ORDER BY x",
+            sql_alchemy_json,
+            setup_statements=[
+                "CREATE TEMP TABLE t (x INTEGER)",
+                "INSERT INTO t VALUES (42)",
+                "INSERT INTO t VALUES (43)",
+            ],
+        )
+
+        assert result is not None
+        self.assertEqual(list(result["x"]), [42, 43])
+
+    def test_failing_setup_statement_aborts_main_query(self):
+        sql_alchemy_json = json.dumps(
+            {
+                "url": "sqlite:///:memory:",
+                "params": {},
+                "param_style": "qmark",
+            }
+        )
+
+        with self.assertRaises(Exception):
+            execute_sql_with_connection_json(
+                "SELECT 1",
+                sql_alchemy_json,
+                setup_statements=["NOT VALID SQL AT ALL"],
+            )
+
+    def test_no_setup_statements_still_works(self):
+        sql_alchemy_json = json.dumps(
+            {
+                "url": "sqlite:///:memory:",
+                "params": {},
+                "param_style": "qmark",
+            }
+        )
+
+        result = execute_sql_with_connection_json("SELECT 1 AS one", sql_alchemy_json)
+
+        assert result is not None
+        self.assertEqual(list(result["one"]), [1])
+
+
+class TestSetupStatementParserIntegration(TestCase):
+    """The parser strips a leading USE/SET/ALTER SESSION run off the cell SQL
+    and feeds it as setup_statements down to _execute_sql_on_engine. We can't
+    run USE WAREHOUSE against SQLite, so we observe the wired-through values
+    via a mock of the engine-level executor — the *behavior* (setup runs on
+    the same connection as main) is proven by the SQLite tests above."""
+
+    @mock.patch("deepnote_toolkit.sql.sql_execution._execute_sql_on_engine")
+    @mock.patch("sqlalchemy.engine.create_engine")
+    def test_leading_use_warehouse_extracted_from_cell(
+        self, _mocked_create_engine, mocked_execute_on_engine
     ):
-        os.environ["SQL_ENV_VAR"] = (
-            '{"url":"postgresql://postgres:postgres@localhost:5432/postgres",'
-            '"params":{},"param_style":"qmark","integration_id":"int_1"}'
+        mocked_execute_on_engine.return_value = pd.DataFrame({"x": [1]})
+
+        sql_alchemy_json = json.dumps(
+            {
+                "url": "snowflake://u@a/?warehouse=&role=",
+                "params": {},
+                "param_style": "pyformat",
+                "integration_id": "int_1",
+            }
         )
 
-        execute_sql(
-            "SELECT 1",
-            "SQL_ENV_VAR",
-            setup_statements=["USE WAREHOUSE abc", "USE ROLE r"],
+        execute_sql_with_connection_json(
+            "USE WAREHOUSE abc; USE ROLE r; SELECT 1",
+            sql_alchemy_json,
         )
 
-        _, kwargs = mocked_query_data_source.call_args
+        _, kwargs = mocked_execute_on_engine.call_args
+        # The main query is what's left after stripping the prefix; the
+        # setup statements were passed down for execution on the same
+        # connection.
+        passed_query = mocked_execute_on_engine.call_args.args[1]
+        self.assertEqual(passed_query.strip(), "SELECT 1")
         self.assertEqual(
             kwargs["setup_statements"], ["USE WAREHOUSE abc", "USE ROLE r"]
         )
 
-    @mock.patch("deepnote_toolkit.sql.sql_execution._query_data_source")
-    def test_no_setup_statements_passes_none_through(self, mocked_query_data_source):
-        os.environ["SQL_ENV_VAR"] = (
-            '{"url":"postgresql://postgres:postgres@localhost:5432/postgres",'
-            '"params":{},"param_style":"qmark","integration_id":"int_1"}'
+    @mock.patch("deepnote_toolkit.sql.sql_execution._execute_sql_on_engine")
+    @mock.patch("sqlalchemy.engine.create_engine")
+    def test_explicit_setup_statements_appended_after_parsed(
+        self, _mocked_create_engine, mocked_execute_on_engine
+    ):
+        mocked_execute_on_engine.return_value = pd.DataFrame({"x": [1]})
+
+        sql_alchemy_json = json.dumps(
+            {
+                "url": "snowflake://u@a/?warehouse=&role=",
+                "params": {},
+                "param_style": "pyformat",
+                "integration_id": "int_1",
+            }
         )
 
-        execute_sql("SELECT 1", "SQL_ENV_VAR")
+        execute_sql_with_connection_json(
+            "USE WAREHOUSE abc; SELECT 1",
+            sql_alchemy_json,
+            setup_statements=["ALTER SESSION SET TIMEZONE = 'UTC'"],
+        )
 
-        _, kwargs = mocked_query_data_source.call_args
-        self.assertIsNone(kwargs["setup_statements"])
+        _, kwargs = mocked_execute_on_engine.call_args
+        self.assertEqual(
+            kwargs["setup_statements"],
+            ["USE WAREHOUSE abc", "ALTER SESSION SET TIMEZONE = 'UTC'"],
+        )
+
+    @mock.patch("deepnote_toolkit.sql.sql_execution._execute_sql_on_engine")
+    @mock.patch("sqlalchemy.engine.create_engine")
+    def test_no_setup_prefix_passes_cell_through_unchanged(
+        self, _mocked_create_engine, mocked_execute_on_engine
+    ):
+        mocked_execute_on_engine.return_value = pd.DataFrame({"x": [1]})
+
+        sql_alchemy_json = json.dumps(
+            {
+                "url": "snowflake://u@a/?warehouse=&role=",
+                "params": {},
+                "param_style": "pyformat",
+                "integration_id": "int_1",
+            }
+        )
+
+        execute_sql_with_connection_json("SELECT 1", sql_alchemy_json)
+
+        _, kwargs = mocked_execute_on_engine.call_args
+        passed_query = mocked_execute_on_engine.call_args.args[1]
+        self.assertEqual(passed_query.strip(), "SELECT 1")
+        self.assertEqual(kwargs["setup_statements"], [])
+
+    def test_templated_value_in_use_warehouse_raises_clear_error(self):
+        """`USE WAREHOUSE {{ env }}` renders to a placeholder the driver can't
+        bind for USE WAREHOUSE. Surface this clearly instead of a confusing
+        driver error."""
+        # Use a literal pyformat placeholder in the template so we don't
+        # depend on a Jinja variable being resolvable.
+        import __main__
+
+        __main__.env = "abc"
+        try:
+            sql_alchemy_json = json.dumps(
+                {
+                    "url": "snowflake://u@a/?warehouse=&role=",
+                    "params": {},
+                    "param_style": "pyformat",
+                    "integration_id": "int_1",
+                }
+            )
+            from deepnote_toolkit.sql.setup_statement_parser import (
+                SetupStatementError,
+            )
+
+            with self.assertRaises(SetupStatementError) as ctx:
+                execute_sql_with_connection_json(
+                    "USE WAREHOUSE {{ env }}; SELECT 1", sql_alchemy_json
+                )
+            self.assertIn("setup_statements=", str(ctx.exception))
+        finally:
+            del __main__.env
 
 
 class TestTrinoParamStyleAutoDetection(TestCase):

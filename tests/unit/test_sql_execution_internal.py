@@ -377,68 +377,6 @@ def test_create_sql_ssh_uri_no_ssh():
         assert url is None
 
 
-def test_execute_sql_on_engine_runs_setup_statements_in_order_before_main_query():
-    """Setup statements must execute on the same connection as the main query,
-    in order, before pandas runs the main query."""
-    import pandas as pd
-
-    mock_cursor = mock.MagicMock()
-    mock_engine = _setup_mock_engine_with_cursor(mock_cursor)
-
-    call_log: list[str] = []
-
-    # Track exec_driver_sql (used for setup) and pd.read_sql_query (the main
-    # query) on the same SA connection, so we can assert ordering.
-    sa_connection = mock_engine.begin.return_value.__enter__.return_value
-    original_exec = sa_connection.exec_driver_sql
-
-    def logging_exec(sql, *args, **kwargs):
-        call_log.append(f"setup:{sql}")
-        return original_exec(sql, *args, **kwargs)
-
-    sa_connection.exec_driver_sql = logging_exec
-
-    def fake_read_sql_query(sql, **_kwargs):
-        call_log.append(f"main:{sql}")
-        return pd.DataFrame({"x": [1]})
-
-    with mock.patch(
-        "pandas.read_sql_query", side_effect=fake_read_sql_query
-    ) as mock_read:
-        result = se._execute_sql_on_engine(
-            mock_engine,
-            "SELECT 1",
-            {},
-            setup_statements=["USE WAREHOUSE abc", "USE ROLE r"],
-        )
-
-    assert call_log == [
-        "setup:USE WAREHOUSE abc",
-        "setup:USE ROLE r",
-        "main:SELECT 1",
-    ]
-    assert mock_read.call_count == 1
-    # And the main query was actually run.
-    assert list(result.columns) == ["x"]
-
-
-def test_execute_sql_on_engine_no_setup_statements_runs_only_main_query():
-    """No setup_statements (None or empty) is a no-op — main query runs as before."""
-    import pandas as pd
-
-    mock_cursor = mock.MagicMock()
-    mock_engine = _setup_mock_engine_with_cursor(mock_cursor)
-    sa_connection = mock_engine.begin.return_value.__enter__.return_value
-    sa_connection.exec_driver_sql = mock.Mock()
-
-    with mock.patch("pandas.read_sql_query", return_value=pd.DataFrame({"x": [1]})):
-        se._execute_sql_on_engine(mock_engine, "SELECT 1", {})
-        se._execute_sql_on_engine(mock_engine, "SELECT 1", {}, setup_statements=[])
-        se._execute_sql_on_engine(mock_engine, "SELECT 1", {}, setup_statements=None)
-
-    sa_connection.exec_driver_sql.assert_not_called()
-
-
 def test_execute_sql_on_engine_aborts_main_query_when_setup_fails():
     """A failing setup statement must propagate and prevent the main query from running."""
     mock_cursor = mock.MagicMock()
