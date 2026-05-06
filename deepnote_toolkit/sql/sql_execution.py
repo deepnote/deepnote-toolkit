@@ -681,7 +681,12 @@ def _execute_sql_on_engine(engine, query, bind_params, setup_statements=None):
     with engine.begin() as connection:
         # Run setup statements first on the same physical connection so any
         # session state they set is visible to the main query below.
+        # Setup statements are session-control SQL (USE WAREHOUSE, USE ROLE,
+        # SET, ALTER SESSION) that cannot be parameter-bound — Snowflake and
+        # most other engines reject placeholders here. The contract on this
+        # function is that callers pass trusted SQL.
         for stmt in setup_statements or []:
+            # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
             connection.exec_driver_sql(stmt)
 
         # For pandas 2.2+ with SQLAlchemy < 2.0, use raw DBAPI connection
