@@ -141,6 +141,8 @@ dependencies = [
     "pynacl>=1.6.2,<2",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/8
     "pyopenssl>=26.0.0,<27",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/21
     "pillow>=12.2.0,<13",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/34 https://github.com/deepnote/deepnote-toolkit/security/dependabot/17
+    "mistune>=3.2.1,<4",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/46 https://github.com/deepnote/deepnote-toolkit/security/dependabot/54
+    "nbconvert>=7.17.1,<8",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/37 https://github.com/deepnote/deepnote-toolkit/security/dependabot/38
 
     # Config dependencies - they need to be declared both in main and server extras, keep them in sync
     "pydantic>=1.10.0,<3",
@@ -163,7 +165,7 @@ Issues = "https://github.com/deepnote/deepnote-toolkit/issues"
 
 [project.optional-dependencies]
 server = [
-    "jupyter-server==2.17.0",
+    "jupyter-server==2.18.0",
     "jupyter-server-terminals==0.5.3",
     "jupyter-resource-usage>=1.1.0,<2.0.0",
     "streamlit>=1.40.0,<2.0.0",
