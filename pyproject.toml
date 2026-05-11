@@ -143,6 +143,8 @@ dependencies = [
     "pillow>=12.2.0,<13",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/34 https://github.com/deepnote/deepnote-toolkit/security/dependabot/17
     "mistune>=3.2.1,<4",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/46 https://github.com/deepnote/deepnote-toolkit/security/dependabot/54
     "nbconvert>=7.17.1,<8",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/37 https://github.com/deepnote/deepnote-toolkit/security/dependabot/38
+    "GitPython>=3.1.50,<4",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/40 through /53
+    "Mako>=1.3.12,<2",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/36 https://github.com/deepnote/deepnote-toolkit/security/dependabot/48
 
     # Config dependencies - they need to be declared both in main and server extras, keep them in sync
     "pydantic>=1.10.0,<3",
