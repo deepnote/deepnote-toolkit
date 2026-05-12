@@ -77,7 +77,7 @@ dependencies = [
     "pymssql>=2.3.0,<2.4; python_version >= '3.12' and sys_platform != 'darwin'",
     "pymssql>=2.3.8,<2.4; python_version >= '3.13'",
 
-    "sshtunnel==0.4.0",
+    "deepnote-sshtunnel==1.0.0",
     "psycopg2-binary>=2.9.4,<2.10; python_version < '3.13'",
     "psycopg2-binary>=2.9.10,<3; python_version>='3.13'",
 
@@ -89,7 +89,7 @@ dependencies = [
     "pymongo>=4.9.0,<5; python_version>='3.13'",
     "dnspython>=2.6.1,<2.7; python_version < '3.13'",
     "dnspython>=2.7.0,<3.0; python_version>='3.13'",
-    "paramiko>=3.4.0,<3.6",
+    "paramiko>=5.0.0,<6",
     "sqlalchemy<2; python_version <= '3.11'",
     "sqlalchemy>=2.0.31,<3; python_version >= '3.12'",
     "snowflake-sqlalchemy>=1.6.0,<1.9",
