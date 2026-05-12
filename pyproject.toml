@@ -131,7 +131,7 @@ dependencies = [
     "matplotlib-inline>=0.2.1,<0.3.0; python_version >= '3.11'",
 
     # Security constraint updates for transitive dependencies
-    "urllib3>=2.6.3,<3",
+    "urllib3>=2.7.0,<3",
     "cryptography>=46.0.5,<47",
     "protobuf>=5.29.6,<6",
     "requests>=2.32.4,<3",
