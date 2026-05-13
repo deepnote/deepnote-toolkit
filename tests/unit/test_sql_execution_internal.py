@@ -377,6 +377,25 @@ def test_create_sql_ssh_uri_no_ssh():
         assert url is None
 
 
+def test_execute_sql_on_engine_aborts_main_query_when_setup_fails():
+    """A failing setup statement must propagate and prevent the main query from running."""
+    mock_cursor = mock.MagicMock()
+    mock_engine = _setup_mock_engine_with_cursor(mock_cursor)
+    sa_connection = mock_engine.begin.return_value.__enter__.return_value
+    sa_connection.exec_driver_sql = mock.Mock(side_effect=RuntimeError("bad warehouse"))
+
+    with mock.patch("pandas.read_sql_query") as mock_read:
+        with pytest.raises(RuntimeError, match="bad warehouse"):
+            se._execute_sql_on_engine(
+                mock_engine,
+                "SELECT 1",
+                {},
+                setup_statements=["USE WAREHOUSE missing"],
+            )
+
+    mock_read.assert_not_called()
+
+
 def test_create_sql_ssh_uri_missing_key(monkeypatch):
     def fake_get_env(name, default=None):
         if name == "PRIVATE_SSH_KEY_BLOB":

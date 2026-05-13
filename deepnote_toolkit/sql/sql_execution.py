@@ -34,6 +34,7 @@ from deepnote_toolkit.ocelots.pandas.utils import deduplicate_columns, is_large_
 from deepnote_toolkit.sql.duckdb_sql import execute_duckdb_sql
 from deepnote_toolkit.sql.jinjasql_utils import render_jinja_sql_template
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
+from deepnote_toolkit.sql.setup_statement_parser import extract_setup_statements
 from deepnote_toolkit.sql.sql_caching import get_sql_cache, upload_sql_cache
 from deepnote_toolkit.sql.sql_query_chaining import add_limit_clause, unchain_sql_query
 from deepnote_toolkit.sql.sql_utils import is_single_select_query
@@ -102,6 +103,7 @@ def execute_sql_with_connection_json(
     audit_sql_comment="",
     sql_cache_mode="cache_disabled",
     return_variable_type="dataframe",
+    setup_statements=None,
 ):
     """
     Executes a SQL query using the given connection JSON (string).
@@ -111,6 +113,11 @@ def execute_sql_with_connection_json(
     :param sql_alchemy_json: String containing JSON with the connection details.
                              Mandatory fields: url, params, param_style
     :param sql_cache_mode: SQL caching setting for the query. Possible values: "cache_disabled", "always_write", "read_or_write"
+    :param setup_statements: Optional list of raw SQL statements to run on the
+        same connection right before *template*. Use for session setup such as
+        ``USE WAREHOUSE abc`` whose effect must be visible to the main query.
+        Statements are not Jinja-rendered, parameter-bound, or audit-commented;
+        they are executed in order via ``connection.exec_driver_sql``.
     :return: Pandas dataframe with the result
     """
 
@@ -204,6 +211,20 @@ def execute_sql_with_connection_json(
         if not compiled_query.strip():
             return
 
+        # Strip a leading run of session-setup statements (USE WAREHOUSE,
+        # USE ROLE, SET ..., ALTER SESSION ...) off the compiled query and
+        # run them as setup_statements on the same connection as the main
+        # query. Explicit setup_statements from the caller are appended.
+        parsed_setup, compiled_query = extract_setup_statements(
+            compiled_query, param_style
+        )
+        # query_preview_source mirrors the user-visible main query for cache
+        # key/preview purposes — keep it aligned with the post-extraction
+        # remainder.
+        if parsed_setup:
+            query_preview_source = compiled_query
+        final_setup_statements = parsed_setup + list(setup_statements or [])
+
         if (
             not is_single_select_query(compiled_query)
             and return_variable_type == "query_preview"
@@ -221,6 +242,7 @@ def execute_sql_with_connection_json(
             sql_cache_mode,
             return_variable_type,
             query_preview_source,
+            setup_statements=final_setup_statements,
         )
 
 
@@ -230,6 +252,7 @@ def execute_sql(
     audit_sql_comment="",
     sql_cache_mode="cache_disabled",
     return_variable_type="dataframe",
+    setup_statements=None,
 ):
     """
     Wrapper around execute_sql_with_connection_json which reads the connection JSON from
@@ -237,6 +260,7 @@ def execute_sql(
     :param template: Templated SQL
     :param sql_alchemy_json_env_var: Name of the environment variable containing the connection JSON
     :param sql_cache_mode: SQL caching setting for the query. Possible values: "cache_disabled", "always_write", "read_or_write"
+    :param setup_statements: See ``execute_sql_with_connection_json``.
     :return: Pandas dataframe with the result
     """
 
@@ -260,6 +284,7 @@ def execute_sql(
         audit_sql_comment=audit_sql_comment,
         sql_cache_mode=sql_cache_mode,
         return_variable_type=return_variable_type,
+        setup_statements=setup_statements,
     )
 
 
@@ -406,9 +431,14 @@ def _execute_sql_with_caching(
     sql_cache_mode,
     return_variable_type,
     query_preview_source,
+    setup_statements=None,
 ):
     # duckdb SQL is not cached, so we can skip the logic below for duckdb
     if requires_duckdb:
+        # DuckDB uses a process-wide singleton connection, so session state set
+        # by setup_statements naturally persists for the main query.
+        for stmt in setup_statements or []:
+            execute_duckdb_sql(stmt, {})
         dataframe = execute_duckdb_sql(query, bind_params)
         # for Chained SQL we return the dataframe with the SQL source attached as DeepnoteQueryPreview object
         if return_variable_type == "query_preview":
@@ -447,6 +477,7 @@ def _execute_sql_with_caching(
         cache_upload_url,
         return_variable_type,
         query_preview_source,  # The original query before any transformations such as appending a LIMIT clause
+        setup_statements=setup_statements,
     )
 
 
@@ -478,6 +509,7 @@ def _query_data_source(
     cache_upload_url,
     return_variable_type,
     query_preview_source,
+    setup_statements=None,
 ):
     sshEnabled = sql_alchemy_dict.get("ssh_options", {}).get("enabled", False)
 
@@ -491,7 +523,9 @@ def _query_data_source(
             )
 
         try:
-            dataframe = _execute_sql_on_engine(engine, query, bind_params)
+            dataframe = _execute_sql_on_engine(
+                engine, query, bind_params, setup_statements=setup_statements
+            )
 
             if dataframe is None:
                 return None
@@ -609,12 +643,18 @@ def _cancel_cursor(cursor: "DBAPICursor") -> None:
         pass  # Best effort, ignore all errors
 
 
-def _execute_sql_on_engine(engine, query, bind_params):
+def _execute_sql_on_engine(engine, query, bind_params, setup_statements=None):
     """Run *query* on *engine* and return a DataFrame.
 
     Uses pandas.read_sql_query to execute the query with a SQLAlchemy connection.
     For pandas 2.2+ and SQLAlchemy < 2.0, which requires a raw DB-API connection with a `.cursor()` attribute,
     we use the underlying connection.
+
+    When *setup_statements* is provided, each statement is executed on the
+    same DBAPI connection right before the main query so any session state
+    it sets (e.g. Snowflake ``USE WAREHOUSE``) is in effect when the main
+    query runs. Setup statements are issued via ``connection.exec_driver_sql``
+    and any failure aborts the main query.
 
     On exceptions (including KeyboardInterrupt from cell cancellation), all cursors
     created during execution are cancelled to stop running queries on the server.
@@ -639,6 +679,16 @@ def _execute_sql_on_engine(engine, query, bind_params):
     )
 
     with engine.begin() as connection:
+        # Run setup statements first on the same physical connection so any
+        # session state they set is visible to the main query below.
+        # Setup statements are session-control SQL (USE WAREHOUSE, USE ROLE,
+        # SET, ALTER SESSION) that cannot be parameter-bound — Snowflake and
+        # most other engines reject placeholders here. The contract on this
+        # function is that callers pass trusted SQL.
+        for stmt in setup_statements or []:
+            # nosemgrep: python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query
+            connection.exec_driver_sql(stmt)
+
         # For pandas 2.2+ with SQLAlchemy < 2.0, use raw DBAPI connection
         if needs_raw_connection:
             tracking_connection = CursorTrackingDBAPIConnection(connection.connection)
