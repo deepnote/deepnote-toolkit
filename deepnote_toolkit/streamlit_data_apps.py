@@ -69,7 +69,7 @@ def _read_streamlit_token_from_context() -> Optional[str]:
     """
 
     try:
-        import streamlit as st
+        import streamlit as st  # type: ignore[import-not-found]
     except ImportError:
         return None
 
@@ -235,7 +235,7 @@ def prompt_federated_auth(
     credentials.
     """
 
-    import streamlit as st
+    import streamlit as st  # type: ignore[import-not-found]
 
     try:
         get_federated_auth_token(
