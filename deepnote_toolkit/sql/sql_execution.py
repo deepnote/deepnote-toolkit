@@ -18,6 +18,7 @@ from google.api_core.client_info import ClientInfo
 from google.cloud import bigquery
 from packaging.version import parse as parse_version
 from pydantic import BaseModel
+from requests.adapters import HTTPAdapter, Retry
 from sqlalchemy.engine import URL, Connection, create_engine, make_url
 from sqlalchemy.exc import ResourceClosedError
 
@@ -263,13 +264,28 @@ def execute_sql(
     )
 
 
-def _generate_temporary_credentials(integration_id):
+def _create_retry_session() -> requests.Session:
+    """Create a requests session with retry on 5xx for POST requests."""
+    session = requests.Session()
+    retries = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=[500, 502, 503, 504],
+        allowed_methods=["GET", "POST", "PUT", "DELETE", "HEAD", "OPTIONS", "TRACE"],
+    )
+    session.mount("http://", HTTPAdapter(max_retries=retries))
+    session.mount("https://", HTTPAdapter(max_retries=retries))
+    return session
+
+
+def _generate_temporary_credentials(integration_id) -> tuple[str, str]:
     url = get_absolute_userpod_api_url(f"integrations/credentials/{integration_id}")
 
     # Add project credentials in detached mode
     headers = get_project_auth_headers()
 
-    response = requests.post(url, timeout=10, headers=headers)
+    session = _create_retry_session()
+    response = session.post(url, timeout=10, headers=headers)
 
     response.raise_for_status()
 
@@ -291,7 +307,8 @@ def _get_federated_auth_credentials(
     headers = get_project_auth_headers()
     headers["UserPodAuthContextToken"] = user_pod_auth_context_token
 
-    response = requests.post(url, timeout=10, headers=headers)
+    session = _create_retry_session()
+    response = session.post(url, timeout=10, headers=headers)
 
     response.raise_for_status()
 
