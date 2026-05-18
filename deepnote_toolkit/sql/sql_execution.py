@@ -41,6 +41,9 @@ from deepnote_toolkit.sql.url_utils import replace_user_pass_in_pg_url
 
 if TYPE_CHECKING:
     try:
+        # pyrefly (unlike mypy) ignores the except-ImportError fallback; 
+        # these are missing on SQLAlchemy 1.x (3.10/3.11)
+        # pyrefly: ignore[missing-module-attribute]
         from sqlalchemy.engine.interfaces import DBAPIConnection, DBAPICursor
     except ImportError:
         # Not available in SQLAlchemy < 2.0. We use them only for typing, so replace with Any
