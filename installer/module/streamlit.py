@@ -70,6 +70,67 @@ def fetch_streamlit_apps(logger: logging.Logger) -> List[dict]:
     return streamlit_apps
 
 
+def fetch_integration_env_vars(logger: logging.Logger) -> List[dict]:
+    """Fetches integration environment variables from the WebApp.
+
+    Returns a list of dicts with 'name' and 'value' keys.
+    """
+    base_url = get_webapp_url()
+    url = f"{base_url}/integrations/environment-variables"
+
+    timeout = 3
+    max_retries = 3
+
+    logger.info(f"Fetching integration environment variables from {url}.")
+
+    try:
+        json_content = request_with_retries(
+            logger,
+            url,
+            max_retries=max_retries,
+            timeout=timeout,
+        )
+        variables = json.loads(json_content)
+        logger.info(
+            f"Fetched {len(variables)} integration environment variables."
+        )
+        return variables
+    except urllib.error.URLError as e:
+        logger.error(
+            f"Network error while fetching integration env vars: {e}"
+        )
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON parsing error: {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+
+    return []
+
+
+def set_integration_env_vars(logger: logging.Logger) -> None:
+    """Fetches integration env vars and sets them in os.environ.
+
+    This ensures that Streamlit processes (and other subprocesses started
+    after this call) inherit integration environment variables.
+    """
+    variables = fetch_integration_env_vars(logger)
+    for variable in variables:
+        if not isinstance(variable, dict):
+            logger.warning("Skipping integration env var entry with invalid shape.")
+            continue
+        name = variable.get("name")
+        value = variable.get("value")
+        if not isinstance(name, str) or not isinstance(value, str):
+            continue
+        if not name or "=" in name or "\0" in name:
+            logger.warning(f"Skipping invalid env var name: {name!r}")
+            continue
+        if "\0" in value:
+            logger.warning(f"Skipping env var with invalid value bytes: {name!r}")
+            continue
+        os.environ[name] = value
+
+
 def start_streamlit_servers(
     venv: VirtualEnvironment, logger: logging.Logger
 ) -> List[str]:

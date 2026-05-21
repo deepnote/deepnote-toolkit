@@ -333,7 +333,14 @@ def bootstrap():
     from deepnote_core.runtime.types import StreamlitSpec
 
     if cfg.server.start_streamlit_servers:
-        from .module.streamlit import fetch_streamlit_apps
+        from .module.streamlit import fetch_streamlit_apps, set_integration_env_vars
+
+        # Fetch and set integration env vars before starting Streamlit so that
+        # Streamlit subprocesses inherit them via os.environ.
+        try:
+            set_integration_env_vars(logger)
+        except Exception:
+            logger.exception("Failed to set integration env vars")
 
         try:
             streamlit_apps = fetch_streamlit_apps(logger)

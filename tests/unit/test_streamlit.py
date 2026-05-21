@@ -1,9 +1,14 @@
 import json
 import logging
+import os
 import unittest
 from unittest.mock import MagicMock, patch
 
-from installer.module.streamlit import fetch_streamlit_apps
+from installer.module.streamlit import (
+    fetch_integration_env_vars,
+    fetch_streamlit_apps,
+    set_integration_env_vars,
+)
 
 
 class TestFetchStreamlitApps(unittest.TestCase):
@@ -44,3 +49,114 @@ class TestFetchStreamlitApps(unittest.TestCase):
                     }
                 ],
             )
+
+
+class TestFetchIntegrationEnvVars(unittest.TestCase):
+    def test_fetch_integration_env_vars(self):
+        mock_data = [
+            {"name": "SNOWFLAKE_USER", "value": "admin"},
+            {"name": "SNOWFLAKE_PASSWORD", "value": "secret123"},
+        ]
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(mock_data).encode(
+            "utf-8"
+        )
+
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = mock_response
+
+            test_logger = logging.getLogger("testLogger")
+            variables = fetch_integration_env_vars(test_logger)
+
+            mock_urlopen.assert_called_once_with(
+                "http://localhost:19456/userpod-api/integrations/environment-variables",
+                timeout=3,
+            )
+
+            self.assertEqual(variables, mock_data)
+
+    def test_fetch_integration_env_vars_empty(self):
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps([]).encode("utf-8")
+
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = mock_response
+
+            test_logger = logging.getLogger("testLogger")
+            variables = fetch_integration_env_vars(test_logger)
+
+            self.assertEqual(variables, [])
+
+    def test_fetch_integration_env_vars_network_error(self):
+        import urllib.error
+
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.side_effect = urllib.error.URLError(
+                "connection refused"
+            )
+
+            test_logger = logging.getLogger("testLogger")
+            variables = fetch_integration_env_vars(test_logger)
+
+            self.assertEqual(variables, [])
+
+
+class TestSetIntegrationEnvVars(unittest.TestCase):
+    def test_set_integration_env_vars(self):
+        mock_data = [
+            {"name": "TEST_INT_VAR_A", "value": "value_a"},
+            {"name": "TEST_INT_VAR_B", "value": "value_b"},
+        ]
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(mock_data).encode(
+            "utf-8"
+        )
+
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = mock_response
+
+            test_logger = logging.getLogger("testLogger")
+            set_integration_env_vars(test_logger)
+
+            self.assertEqual(os.environ.get("TEST_INT_VAR_A"), "value_a")
+            self.assertEqual(os.environ.get("TEST_INT_VAR_B"), "value_b")
+
+        # Cleanup
+        os.environ.pop("TEST_INT_VAR_A", None)
+        os.environ.pop("TEST_INT_VAR_B", None)
+
+    def test_set_integration_env_vars_skips_invalid_entries(self):
+        mock_data = [
+            {"name": "TEST_INT_VAR_C", "value": "value_c"},
+            {"name": None, "value": "orphan_value"},
+            {"name": "TEST_INT_VAR_D", "value": None},
+            {"name": "", "value": "empty_key"},
+            {"name": "HAS=EQUALS", "value": "bad"},
+            {"name": 123, "value": "non_string_key"},
+            {"name": "GOOD_KEY", "value": 456},
+            "not_a_dict_entry",
+            42,
+            {"name": "NULL_BYTE_VAL", "value": "bad\0value"},
+        ]
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(mock_data).encode(
+            "utf-8"
+        )
+
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = mock_response
+
+            test_logger = logging.getLogger("testLogger")
+            set_integration_env_vars(test_logger)
+
+            self.assertEqual(os.environ.get("TEST_INT_VAR_C"), "value_c")
+            self.assertNotIn("TEST_INT_VAR_D", os.environ)
+            self.assertNotIn("HAS=EQUALS", os.environ)
+            self.assertNotIn("GOOD_KEY", os.environ)
+            self.assertNotIn("NULL_BYTE_VAL", os.environ)
+
+        # Cleanup
+        os.environ.pop("TEST_INT_VAR_C", None)
