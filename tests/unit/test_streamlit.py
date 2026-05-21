@@ -52,7 +52,10 @@ class TestFetchStreamlitApps(unittest.TestCase):
 
 
 class TestFetchIntegrationEnvVars(unittest.TestCase):
-    def test_fetch_integration_env_vars(self):
+    """Tests for fetching integration env vars from the WebApp."""
+
+    def test_fetch_integration_env_vars(self) -> None:
+        """Returns the parsed list of env var dicts on success."""
         mock_data = [
             {"name": "SNOWFLAKE_USER", "value": "admin"},
             {"name": "SNOWFLAKE_PASSWORD", "value": "secret123"},
@@ -74,7 +77,8 @@ class TestFetchIntegrationEnvVars(unittest.TestCase):
 
             self.assertEqual(variables, mock_data)
 
-    def test_fetch_integration_env_vars_empty(self):
+    def test_fetch_integration_env_vars_empty(self) -> None:
+        """Returns an empty list when the endpoint returns no vars."""
         mock_response = MagicMock()
         mock_response.read.return_value = json.dumps([]).encode("utf-8")
 
@@ -86,7 +90,8 @@ class TestFetchIntegrationEnvVars(unittest.TestCase):
 
             self.assertEqual(variables, [])
 
-    def test_fetch_integration_env_vars_network_error(self):
+    def test_fetch_integration_env_vars_network_error(self) -> None:
+        """Returns an empty list when a network error occurs."""
         import urllib.error
 
         with patch("urllib.request.urlopen") as mock_urlopen:
@@ -97,9 +102,30 @@ class TestFetchIntegrationEnvVars(unittest.TestCase):
 
             self.assertEqual(variables, [])
 
+    def test_fetch_integration_env_vars_non_list_payload(self) -> None:
+        """Returns an empty list when the payload is not a list."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({"unexpected": "shape"}).encode(
+            "utf-8"
+        )
+
+        with patch("urllib.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__.return_value = mock_response
+
+            test_logger = logging.getLogger("testLogger")
+            variables = fetch_integration_env_vars(test_logger)
+
+            self.assertEqual(variables, [])
+
 
 class TestSetIntegrationEnvVars(unittest.TestCase):
-    def test_set_integration_env_vars(self):
+    """Tests for setting integration env vars in os.environ."""
+
+    def test_set_integration_env_vars(self) -> None:
+        """Valid env vars are set in os.environ."""
+        self.addCleanup(os.environ.pop, "TEST_INT_VAR_A", None)
+        self.addCleanup(os.environ.pop, "TEST_INT_VAR_B", None)
+
         mock_data = [
             {"name": "TEST_INT_VAR_A", "value": "value_a"},
             {"name": "TEST_INT_VAR_B", "value": "value_b"},
@@ -117,11 +143,10 @@ class TestSetIntegrationEnvVars(unittest.TestCase):
             self.assertEqual(os.environ.get("TEST_INT_VAR_A"), "value_a")
             self.assertEqual(os.environ.get("TEST_INT_VAR_B"), "value_b")
 
-        # Cleanup
-        os.environ.pop("TEST_INT_VAR_A", None)
-        os.environ.pop("TEST_INT_VAR_B", None)
+    def test_set_integration_env_vars_skips_invalid_entries(self) -> None:
+        """Invalid entries are skipped without affecting valid ones."""
+        self.addCleanup(os.environ.pop, "TEST_INT_VAR_C", None)
 
-    def test_set_integration_env_vars_skips_invalid_entries(self):
         mock_data = [
             {"name": "TEST_INT_VAR_C", "value": "value_c"},
             {"name": None, "value": "orphan_value"},
@@ -133,6 +158,7 @@ class TestSetIntegrationEnvVars(unittest.TestCase):
             "not_a_dict_entry",
             42,
             {"name": "NULL_BYTE_VAL", "value": "bad\0value"},
+            {"name": "BAD\0NAME", "value": "null_byte_name"},
         ]
 
         mock_response = MagicMock()
@@ -149,6 +175,4 @@ class TestSetIntegrationEnvVars(unittest.TestCase):
             self.assertNotIn("HAS=EQUALS", os.environ)
             self.assertNotIn("GOOD_KEY", os.environ)
             self.assertNotIn("NULL_BYTE_VAL", os.environ)
-
-        # Cleanup
-        os.environ.pop("TEST_INT_VAR_C", None)
+            self.assertNotIn("BAD\0NAME", os.environ)

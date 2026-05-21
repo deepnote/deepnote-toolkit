@@ -91,14 +91,20 @@ def fetch_integration_env_vars(logger: logging.Logger) -> List[dict]:
             timeout=timeout,
         )
         variables = json.loads(json_content)
+        if not isinstance(variables, list):
+            logger.error(
+                "Invalid integration env vars payload type: expected list, "
+                f"got {type(variables).__name__}."
+            )
+            return []
         logger.info(f"Fetched {len(variables)} integration environment variables.")
         return variables
-    except urllib.error.URLError as e:
-        logger.error(f"Network error while fetching integration env vars: {e}")
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON parsing error: {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+    except urllib.error.URLError:
+        logger.exception("Network error while fetching integration env vars.")
+    except json.JSONDecodeError:
+        logger.exception("JSON parsing error while fetching integration env vars.")
+    except Exception:
+        logger.exception("Unexpected error while fetching integration env vars.")
 
     return []
 
