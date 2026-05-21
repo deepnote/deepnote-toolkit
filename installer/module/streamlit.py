@@ -91,14 +91,10 @@ def fetch_integration_env_vars(logger: logging.Logger) -> List[dict]:
             timeout=timeout,
         )
         variables = json.loads(json_content)
-        logger.info(
-            f"Fetched {len(variables)} integration environment variables."
-        )
+        logger.info(f"Fetched {len(variables)} integration environment variables.")
         return variables
     except urllib.error.URLError as e:
-        logger.error(
-            f"Network error while fetching integration env vars: {e}"
-        )
+        logger.error(f"Network error while fetching integration env vars: {e}")
     except json.JSONDecodeError as e:
         logger.error(f"JSON parsing error: {e}")
     except Exception as e:

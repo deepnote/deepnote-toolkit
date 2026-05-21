@@ -59,9 +59,7 @@ class TestFetchIntegrationEnvVars(unittest.TestCase):
         ]
 
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(mock_data).encode(
-            "utf-8"
-        )
+        mock_response.read.return_value = json.dumps(mock_data).encode("utf-8")
 
         with patch("urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value.__enter__.return_value = mock_response
@@ -92,9 +90,7 @@ class TestFetchIntegrationEnvVars(unittest.TestCase):
         import urllib.error
 
         with patch("urllib.request.urlopen") as mock_urlopen:
-            mock_urlopen.side_effect = urllib.error.URLError(
-                "connection refused"
-            )
+            mock_urlopen.side_effect = urllib.error.URLError("connection refused")
 
             test_logger = logging.getLogger("testLogger")
             variables = fetch_integration_env_vars(test_logger)
@@ -110,9 +106,7 @@ class TestSetIntegrationEnvVars(unittest.TestCase):
         ]
 
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(mock_data).encode(
-            "utf-8"
-        )
+        mock_response.read.return_value = json.dumps(mock_data).encode("utf-8")
 
         with patch("urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value.__enter__.return_value = mock_response
@@ -142,9 +136,7 @@ class TestSetIntegrationEnvVars(unittest.TestCase):
         ]
 
         mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(mock_data).encode(
-            "utf-8"
-        )
+        mock_response.read.return_value = json.dumps(mock_data).encode("utf-8")
 
         with patch("urllib.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value.__enter__.return_value = mock_response
