@@ -1,4 +1,4 @@
-""" Configuration file for jupyter-notebook."""
+"""Configuration file for jupyter-notebook."""
 
 # pylint: disable=too-many-lines
 

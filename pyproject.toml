@@ -60,8 +60,7 @@ dependencies = [
     "duckdb-extensions>=1.1.0,<2.0.0", # bake in as dependency to not pull extensions from the internet on every notebook start
     "duckdb-extension-spatial>=1.1.0,<2.0.0",
     "duckdb-extension-excel>=1.1.0,<2.0.0",
-    "google-cloud-bigquery-storage==2.16.2; python_version < '3.13'",
-    "google-cloud-bigquery-storage>=2.33.1,<3; python_version>='3.13'",
+    "google-cloud-bigquery-storage>=2.33.1,<3",
 
     "pyarrow>=10.0.0,<=17.0.0; python_version == '3.10' and sys_platform != 'darwin'",
     "pyarrow>=16.0.0,<18.0.0; python_version == '3.10' and sys_platform == 'darwin'",
@@ -78,7 +77,7 @@ dependencies = [
     "pymssql>=2.3.0,<2.4; python_version >= '3.12' and sys_platform != 'darwin'",
     "pymssql>=2.3.8,<2.4; python_version >= '3.13'",
 
-    "sshtunnel==0.4.0",
+    "deepnote-sshtunnel==1.0.0",
     "psycopg2-binary>=2.9.4,<2.10; python_version < '3.13'",
     "psycopg2-binary>=2.9.10,<3; python_version>='3.13'",
 
@@ -90,7 +89,7 @@ dependencies = [
     "pymongo>=4.9.0,<5; python_version>='3.13'",
     "dnspython>=2.6.1,<2.7; python_version < '3.13'",
     "dnspython>=2.7.0,<3.0; python_version>='3.13'",
-    "paramiko>=3.4.0,<3.6",
+    "paramiko>=5.0.0,<6",
     "sqlalchemy<2; python_version <= '3.11'",
     "sqlalchemy>=2.0.31,<3; python_version >= '3.12'",
     "snowflake-sqlalchemy>=1.6.0,<1.9",
@@ -132,14 +131,20 @@ dependencies = [
     "matplotlib-inline>=0.2.1,<0.3.0; python_version >= '3.11'",
 
     # Security constraint updates for transitive dependencies
-    "urllib3>=2.6.3,<3",
+    "urllib3>=2.7.0,<3",
     "cryptography>=46.0.5,<47",
-    "protobuf>=4.25.8,<6",
+    "protobuf>=5.29.6,<6",
     "requests>=2.32.4,<3",
     "tornado>=6.5.5,<7",
     "filelock>=3.20.3,<4",
     "pyjwt>=2.12.0,<3",
     "pynacl>=1.6.2,<2",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/8
+    "pyopenssl>=26.0.0,<27",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/21
+    "pillow>=12.2.0,<13",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/34 https://github.com/deepnote/deepnote-toolkit/security/dependabot/17
+    "mistune>=3.2.1,<4",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/46 https://github.com/deepnote/deepnote-toolkit/security/dependabot/54
+    "nbconvert>=7.17.1,<8",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/37 https://github.com/deepnote/deepnote-toolkit/security/dependabot/38
+    "GitPython>=3.1.50,<4",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/40 through /53
+    "Mako>=1.3.12,<2",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/36 https://github.com/deepnote/deepnote-toolkit/security/dependabot/48
 
     # Config dependencies - they need to be declared both in main and server extras, keep them in sync
     "pydantic>=1.10.0,<3",
@@ -162,7 +167,7 @@ Issues = "https://github.com/deepnote/deepnote-toolkit/issues"
 
 [project.optional-dependencies]
 server = [
-    "jupyter-server==2.17.0",
+    "jupyter-server==2.18.2",
     "jupyter-server-terminals==0.5.3",
     "jupyter-resource-usage>=1.1.0,<2.0.0",
     "streamlit>=1.40.0,<2.0.0",
@@ -191,17 +196,17 @@ deepnote-toolkit = "deepnote_toolkit.cli.main:main"
 dev = [
     "pylint>=3.3.0,<4.0.0",
     "flake8>=7.1.0,<8.0.0",
-    "black>=24.4.2,<25.0.0",
+    "black>=26.3.1,<27.0.0",
     "isort>=5.13.2,<6.0.0",
-    "pytest>=8.3.1,<9.0.0",
+    "pytest>=9.0.3,<10.0.0",
     "pytest-cov>=6.0.0,<7.0.0",
     "coverage[toml]>=7.10.0,<8.0.0",
     "mypy>=1.13.0,<2.0.0",
     "pre-commit>=3.6.0,<4.0.0",
     "responses>=0.25.7,<0.26.0",
     "parameterized>=0.9.0,<0.10.0",
-    "geopandas>=0.11.1,<1.1; python_version < '3.12'",
-    "geopandas>=0.13.2; python_version >= '3.12'",
+    "geopandas>=1.1.2,<2; python_version < '3.12'",
+    "geopandas>=1.1.2,<2; python_version >= '3.12'",
     # We do not distribute PySpark for all users because it's huge dependency (300mb) and not all
     # users need it. So in code we get pyspark from global module cache (since user already imported it at
     # that point). But we also have it as dev dependency to provide better autocompletion and for tests
@@ -213,13 +218,13 @@ dev = [
     "twine>=6.1.0,<7.0.0",
     "codespell>=2.3.0,<3.0.0",
     "pytest-subtests>=0.15.0,<0.16.0",
-    "python-dotenv>=1.2.1,<2.0.0",
+    "python-dotenv>=1.2.2,<2.0.0",
     "polars[rtcompat] (>=1.39.3,<2.0.0)"
 ]
 license-check = [
     # Dependencies needed for license checking that aren't in main production dependencies
-    "geopandas>=0.11.1,<1.1; python_version < '3.12'",
-    "geopandas>=0.13.2; python_version >= '3.12'",
+    "geopandas>=1.1.2,<2; python_version < '3.12'",
+    "geopandas>=1.1.2,<2; python_version >= '3.12'",
     "pyspark>=3.5.5,<4.0.0; python_version < '3.13'",
     "pyspark>=4.0.0,<5.0.0; python_version >= '3.13'"
 ]

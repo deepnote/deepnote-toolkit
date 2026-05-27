@@ -242,7 +242,7 @@ class PysparkImplementation:
         )
 
         def binary_to_string_repr(
-            binary_data: Optional[Union[bytes, bytearray]]
+            binary_data: Optional[Union[bytes, bytearray]],
         ) -> Optional[str]:
             """Convert binary data to Python string representation (e.g., b'hello').
 

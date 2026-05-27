@@ -40,7 +40,7 @@ def clear_config_cache() -> None:
 
 
 def get_config(
-    config_path: Optional[Union[str, os.PathLike[str]]] = None
+    config_path: Optional[Union[str, os.PathLike[str]]] = None,
 ) -> DeepnoteConfig:
     """Load the effective configuration (memoized per config_path).
 

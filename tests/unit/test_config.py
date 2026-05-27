@@ -3,6 +3,7 @@ from pydantic import ValidationError
 
 from deepnote_core.config.loader import ConfigurationLoader
 from deepnote_core.config.models import DeepnoteConfig
+from deepnote_toolkit.config import clear_config_cache, get_config
 
 
 def test_port_validation_range():
@@ -26,15 +27,31 @@ def test_runtime_coerce_float_inverted_flag(monkeypatch):
     assert cfg.runtime.coerce_float is False
 
 
+def test_coerce_float_picks_up_late_env_after_cache_clear(monkeypatch):
+    # Setup: start from a clean cache and confirm the default value
+    clear_config_cache()
+    monkeypatch.delenv("DEEPNOTE_DO_NOT_COERCE_FLOAT", raising=False)
+    cfg_default = get_config()
+    assert cfg_default.runtime.coerce_float is True
+
+    # Inject the env var; the cached config should still return the default
+    monkeypatch.setenv("DEEPNOTE_DO_NOT_COERCE_FLOAT", "1")
+    cfg_cached = get_config()
+    assert cfg_cached.runtime.coerce_float is True
+
+    # After clearing the cache, the config should pick up the injected value
+    clear_config_cache()
+    cfg_refreshed = get_config()
+    assert cfg_refreshed.runtime.coerce_float is False
+
+
 def test_loader_precedence_cli_over_env_over_file(tmp_path, monkeypatch):
     # File value: 7777
     config_file = tmp_path / "deepnote-toolkit.toml"
-    config_file.write_text(
-        """
+    config_file.write_text("""
     [server]
     jupyter_port = 7777
-    """.strip()
-    )
+    """.strip())
 
     # Env overlay: 8888
     monkeypatch.setenv("DEEPNOTE_SERVER__JUPYTER_PORT", "8888")
@@ -69,12 +86,10 @@ def test_loader_precedence_cli_over_env_over_file(tmp_path, monkeypatch):
 
 def test_runtime_loader_env_over_file(tmp_path, monkeypatch):
     config_file = tmp_path / "conf.toml"
-    config_file.write_text(
-        """
+    config_file.write_text("""
     [server]
     jupyter_port = 7777
-    """.strip()
-    )
+    """.strip())
 
     monkeypatch.setenv("DEEPNOTE_CONFIG_FILE", str(config_file))
     monkeypatch.setenv("DEEPNOTE_SERVER__JUPYTER_PORT", "8888")

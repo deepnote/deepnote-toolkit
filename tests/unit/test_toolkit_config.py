@@ -14,12 +14,10 @@ def test_logger_uses_config_log_dir(tmp_path, monkeypatch):
     # Prepare config file with custom log_dir
     cfg_path = tmp_path / "deepnote-toolkit.toml"
     log_dir = tmp_path / "logs"
-    cfg_path.write_text(
-        f"""
+    cfg_path.write_text(f"""
     [paths]
     log_dir = "{log_dir}"
-    """.strip()
-    )
+    """.strip())
 
     monkeypatch.setenv("DEEPNOTE_CONFIG_FILE", str(cfg_path))
     # Ensure env fixture default does not override file (Env > File precedence)
@@ -53,14 +51,12 @@ def test_get_webapp_url_uses_config(tmp_path, monkeypatch):
 
     # Prepare config for detached mode with webapp_url and project_id
     cfg_path = tmp_path / "deepnote-toolkit.toml"
-    cfg_path.write_text(
-        """
+    cfg_path.write_text("""
     [runtime]
     running_in_detached_mode = true
     webapp_url = "https://webapp.example"
     project_id = "abc-123"
-    """.strip()
-    )
+    """.strip())
     monkeypatch.setenv("DEEPNOTE_CONFIG_FILE", str(cfg_path))
 
     url = get_absolute_userpod_api_url("foo")

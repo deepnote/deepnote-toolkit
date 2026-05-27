@@ -1,4 +1,4 @@
-""" This module contains the VirtualEnvironment class. """
+"""This module contains the VirtualEnvironment class."""
 
 import logging
 import os
