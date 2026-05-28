@@ -55,9 +55,7 @@ dependencies = [
 
     # SQL and database dependencies
     # Keep DuckDB on the 1.4 LTS line until its EOL on 2026-09-16.
-    "duckdb>=1.4.2,<1.5.0; python_version < '3.12'",
-    "duckdb>=1.4.2,<1.5.0; python_version >= '3.12'",
-    "duckdb>=1.4.2,<1.5.0; python_version >= '3.13'",
+    "duckdb>=1.4.2,<1.5.0",
     "duckdb-extensions>=1.4.2,<1.5.0", # bake in as dependency to not pull extensions from the internet on every notebook start
     "duckdb-extension-spatial>=1.4.2,<1.5.0",
     "duckdb-extension-excel>=1.4.2,<1.5.0",
