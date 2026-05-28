@@ -476,10 +476,15 @@ jobs:
           # * false positive: only affects Arrow R package, not PyArrow
           # * see CVE description: "This vulnerability only affects the arrow R package, not other Apache Arrow implementations"
           # * databricks-sqlalchemy 1.x caps pyarrow<17, but upgrading requires SQLAlchemy 2.x (which is not possible for some Python versions)
+          # PYSEC-2026-113 (Arrow C++ IPC file pre-buffering use-after-free)
+          # * false positive for Python: advisory says RecordBatchFileReader::PreBufferMetadata is not exposed in Python bindings
+          # * this repo uses PyArrow through pandas parquet IO and Arrow table construction, not IPC file pre-buffering
+          # * databricks-sqlalchemy 1.x caps pyarrow<17, but upgrading requires SQLAlchemy 2.x (which is not possible for some Python versions)
           ignore-vulns: &ignore-vulns |
             PYSEC-2023-121
             CVE-2026-0994
             PYSEC-2024-161
+            PYSEC-2026-113
 
   audit-all:
     name: Audit - All
