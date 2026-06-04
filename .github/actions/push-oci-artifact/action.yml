@@ -1,14 +1,14 @@
-name: 'Push OCI artifact'
-description: 'Push one or more files as an OCI artifact'
+name: 'Push OCI image volume artifact'
+description: 'Push one or more files as an OCI image-volume-compatible artifact'
 inputs:
   artifact_ref:
-    description: 'Fully qualified OCI artifact reference'
+    description: 'Fully qualified OCI image reference'
     required: true
   artifact_type:
-    description: 'OCI artifact type'
+    description: 'Logical artifact type label'
     required: true
   files:
-    description: 'Newline-separated file descriptors in ORAS path:media-type format'
+    description: 'Newline-separated file descriptors in path:media-type format. Media type is ignored for image-volume publishing.'
     required: true
   toolkit_version:
     description: 'Toolkit version annotation value'
@@ -24,7 +24,7 @@ runs:
     - name: Set up ORAS
       uses: oras-project/setup-oras@38de303aac69abb66f3e6255b7198bff35f323e3 # v2.0.0
 
-    - name: Push OCI artifact
+    - name: Push OCI image volume artifact
       shell: bash
       env:
         ARTIFACT_REF: ${{ inputs.artifact_ref }}
@@ -35,16 +35,22 @@ runs:
       run: |
         set -euo pipefail
 
-        push_args=(
-          --artifact-type "${ARTIFACT_TYPE}"
-          --annotation "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}"
-          --annotation "org.opencontainers.image.revision=${GITHUB_SHA}"
-          --annotation "org.opencontainers.image.version=${TOOLKIT_VERSION}"
+        workdir="$(mktemp -d)"
+        trap 'rm -rf "${workdir}"' EXIT
+
+        rootfs_dir="${workdir}/rootfs"
+        mkdir -p "${rootfs_dir}"
+
+        manifest_annotations=(
+          "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}"
+          "org.opencontainers.image.revision=${GITHUB_SHA}"
+          "org.opencontainers.image.version=${TOOLKIT_VERSION}"
+          "com.deepnote.toolkit.artifact-type=${ARTIFACT_TYPE}"
         )
 
         while IFS= read -r annotation; do
           [ -n "${annotation}" ] || continue
-          push_args+=(--annotation "${annotation}")
+          manifest_annotations+=("${annotation}")
         done <<< "${EXTRA_ANNOTATIONS}"
 
         while IFS= read -r file_descriptor; do
@@ -52,12 +58,46 @@ runs:
           file_path="${file_descriptor%%:*}"
           if [ ! -f "${file_path}" ]; then
             echo "Error: OCI artifact file not found at ${file_path}" >&2
-            ls -la dist/ || echo "dist/ directory not found" >&2
+            ls -la "$(dirname "${file_path}")" >&2 || true
             exit 1
           fi
-          push_args+=("${file_descriptor}")
+          cp "${file_path}" "${rootfs_dir}/$(basename "${file_path}")"
         done <<< "${FILES}"
 
-        oras push "${ARTIFACT_REF}" "${push_args[@]}"
+        layer_tar="${workdir}/rootfs.tar"
+        layer_tar_gz="${workdir}/rootfs.tar.gz"
+        tar -C "${rootfs_dir}" -cf "${layer_tar}" .
+        gzip -n -c "${layer_tar}" > "${layer_tar_gz}"
+
+        layer_diff_id="$(sha256sum "${layer_tar}" | awk '{print $1}')"
+
+        config_path="${workdir}/config.json"
+        cat > "${config_path}" <<EOF
+        {
+          "architecture": "amd64",
+          "os": "linux",
+          "rootfs": {
+            "type": "layers",
+            "diff_ids": ["sha256:${layer_diff_id}"]
+          },
+          "config": {},
+          "history": [{"created_by": "deepnote-toolkit OCI image volume artifact"}]
+        }
+        EOF
+
+        (
+          cd "${workdir}"
+          oras_args=(
+            push
+            "${ARTIFACT_REF}"
+            --config "config.json:application/vnd.oci.image.config.v1+json"
+          )
+          for annotation in "${manifest_annotations[@]}"; do
+            oras_args+=(--annotation "${annotation}")
+          done
+          oras_args+=("rootfs.tar.gz:application/vnd.oci.image.layer.v1.tar+gzip")
+
+          oras "${oras_args[@]}"
+        )
         oras manifest fetch "${ARTIFACT_REF}" >/dev/null
         echo "Pushed ${ARTIFACT_REF}"
