@@ -175,16 +175,34 @@ jobs:
           path: dist/
           merge-multiple: true
 
+      - name: Build toolkit constraints OCI files input
+        id: constraints_oci_files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          constraint_files="$(mktemp)"
+          find dist -maxdepth 1 -type f -name 'constraints*.txt' | sort > "${constraint_files}"
+          if [ ! -s "${constraint_files}" ]; then
+            echo "Error: no constraint files were downloaded" >&2
+            find dist -maxdepth 1 -type f -print >&2
+            exit 1
+          fi
+
+          {
+            echo "files<<EOF"
+            while IFS= read -r constraint_file; do
+              printf '%s:text/plain\n' "${constraint_file}"
+            done < "${constraint_files}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
       - name: Push toolkit constraints OCI artifact
         uses: ./.github/actions/push-oci-artifact
         with:
           artifact_ref: docker.io/deepnote/toolkit-constraints:${{ steps.version.outputs.VERSION }}
           artifact_type: application/vnd.deepnote.toolkit.constraints.v1
-          files: |
-            dist/constraints3.10.txt:text/plain
-            dist/constraints3.11.txt:text/plain
-            dist/constraints3.12.txt:text/plain
-            dist/constraints3.13.txt:text/plain
+          files: ${{ steps.constraints_oci_files.outputs.files }}
           toolkit_version: ${{ steps.version.outputs.VERSION }}
 
   build-and-push-artifacts-status:
