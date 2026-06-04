@@ -1,0 +1,63 @@
+name: 'Push OCI artifact'
+description: 'Push one or more files as an OCI artifact'
+inputs:
+  artifact_ref:
+    description: 'Fully qualified OCI artifact reference'
+    required: true
+  artifact_type:
+    description: 'OCI artifact type'
+    required: true
+  files:
+    description: 'Newline-separated file descriptors in ORAS path:media-type format'
+    required: true
+  toolkit_version:
+    description: 'Toolkit version annotation value'
+    required: true
+  annotations:
+    description: 'Additional newline-separated OCI annotations in key=value format'
+    default: ''
+
+runs:
+  using: "composite"
+
+  steps:
+    - name: Set up ORAS
+      uses: oras-project/setup-oras@38de303aac69abb66f3e6255b7198bff35f323e3 # v2.0.0
+
+    - name: Push OCI artifact
+      shell: bash
+      env:
+        ARTIFACT_REF: ${{ inputs.artifact_ref }}
+        ARTIFACT_TYPE: ${{ inputs.artifact_type }}
+        FILES: ${{ inputs.files }}
+        TOOLKIT_VERSION: ${{ inputs.toolkit_version }}
+        EXTRA_ANNOTATIONS: ${{ inputs.annotations }}
+      run: |
+        set -euo pipefail
+
+        push_args=(
+          --artifact-type "${ARTIFACT_TYPE}"
+          --annotation "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}"
+          --annotation "org.opencontainers.image.revision=${GITHUB_SHA}"
+          --annotation "org.opencontainers.image.version=${TOOLKIT_VERSION}"
+        )
+
+        while IFS= read -r annotation; do
+          [ -n "${annotation}" ] || continue
+          push_args+=(--annotation "${annotation}")
+        done <<< "${EXTRA_ANNOTATIONS}"
+
+        while IFS= read -r file_descriptor; do
+          [ -n "${file_descriptor}" ] || continue
+          file_path="${file_descriptor%%:*}"
+          if [ ! -f "${file_path}" ]; then
+            echo "Error: OCI artifact file not found at ${file_path}" >&2
+            ls -la dist/ || echo "dist/ directory not found" >&2
+            exit 1
+          fi
+          push_args+=("${file_descriptor}")
+        done <<< "${FILES}"
+
+        oras push "${ARTIFACT_REF}" "${push_args[@]}"
+        oras manifest fetch "${ARTIFACT_REF}" >/dev/null
+        echo "Pushed ${ARTIFACT_REF}"
