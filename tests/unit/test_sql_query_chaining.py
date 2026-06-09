@@ -1,13 +1,16 @@
 from unittest import TestCase
 
+import __main__
 import sqlparse
 from sqlparse.tokens import Keyword
 
+from deepnote_toolkit.sql import sql_query_chaining
 from deepnote_toolkit.sql.sql_query_chaining import (
     add_limit_clause,
     extract_table_reference_from_token,
     extract_table_references,
     find_query_preview_references,
+    register_sql_query,
     unchain_sql_query,
 )
 
@@ -714,3 +717,80 @@ class TestSqlQueryChaining(TestCase):
             "Invalid query type: Query Preview supports only a single SELECT statement",
             str(context.exception),
         )
+
+
+class TestRegistryBasedChaining(TestCase):
+    """Tests for dataframe-mode chaining via register_sql_query / the registry.
+
+    deepnote-internal registers a SQL block's source query keyed by its result
+    variable name; downstream blocks then reference the variable as a table and
+    it is expanded into a CTE - without the result becoming a DeepnoteQueryPreview.
+    """
+
+    def setUp(self):
+        sql_query_chaining._sql_query_registry.clear()
+        self._original_vars = vars(__main__).copy()
+
+    def tearDown(self):
+        sql_query_chaining._sql_query_registry.clear()
+        for key in list(vars(__main__).keys()):
+            if key not in self._original_vars:
+                delattr(__main__, key)
+
+    def _bind(self, name, value="bound"):
+        """Bind a variable in __main__ (simulates the block having executed)."""
+        setattr(__main__, name, value)
+
+    def test_register_stores_single_select(self):
+        register_sql_query("df_1", "SELECT * FROM users")
+        self.assertEqual(
+            sql_query_chaining._sql_query_registry, {"df_1": "SELECT * FROM users"}
+        )
+
+    def test_register_non_select_clears_entry(self):
+        register_sql_query("df_1", "SELECT * FROM users")
+        register_sql_query("df_1", "INSERT INTO users VALUES (1)")
+        self.assertNotIn("df_1", sql_query_chaining._sql_query_registry)
+
+    def test_register_none_query_clears_entry(self):
+        register_sql_query("df_1", "SELECT * FROM users")
+        register_sql_query("df_1", None)
+        self.assertNotIn("df_1", sql_query_chaining._sql_query_registry)
+
+    def test_find_references_via_registry(self):
+        self._bind("df_1")
+        register_sql_query("df_1", "SELECT * FROM users")
+        refs = find_query_preview_references("SELECT * FROM df_1")
+        self.assertEqual(refs, {"df_1": "SELECT * FROM users"})
+
+    def test_unchain_via_registry(self):
+        self._bind("df_1")
+        register_sql_query("df_1", "SELECT * FROM users")
+        result = unchain_sql_query("SELECT * FROM df_1")
+        self.assertIn("WITH", result)
+        self.assertIn("df_1 AS", result)
+        self.assertIn("SELECT * FROM users", result)
+
+    def test_multi_level_registry_chaining(self):
+        self._bind("df_1")
+        self._bind("df_2")
+        register_sql_query("df_1", "SELECT * FROM users")
+        register_sql_query("df_2", "SELECT * FROM df_1 WHERE active")
+        result = unchain_sql_query("SELECT * FROM df_2")
+        # Both levels expanded, with the dependency (df_1) defined before df_2
+        self.assertIn("df_1 AS", result)
+        self.assertIn("df_2 AS", result)
+        self.assertIn("SELECT * FROM users", result)
+        self.assertLess(result.find("df_1 AS"), result.find("df_2 AS"))
+
+    def test_stale_entry_ignored_when_variable_not_bound(self):
+        # Registered but the variable is no longer bound in __main__ (e.g. deleted
+        # cell or kernel restart) -> the entry must not produce a CTE.
+        register_sql_query("df_1", "SELECT * FROM users")
+        refs = find_query_preview_references("SELECT * FROM df_1")
+        self.assertEqual(refs, {})
+
+    def test_empty_registry_is_safe(self):
+        refs = find_query_preview_references("SELECT * FROM df_1")
+        self.assertEqual(refs, {})
+        self.assertEqual(unchain_sql_query("SELECT * FROM df_1"), "SELECT * FROM df_1")
