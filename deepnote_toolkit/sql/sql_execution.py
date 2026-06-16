@@ -626,6 +626,22 @@ def _cancel_cursor(cursor: "DBAPICursor") -> None:
         pass  # Best effort, ignore all errors
 
 
+def _extract_rls_user_email(query):
+    """Extract the Deepnote user email from the audit comment embedded in *query*.
+
+    Deepnote appends an audit comment such as ``/* {"user_email":"a@b.com",...} */`` to
+    every SQL block. We reuse that identity for row-level security. Returns "" when no
+    email is present (e.g. anonymous app viewers) so that the policy denies all rows.
+
+    The value is restricted to a safe character set so it can be embedded directly into a
+    ``SET`` statement without risk of SQL injection, regardless of the caller.
+    """
+    match = re.search(r'"user_email"\s*:\s*"([^"]+)"', query or "")
+    if not match:
+        return ""
+    return re.sub(r"[^A-Za-z0-9.+@_-]", "", match.group(1))
+
+
 def _execute_sql_on_engine(engine, query, bind_params):
     """Run *query* on *engine* and return a DataFrame.
 
@@ -639,6 +655,7 @@ def _execute_sql_on_engine(engine, query, bind_params):
 
     import pandas as pd
     from sqlalchemy import __version__ as sqlalchemy_version
+    from sqlalchemy import text
 
     from deepnote_toolkit.config import get_config
 
@@ -656,6 +673,16 @@ def _execute_sql_on_engine(engine, query, bind_params):
     )
 
     with engine.begin() as connection:
+        # Row-level security: expose the Deepnote user identity (already carried in the
+        # audit comment) as a Snowflake session variable so row access policies can read
+        # it via GETVARIABLE('DEEPNOTE_USER_EMAIL'). Always set it on every Snowflake
+        # query — session variables persist on pooled connections, so an unset/stale
+        # value could leak another user's rows. Empty value => policy matches nothing
+        # (deny by default for anonymous viewers).
+        if engine.dialect.name == "snowflake":
+            rls_user_email = _extract_rls_user_email(query)
+            connection.execute(text(f"SET DEEPNOTE_USER_EMAIL = '{rls_user_email}'"))
+
         # For pandas 2.2+ with SQLAlchemy < 2.0, use raw DBAPI connection
         if needs_raw_connection:
             tracking_connection = CursorTrackingDBAPIConnection(connection.connection)
