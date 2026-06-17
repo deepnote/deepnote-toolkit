@@ -1,7 +1,7 @@
 import json
 import logging
 import unittest
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 from installer.module.streamlit import fetch_streamlit_apps, start_streamlit_servers
 
