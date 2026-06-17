@@ -47,7 +47,7 @@ class TestFetchStreamlitApps(unittest.TestCase):
 
 
 class TestStartStreamlitServers(unittest.TestCase):
-    def _make_apps(self, *entrypoints):
+    def _make_apps(self, *entrypoints: str) -> list:
         return [
             {"id": f"id-{i}", "entrypoint": ep, "port": str(8501 + i), "projectId": "p"}
             for i, ep in enumerate(entrypoints)
@@ -59,15 +59,17 @@ class TestStartStreamlitServers(unittest.TestCase):
         mock_venv = MagicMock()
         mock_logger = MagicMock(spec=logging.Logger)
 
-        def exists_side_effect(path):
+        def exists_side_effect(path: str) -> bool:
             return "deleted_folder" not in path
 
-        with patch("installer.module.streamlit.fetch_streamlit_apps", return_value=apps):
-            with patch("installer.module.streamlit.os.path.exists", side_effect=exists_side_effect):
-                start_streamlit_servers(mock_venv, mock_logger)
+        with (
+            patch("installer.module.streamlit.fetch_streamlit_apps", return_value=apps),
+            patch("installer.module.streamlit.os.path.exists", side_effect=exists_side_effect),
+        ):
+            start_streamlit_servers(mock_venv, mock_logger)
 
         mock_logger.warning.assert_called_once()
-        assert "deleted_folder" in mock_logger.warning.call_args[0][0]
+        assert any("deleted_folder" in str(a) for a in mock_logger.warning.call_args[0])
         assert mock_venv.start_server.call_count == 1
         started_cmd = mock_venv.start_server.call_args[0][0]
         assert "existing_folder/app.py" in started_cmd
@@ -78,12 +80,14 @@ class TestStartStreamlitServers(unittest.TestCase):
         mock_venv = MagicMock()
         mock_logger = MagicMock(spec=logging.Logger)
 
-        def exists_side_effect(path):
+        def exists_side_effect(path: str) -> bool:
             return "present" in path
 
-        with patch("installer.module.streamlit.fetch_streamlit_apps", return_value=apps):
-            with patch("installer.module.streamlit.os.path.exists", side_effect=exists_side_effect):
-                start_streamlit_servers(mock_venv, mock_logger)
+        with (
+            patch("installer.module.streamlit.fetch_streamlit_apps", return_value=apps),
+            patch("installer.module.streamlit.os.path.exists", side_effect=exists_side_effect),
+        ):
+            start_streamlit_servers(mock_venv, mock_logger)
 
         assert mock_logger.warning.call_count == 2
         assert mock_venv.start_server.call_count == 1

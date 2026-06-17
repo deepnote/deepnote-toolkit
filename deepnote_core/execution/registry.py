@@ -248,7 +248,9 @@ def _execute_streamlit(
     # from the project after the app was registered. Skip rather than crash the installer.
     if cwd is not None and not Path(cwd).exists():
         context.logger.warning(
-            f"Skipping Streamlit app {action.script!r}: directory {cwd!r} does not exist"
+            "Skipping Streamlit app %r: directory %r does not exist",
+            action.script,
+            cwd,
         )
         return ExecutionResult(process=None, is_long_running=False, success=False)
 

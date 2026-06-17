@@ -94,7 +94,9 @@ def start_streamlit_servers(
 
             if not os.path.exists(directory_path):
                 logger.warning(
-                    f"Skipping Streamlit app {entrypoint_path!r}: directory {directory_path!r} does not exist"
+                    "Skipping Streamlit app %r: directory %r does not exist",
+                    entrypoint_path,
+                    directory_path,
                 )
                 continue
 

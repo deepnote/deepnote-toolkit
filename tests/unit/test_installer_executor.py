@@ -470,32 +470,25 @@ class TestRunActionsInInstallerEnv:
         expected_cmd = shlex.join(["python", "my script.py", "--title", "Test Server"])
         mock_venv.start_server.assert_called_once_with(expected_cmd, cwd=None)
 
-    def test_streamlit_with_directory_path(self):
+    def test_streamlit_with_directory_path(self, tmp_path):
         """Test Streamlit server with script in a directory."""
+        apps_dir = tmp_path / "apps"
+        apps_dir.mkdir()
+        script_path = str(apps_dir / "dashboard.py")
+
         mock_venv = mock.MagicMock()
         mock_process = mock.MagicMock()
         mock_venv.start_server.return_value = mock_process
 
-        action = StreamlitSpec(
-            script="/work/apps/dashboard.py",
-            port=8501,
-        )
+        action = StreamlitSpec(script=script_path, port=8501)
 
         processes = run_actions_in_installer_env(mock_venv, [action])
 
         assert len(processes) == 1
         expected_cmd = shlex.join(
-            [
-                "python",
-                "-m",
-                "streamlit",
-                "run",
-                "/work/apps/dashboard.py",
-                "--server.port",
-                "8501",
-            ]
+            ["python", "-m", "streamlit", "run", script_path, "--server.port", "8501"]
         )
-        mock_venv.start_server.assert_called_once_with(expected_cmd, cwd="/work/apps")
+        mock_venv.start_server.assert_called_once_with(expected_cmd, cwd=str(apps_dir))
 
     def test_streamlit_none_port(self):
         """Test Streamlit with None port (should not add --server.port)."""
