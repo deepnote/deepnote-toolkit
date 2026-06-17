@@ -203,6 +203,7 @@ dev = [
     "pytest-cov>=6.0.0,<7.0.0",
     "coverage[toml]>=7.10.0,<8.0.0",
     "mypy>=1.13.0,<2.0.0",
+    "pyrefly>=1.0.0,<2.0.0",
     "pre-commit>=3.6.0,<4.0.0",
     "responses>=0.25.7,<0.26.0",
     "parameterized>=0.9.0,<0.10.0",
@@ -312,6 +313,46 @@ exclude = [
     "(^|[\\/])__pycache__[\\/]",
     "(^|[\\/])deepnote_core[\\/]resources[\\/]"
 ]
+
+[tool.pyrefly]
+# Match the CI mypy scope, which only checks `deepnote_toolkit/`.
+project-includes = ["deepnote_toolkit"]
+# Equivalent of mypy's `exclude` above (pyrefly uses path globs, not regexes).
+project-excludes = [
+    "**/tests/",
+    "**/.nox/",
+    "**/.pytest_cache/",
+    "**/__pycache__/",
+    "**/deepnote_core/resources/",
+]
+# The "legacy" preset emulates mypy-style gradual typing (only high-confidence
+# errors, untyped code is checked leniently). Chosen automatically by
+# `pyrefly init` for mypy migrations. Tighten to "default"/"strict" over time.
+preset = "legacy"
+# Untyped third-party libs (no py.typed). mypy treats these as `Any`; this makes
+# pyrefly do the same instead of resolving them to `Unknown` and cascading
+# errors (e.g. subclassing `wrapt.ObjectProxy`). Matches mypy's effective scope.
+replace-imports-with-any = ["wrapt", "wrapt.*"]
+# Pyrefly is stricter than this (heavily suppressed) mypy config and surfaces
+# ~25 pre-existing latent issues mypy hides. They are recorded in a baseline so
+# CI only fails on NEW regressions, not the existing backlog. Regenerate after
+# fixing issues: `pyrefly check --update-baseline`.
+baseline = "pyrefly-baseline.json"
+
+# Pyrefly equivalents of mypy's `disable_error_code` (above). Mapping produced
+# by `pyrefly init`; mypy codes with no pyrefly equivalent (var-annotated,
+# misc, no-any-return, unreachable) simply have no entry here.
+[tool.pyrefly.errors]
+untyped-import = "ignore"        # mypy: import-untyped
+invalid-annotation = "ignore"    # mypy: valid-type
+missing-attribute = "ignore"     # mypy: union-attr, attr-defined
+bad-argument-count = "ignore"    # mypy: call-arg
+no-matching-overload = "ignore"  # mypy: call-overload
+bad-assignment = "ignore"        # mypy: assignment
+bad-argument-type = "ignore"     # mypy: arg-type
+bad-return = "ignore"            # mypy: return-value
+unsupported-operation = "ignore" # mypy: operator, index
+bad-index = "ignore"             # mypy: index
 
 [tool.coverage.run]
 branch = true
