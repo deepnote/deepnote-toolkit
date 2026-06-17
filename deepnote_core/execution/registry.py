@@ -244,6 +244,14 @@ def _execute_streamlit(
         if parent != Path("."):
             cwd = str(parent)
 
+    # The entrypoint's parent directory may no longer exist if the folder was deleted
+    # from the project after the app was registered. Skip rather than crash the installer.
+    if cwd is not None and not Path(cwd).exists():
+        context.logger.warning(
+            f"Skipping Streamlit app {action.script!r}: directory {cwd!r} does not exist"
+        )
+        return ExecutionResult(process=None, is_long_running=False, success=False)
+
     # Start the Streamlit app
     context.logger.info(f"Starting Streamlit app: {action.script}")
     proc = context.spawn(argv, env_override=None, cwd=cwd)

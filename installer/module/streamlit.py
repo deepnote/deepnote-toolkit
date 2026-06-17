@@ -92,6 +92,12 @@ def start_streamlit_servers(
             entrypoint_path = f"/work/{entrypoint}"
             directory_path = os.path.dirname(entrypoint_path)
 
+            if not os.path.exists(directory_path):
+                logger.warning(
+                    f"Skipping Streamlit app {entrypoint_path!r}: directory {directory_path!r} does not exist"
+                )
+                continue
+
             # We need to disable CORS because we access the Streamlit server from a different domain
             # via an iframe, through a proxy. We also disable XSRF protection because the Streamlit
             # docs says it should be disabled when CORS is disabled.
