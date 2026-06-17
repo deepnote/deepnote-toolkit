@@ -64,7 +64,10 @@ class TestStartStreamlitServers(unittest.TestCase):
 
         with (
             patch("installer.module.streamlit.fetch_streamlit_apps", return_value=apps),
-            patch("installer.module.streamlit.os.path.exists", side_effect=exists_side_effect),
+            patch(
+                "installer.module.streamlit.os.path.exists",
+                side_effect=exists_side_effect,
+            ),
         ):
             start_streamlit_servers(mock_venv, mock_logger)
 
@@ -85,7 +88,10 @@ class TestStartStreamlitServers(unittest.TestCase):
 
         with (
             patch("installer.module.streamlit.fetch_streamlit_apps", return_value=apps),
-            patch("installer.module.streamlit.os.path.exists", side_effect=exists_side_effect),
+            patch(
+                "installer.module.streamlit.os.path.exists",
+                side_effect=exists_side_effect,
+            ),
         ):
             start_streamlit_servers(mock_venv, mock_logger)
 
