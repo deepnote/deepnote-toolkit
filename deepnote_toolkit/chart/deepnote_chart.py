@@ -12,6 +12,7 @@ import deepnote_toolkit.ocelots as oc
 from deepnote_toolkit.chart.spec_utils import (
     attach_config_to_vega_lite_spec,
     attach_selection_parameters_to_vega_lite_spec,
+    get_temporal_fields_from_vega_lite_spec,
     verify_used_fields,
 )
 from deepnote_toolkit.chart.types import CHART_ROW_LIMIT, VEGA_5_MIME_TYPE, ChartError
@@ -136,10 +137,14 @@ class DeepnoteChart:
             if attach_selection:
                 attach_selection_parameters_to_vega_lite_spec(spec_dict)
 
+            temporal_fields = get_temporal_fields_from_vega_lite_spec(spec_dict)
+
             oc_df = oc.DataFrame.from_native(dataframe)
             filtered_df = oc_df.filter(*self.filters).prepare_for_serialization()
             if filtered_df.native_type == "pandas":
-                sanitized_pandas = sanitize_dataframe_for_chart(filtered_df.to_native())
+                sanitized_pandas = sanitize_dataframe_for_chart(
+                    filtered_df.to_native(), temporal_fields
+                )
                 oc_sanitized_df = oc.DataFrame.from_native(sanitized_pandas)
             elif filtered_df.native_type in ("pyspark", "polars-eager"):
                 # We don't need to sanitize Spark DFs because they will processed by Spark itself and it can handle
@@ -178,13 +183,14 @@ class DeepnoteChart:
                         row_limit=CHART_ROW_LIMIT,
                     )
                 )
-            except pa.ArrowNotImplementedError as err:
+            except (pa.ArrowNotImplementedError, ValueError) as err:
                 error_msg = (
                     f"DataFrame contains data types that cannot be serialized into Arrow format for charting: {err}. "
                     f"Common causes include:\n"
                     f"• Mixed data types in columns (e.g., numbers and strings)\n"
                     f"• Complex objects like dictionaries or custom classes\n"
                     f"• Nested data structures\n"
+                    f"• Datetime string columns that cannot be parsed\n"
                     f"Try converting problematic columns to consistent types or removing them."
                 )
                 raise ChartError(error_msg) from err

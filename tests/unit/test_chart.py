@@ -13,10 +13,14 @@ import deepnote_toolkit.ocelots as oc
 from deepnote_toolkit.chart import ChartError, DeepnoteChart
 from deepnote_toolkit.chart.spec_utils import (
     _get_used_fields_from_vega_lite_spec,
+    get_temporal_fields_from_vega_lite_spec,
     verify_used_fields,
 )
 from deepnote_toolkit.chart.types import VEGA_5_MIME_TYPE
-from deepnote_toolkit.chart.utils import sanitize_dataframe_for_chart
+from deepnote_toolkit.chart.utils import (
+    _convert_datetime_string_columns,
+    sanitize_dataframe_for_chart,
+)
 
 from .helpers.testing_dataframes import testing_dataframes
 
@@ -538,3 +542,149 @@ class TestVerifyUsedFields(unittest.TestCase):
         }
         with self.assertRaises(ChartError):
             verify_used_fields(self.oc_df, spec)
+
+
+class TestGetTemporalFields(unittest.TestCase):
+    def test_single_temporal_field(self):
+        spec = {
+            "mark": "line",
+            "encoding": {
+                "x": {"field": "timestamp", "type": "temporal"},
+                "y": {"field": "value", "type": "quantitative"},
+            },
+        }
+        fields = get_temporal_fields_from_vega_lite_spec(spec)
+        self.assertSetEqual(fields, {"timestamp"})
+
+    def test_no_temporal_fields(self):
+        spec = {
+            "mark": "bar",
+            "encoding": {
+                "x": {"field": "year", "type": "nominal"},
+                "y": {"field": "count", "type": "quantitative"},
+            },
+        }
+        fields = get_temporal_fields_from_vega_lite_spec(spec)
+        self.assertSetEqual(fields, set())
+
+    def test_multiple_temporal_fields(self):
+        spec = {
+            "mark": "point",
+            "encoding": {
+                "x": {"field": "start_time", "type": "temporal"},
+                "x2": {"field": "end_time", "type": "temporal"},
+                "y": {"field": "value", "type": "quantitative"},
+            },
+        }
+        fields = get_temporal_fields_from_vega_lite_spec(spec)
+        self.assertSetEqual(fields, {"start_time", "end_time"})
+
+    def test_mixed_types_only_returns_temporal(self):
+        """Only 'type: temporal' encodings are returned; nominal/quantitative are excluded."""
+        spec = {
+            "mark": "bar",
+            "encoding": {
+                "x": {"field": "date", "type": "temporal"},
+                "y": {"field": "amount", "type": "quantitative"},
+                "color": {"field": "category", "type": "nominal"},
+            },
+        }
+        fields = get_temporal_fields_from_vega_lite_spec(spec)
+        self.assertSetEqual(fields, {"date"})
+
+    def test_layered_spec_collects_temporal_from_all_layers(self):
+        spec = {
+            "layer": [
+                {
+                    "mark": "line",
+                    "encoding": {
+                        "x": {"field": "ts", "type": "temporal"},
+                        "y": {"field": "v1", "type": "quantitative"},
+                    },
+                },
+                {
+                    "mark": "point",
+                    "encoding": {
+                        "x": {"field": "ts", "type": "temporal"},
+                        "y": {"field": "v2", "type": "quantitative"},
+                    },
+                },
+            ]
+        }
+        fields = get_temporal_fields_from_vega_lite_spec(spec)
+        self.assertSetEqual(fields, {"ts"})
+
+    def test_encoding_without_field_is_skipped(self):
+        """datum-based encodings have no 'field' key and must not crash."""
+        spec = {
+            "mark": "rule",
+            "encoding": {
+                "x": {"datum": "2024-01-01", "type": "temporal"},
+                "y": {"field": "value", "type": "quantitative"},
+            },
+        }
+        fields = get_temporal_fields_from_vega_lite_spec(spec)
+        self.assertSetEqual(fields, set())
+
+    def test_escaped_field_name_is_unescaped(self):
+        spec = {
+            "mark": "line",
+            "encoding": {
+                "x": {"field": "date\\.time", "type": "temporal"},
+            },
+        }
+        fields = get_temporal_fields_from_vega_lite_spec(spec)
+        self.assertSetEqual(fields, {"date.time"})
+
+
+class TestConvertDatetimeStringColumns(unittest.TestCase):
+    def test_iso_string_column_is_converted_when_in_temporal_fields(self):
+        df = pd.DataFrame({"ts": ["2024-04-17T23:18:06.527738", "2024-04-18T00:00:00"]})
+        _convert_datetime_string_columns(df, temporal_fields={"ts"})
+        self.assertTrue(pd.api.types.is_datetime64_any_dtype(df["ts"]))
+
+    def test_column_not_in_temporal_fields_is_not_converted(self):
+        """A column that looks like ISO dates but is nominal must stay as object."""
+        df = pd.DataFrame({"year": ["2019", "2020", "2021"]})
+        _convert_datetime_string_columns(df, temporal_fields=set())
+        self.assertEqual(df["year"].dtype, object)
+
+    def test_no_temporal_fields_is_a_no_op(self):
+        df = pd.DataFrame({"ts": ["2024-04-17T23:18:06", "2024-04-18T00:00:00"]})
+        original_dtype = df["ts"].dtype
+        _convert_datetime_string_columns(df, temporal_fields=None)
+        self.assertEqual(df["ts"].dtype, original_dtype)
+
+    def test_already_datetime_column_is_left_alone(self):
+        df = pd.DataFrame({"ts": pd.to_datetime(["2024-01-01", "2024-01-02"])})
+        _convert_datetime_string_columns(df, temporal_fields={"ts"})
+        self.assertTrue(pd.api.types.is_datetime64_any_dtype(df["ts"]))
+
+    def test_mixed_valid_invalid_strings_are_not_converted(self):
+        """If any value fails ISO 8601 parsing the column is left as-is."""
+        df = pd.DataFrame({"ts": ["2024-04-17T23:18:06", "not-a-date"]})
+        _convert_datetime_string_columns(df, temporal_fields={"ts"})
+        self.assertEqual(df["ts"].dtype, object)
+
+    def test_all_null_column_is_skipped(self):
+        df = pd.DataFrame({"ts": pd.array([None, None], dtype=object)})
+        _convert_datetime_string_columns(df, temporal_fields={"ts"})
+        self.assertEqual(df["ts"].dtype, object)
+
+    def test_sanitize_dataframe_converts_temporal_strings_end_to_end(self):
+        """Full sanitize_dataframe_for_chart path converts ISO strings for temporal fields."""
+        df = pd.DataFrame(
+            {
+                "timestamp": ["2024-04-17T23:18:06.527738", "2024-04-18T00:00:00"],
+                "value": [1.0, 2.0],
+            }
+        )
+        result = sanitize_dataframe_for_chart(df, temporal_fields={"timestamp"})
+        self.assertTrue(pd.api.types.is_datetime64_any_dtype(result["timestamp"]))
+        self.assertEqual(result["value"].dtype, float)
+
+    def test_sanitize_dataframe_nominal_year_strings_unchanged(self):
+        """Nominal year strings must NOT be converted even if they look like ISO dates."""
+        df = pd.DataFrame({"year": ["2019", "2020", "2021"], "count": [10, 20, 30]})
+        result = sanitize_dataframe_for_chart(df, temporal_fields=set())
+        self.assertEqual(result["year"].dtype, object)
