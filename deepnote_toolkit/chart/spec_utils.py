@@ -329,6 +329,25 @@ def _get_used_fields_from_vega_lite_spec(vega_lite_spec):
     )
 
 
+def get_temporal_fields_from_vega_lite_spec(vega_lite_spec: Dict[str, Any]) -> set:
+    """
+    Returns the set of field names the spec encodes with ``"type": "temporal"``.
+
+    Only these fields should be coerced to datetime for charting; coercing every
+    ISO-parseable string column would wrongly turn nominal axes (years, months,
+    numeric codes) into time scales.
+    """
+    encodings = _extract_encodings_from_vega_lite_spec_recursive(vega_lite_spec)
+
+    return set(
+        _unescape_field_name(encoding["field"])
+        for encoding in encodings
+        if encoding.get("type") == "temporal"
+        and "field" in encoding
+        and isinstance(encoding["field"], str)
+    )
+
+
 def verify_used_fields(oc_df: oc.DataFrame, vega_lite_spec: Any) -> None:
     allowed_fields = set(oc_df.column_names) | set([COUNT_FIELD_NAME])
 
