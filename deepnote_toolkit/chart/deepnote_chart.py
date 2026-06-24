@@ -17,6 +17,7 @@ from deepnote_toolkit.chart.spec_utils import (
 from deepnote_toolkit.chart.types import CHART_ROW_LIMIT, VEGA_5_MIME_TYPE, ChartError
 from deepnote_toolkit.chart.utils import (
     sanitize_dataframe_for_chart,
+    sanitize_polars_dataframe_for_chart,
     serialize_values_list_for_json,
 )
 from deepnote_toolkit.logging import LoggerManager
@@ -141,11 +142,18 @@ class DeepnoteChart:
             if filtered_df.native_type == "pandas":
                 sanitized_pandas = sanitize_dataframe_for_chart(filtered_df.to_native())
                 oc_sanitized_df = oc.DataFrame.from_native(sanitized_pandas)
-            elif filtered_df.native_type in ("pyspark", "polars-eager"):
-                # We don't need to sanitize Spark DFs because they will processed by Spark itself and it can handle
-                # all data types by itself
-                # Polars is powered by Arrow, which is same format used internally by VegaFusion so there is no need
-                # to do any additional sanitization for it either
+            elif filtered_df.native_type == "polars-eager":
+                # Polars is Arrow-backed, so most types pass through to VegaFusion
+                # untouched. The exception is Object columns (e.g. uuid.UUID values),
+                # which convert to an Arrow type VegaFusion can't serialize, so they
+                # still need sanitizing.
+                sanitized_polars = sanitize_polars_dataframe_for_chart(
+                    filtered_df.to_native()
+                )
+                oc_sanitized_df = oc.DataFrame.from_native(sanitized_polars)
+            elif filtered_df.native_type == "pyspark":
+                # Spark processes the data itself and handles all data types, so no
+                # sanitization is needed here.
                 oc_sanitized_df = filtered_df
             else:
                 raise TypeError(

@@ -5,6 +5,7 @@ import uuid
 import warnings
 
 import pandas as pd
+import polars as pl
 from ipykernel.jsonutil import json_clean
 from parameterized import parameterized
 from pyspark.sql import SparkSession
@@ -16,7 +17,10 @@ from deepnote_toolkit.chart.spec_utils import (
     verify_used_fields,
 )
 from deepnote_toolkit.chart.types import VEGA_5_MIME_TYPE
-from deepnote_toolkit.chart.utils import sanitize_dataframe_for_chart
+from deepnote_toolkit.chart.utils import (
+    sanitize_dataframe_for_chart,
+    sanitize_polars_dataframe_for_chart,
+)
 
 from .helpers.testing_dataframes import testing_dataframes
 
@@ -221,6 +225,27 @@ class TestDeepnoteChart(unittest.TestCase):
                 "cleaning for JSON or JSON serialization failed for Spark DataFrame"
             )
 
+    def _assert_chart_is_json_serializable(self, df, spec):
+        chart = DeepnoteChart(df, json.dumps(spec))
+        mimebundle = chart._repr_mimebundle_(None, None)
+        try:
+            json.dumps(json_clean(mimebundle))
+        except:  # noqa: E722
+            self.fail("cleaning for JSON or JSON serialization failed")
+        return chart
+
+    def test_works_with_polars_dataframe(self):
+        """Test that DeepnoteChart works with a basic polars DataFrame."""
+        df = pl.DataFrame({"x": [1, 2, 3], "y": [4, 5, 6]})
+        self._assert_chart_is_json_serializable(df, self.simple_spec)
+
+    def test_works_with_polars_uuid_object_column(self):
+        """Polars stores uuid.UUID in an Object column that VegaFusion cannot
+        serialize unless it is stringified first."""
+        df = pl.DataFrame({"id": [uuid.uuid4(), uuid.uuid4()]})
+        spec = {"mark": "bar", "encoding": {"x": {"field": "id"}}}
+        self._assert_chart_is_json_serializable(df, spec)
+
 
 class TestDeepnoteSanitizeDataframe(unittest.TestCase):
     def test_small_dataframe_remains_ordered_the_same(self):
@@ -246,6 +271,83 @@ class TestDeepnoteSanitizeDataframe(unittest.TestCase):
             return
 
         sanitize_dataframe_for_chart(df)
+
+    def test_uuid_column_is_converted_to_strings(self):
+        # pyarrow 24 infers the arrow.uuid extension type (FixedSizeBinary(16)) for
+        # object columns of uuid.UUID values, which VegaFusion cannot serialize.
+        ids = [uuid.uuid4(), uuid.uuid4()]
+        df = pd.DataFrame({"id": ids})
+
+        df_sanitized = sanitize_dataframe_for_chart(df)
+
+        self.assertEqual(df_sanitized["id"].tolist(), [str(ids[0]), str(ids[1])])
+        self.assertTrue(
+            all(isinstance(value, str) for value in df_sanitized["id"].tolist())
+        )
+
+    def test_uuid_column_with_nulls_preserves_nulls(self):
+        an_id = uuid.uuid4()
+        df = pd.DataFrame({"id": [an_id, None]})
+
+        df_sanitized = sanitize_dataframe_for_chart(df)
+
+        self.assertEqual(df_sanitized["id"].iloc[0], str(an_id))
+        self.assertTrue(pd.isna(df_sanitized["id"].iloc[1]))
+
+    def test_non_uuid_object_column_is_left_untouched(self):
+        df = pd.DataFrame({"text": ["a", "b"], "num": [1, 2]})
+
+        df_sanitized = sanitize_dataframe_for_chart(df)
+
+        self.assertEqual(df_sanitized["text"].tolist(), ["a", "b"])
+        self.assertEqual(df_sanitized["num"].tolist(), [1, 2])
+
+    def test_mixed_uuid_and_non_uuid_values_only_stringifies_uuids(self):
+        an_id = uuid.uuid4()
+        df = pd.DataFrame({"id": [an_id, "already-a-string"]})
+
+        df_sanitized = sanitize_dataframe_for_chart(df)
+
+        self.assertEqual(df_sanitized["id"].tolist(), [str(an_id), "already-a-string"])
+
+    def test_does_not_mutate_input_dataframe(self):
+        an_id = uuid.uuid4()
+        df = pd.DataFrame({"id": [an_id]})
+
+        sanitize_dataframe_for_chart(df)
+
+        # the original frame must keep the UUID object, sanitization works on a copy
+        self.assertIsInstance(df["id"].iloc[0], uuid.UUID)
+
+
+class TestSanitizePolarsDataframe(unittest.TestCase):
+    def test_object_column_with_uuids_is_stringified(self):
+        ids = [uuid.uuid4(), uuid.uuid4()]
+        df = pl.DataFrame({"id": ids})
+        # sanity check: polars represents UUID objects as the Object dtype
+        self.assertEqual(df.schema["id"], pl.Object)
+
+        df_sanitized = sanitize_polars_dataframe_for_chart(df)
+
+        self.assertEqual(df_sanitized.schema["id"], pl.String)
+        self.assertEqual(df_sanitized["id"].to_list(), [str(ids[0]), str(ids[1])])
+
+    def test_object_column_with_nulls_preserves_nulls(self):
+        an_id = uuid.uuid4()
+        df = pl.DataFrame({"id": [an_id, None]})
+
+        df_sanitized = sanitize_polars_dataframe_for_chart(df)
+
+        self.assertEqual(df_sanitized["id"].to_list(), [str(an_id), None])
+
+    def test_native_columns_are_left_untouched(self):
+        df = pl.DataFrame({"num": [1, 2, 3], "text": ["a", "b", "c"]})
+
+        df_sanitized = sanitize_polars_dataframe_for_chart(df)
+
+        self.assertEqual(df_sanitized.schema["num"], pl.Int64)
+        self.assertEqual(df_sanitized.schema["text"], pl.String)
+        self.assertEqual(df_sanitized["num"].to_list(), [1, 2, 3])
 
 
 class TestGetUsedFields(unittest.TestCase):
