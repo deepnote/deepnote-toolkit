@@ -314,6 +314,27 @@ class TestActionRegistry:
             "streamlit", "pip install streamlit"
         )
 
+    def test_streamlit_action_missing_directory(self, tmp_path):
+        """Test StreamlitSpec returns a failed result when the entrypoint directory is missing."""
+        nonexistent_dir = tmp_path / "deleted_folder"
+        action = StreamlitSpec(
+            script=str(nonexistent_dir / "app.py"),
+            port=8501,
+        )
+
+        mock_context = mock.Mock()
+        mock_context.python_executable.return_value = "python"
+        mock_context.logger = mock.Mock(spec=logging.Logger)
+
+        result = execute_action(action, mock_context)
+
+        assert result.success is False
+        assert result.is_long_running is False
+        assert result.process is None
+        mock_context.spawn.assert_not_called()
+        mock_context.logger.warning.assert_called_once()
+        assert "does not exist" in mock_context.logger.warning.call_args[0][0]
+
     def test_streamlit_action_no_port(self):
         """Test StreamlitSpec with auto-assigned port."""
         action = StreamlitSpec(script="app.py")
