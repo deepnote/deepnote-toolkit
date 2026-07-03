@@ -9,29 +9,34 @@ from pathlib import Path
 from typing import List
 
 BASE_PATH = "/deepnote-toolkit/"
+DEFAULT_DOWNLOAD_METHOD = "s3"
+OCI_ZSTD_DOWNLOAD_METHOD = "oci-zstd"
+DEFAULT_TOOLKIT_BUNDLE_OCI_REPOSITORY = "docker.io/deepnote/toolkit-bundle"
 
 
-def download_dependency(
-    release_name: str, python_version: str, toolkit_index_bucket_name: str
-):
-    """Download the dependencies for the given Python version and release name."""
+def build_toolkit_bundle_ref(
+    release_name: str,
+    python_version: str,
+    oci_repository: str = DEFAULT_TOOLKIT_BUNDLE_OCI_REPOSITORY,
+) -> str:
+    return f"{oci_repository}:{release_name}-python{python_version}-tar-zst"
 
-    version_path = os.path.join(BASE_PATH, release_name, f"python{python_version}")
-    done_file = os.path.join(version_path, f"{python_version}-done")
 
-    if Path(done_file).is_file():
-        print(
-            f"{datetime.datetime.now()}: {release_name} python{python_version} already cached, skipping download"
-        )
-        return
+def _read_stderr(process: subprocess.Popen) -> bytes:
+    if process.stderr is None:
+        return b""
+    return process.stderr.read()
 
-    # Create the version directory if it doesn't exist
-    os.makedirs(version_path, exist_ok=True)
 
+def download_dependency_from_s3(
+    release_name: str,
+    python_version: str,
+    toolkit_index_bucket_name: str,
+    version_path: str,
+) -> None:
     s3_path = f"s3://{toolkit_index_bucket_name}/deepnote-toolkit/{release_name}/python{python_version}.tar"
     print(f"{datetime.datetime.now()}: Downloading {release_name} {s3_path}")
 
-    # Use Popen to stream the data
     aws_process = subprocess.Popen(
         ["aws", "s3", "cp", "--no-sign-request", s3_path, "-"],
         stdout=subprocess.PIPE,
@@ -44,16 +49,13 @@ def download_dependency(
         stderr=subprocess.PIPE,
     )
     aws_process.stdout.close()  # Allow aws_process to receive a SIGPIPE if tar_process exits.
-    _, tar_process_stderr = (
-        tar_process.communicate()
-    )  # Wait for tar_process to complete
+    _, tar_process_stderr = tar_process.communicate()
     aws_process_returncode = aws_process.wait()
 
     if aws_process_returncode != 0:
         raise Exception(
-            f"Error downloading {release_name} (aws s3 command failed): aws stderr: {aws_process.stderr.read()}, tar stderr: {tar_process_stderr}"
+            f"Error downloading {release_name} (aws s3 command failed): aws stderr: {_read_stderr(aws_process)}, tar stderr: {tar_process_stderr}"
         )
-    # Check for errors
     if tar_process.returncode != 0:
         raise Exception(
             f"Error downloading {release_name} (tar command failed): {tar_process_stderr}"
@@ -62,12 +64,111 @@ def download_dependency(
     print(
         f"{datetime.datetime.now()}: Done downloading {release_name} {s3_path} and extracting to {version_path}"
     )
+
+
+def download_dependency_from_oci_zstd(
+    release_name: str,
+    python_version: str,
+    oci_repository: str,
+    version_path: str,
+) -> None:
+    artifact_file = f"python{python_version}.tar.zst"
+    artifact_ref = build_toolkit_bundle_ref(
+        release_name, python_version, oci_repository
+    )
+    print(f"{datetime.datetime.now()}: Downloading {release_name} {artifact_ref}")
+
+    regctl_process = subprocess.Popen(
+        ["regctl", "artifact", "get", "--file", artifact_file, artifact_ref],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    zstd_process = subprocess.Popen(
+        ["zstd", "-dc"],
+        stdin=regctl_process.stdout,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    regctl_process.stdout.close()
+    tar_process = subprocess.Popen(
+        ["tar", "-xf", "-", "-C", version_path],
+        stdin=zstd_process.stdout,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    zstd_process.stdout.close()
+
+    _, tar_process_stderr = tar_process.communicate()
+    zstd_process_returncode = zstd_process.wait()
+    regctl_process_returncode = regctl_process.wait()
+
+    if regctl_process_returncode != 0:
+        raise Exception(
+            f"Error downloading {release_name} (regctl command failed): regctl stderr: {_read_stderr(regctl_process)}, zstd stderr: {_read_stderr(zstd_process)}, tar stderr: {tar_process_stderr}"
+        )
+    if zstd_process_returncode != 0:
+        raise Exception(
+            f"Error downloading {release_name} (zstd command failed): zstd stderr: {_read_stderr(zstd_process)}, tar stderr: {tar_process_stderr}"
+        )
+    if tar_process.returncode != 0:
+        raise Exception(
+            f"Error downloading {release_name} (tar command failed): {tar_process_stderr}"
+        )
+
+    print(
+        f"{datetime.datetime.now()}: Done downloading {release_name} {artifact_ref} and extracting to {version_path}"
+    )
+
+
+def download_dependency(
+    release_name: str,
+    python_version: str,
+    toolkit_index_bucket_name: str,
+    download_method: str = DEFAULT_DOWNLOAD_METHOD,
+    oci_repository: str = DEFAULT_TOOLKIT_BUNDLE_OCI_REPOSITORY,
+):
+    """Download the dependencies for the given Python version and release name."""
+
+    version_path = os.path.join(BASE_PATH, release_name, f"python{python_version}")
+    done_file = os.path.join(version_path, f"{python_version}-done")
+
+    if Path(done_file).is_file():
+        print(
+            f"{datetime.datetime.now()}: {release_name} python{python_version} already cached, skipping download"
+        )
+        return
+
+    os.makedirs(version_path, exist_ok=True)
+
+    if download_method == DEFAULT_DOWNLOAD_METHOD:
+        download_dependency_from_s3(
+            release_name,
+            python_version,
+            toolkit_index_bucket_name,
+            version_path,
+        )
+    elif download_method == OCI_ZSTD_DOWNLOAD_METHOD:
+        download_dependency_from_oci_zstd(
+            release_name,
+            python_version,
+            oci_repository,
+            version_path,
+        )
+    else:
+        raise ValueError(
+            f"Unsupported TOOLKIT_DOWNLOAD_METHOD={download_method!r}; expected one of: {DEFAULT_DOWNLOAD_METHOD}, {OCI_ZSTD_DOWNLOAD_METHOD}"
+        )
+
     # Create the "done" file
     Path(done_file).touch()
 
 
 def submit_downloading(
-    python_versions: List[str], release_name: str, toolkit_index_bucket_name: str
+    python_versions: List[str],
+    release_name: str,
+    toolkit_index_bucket_name: str,
+    download_method: str = DEFAULT_DOWNLOAD_METHOD,
+    oci_repository: str = DEFAULT_TOOLKIT_BUNDLE_OCI_REPOSITORY,
 ):
     """Download the dependencies for the given Python versions and release name."""
 
@@ -78,6 +179,8 @@ def submit_downloading(
                 release_name,
                 python_version,
                 toolkit_index_bucket_name,
+                download_method,
+                oci_repository,
             )
             for python_version in python_versions
         ]
@@ -151,9 +254,19 @@ def main():
         sys.exit(1)
 
     toolkit_index_bucket_name = os.getenv("TOOLKIT_INDEX_BUCKET_NAME")
+    download_method = os.getenv("TOOLKIT_DOWNLOAD_METHOD", DEFAULT_DOWNLOAD_METHOD)
+    oci_repository = os.getenv(
+        "TOOLKIT_BUNDLE_OCI_REPOSITORY", DEFAULT_TOOLKIT_BUNDLE_OCI_REPOSITORY
+    )
 
     cleanup_old_versions(BASE_PATH, release_name)
-    submit_downloading(python_versions, release_name, toolkit_index_bucket_name)
+    submit_downloading(
+        python_versions,
+        release_name,
+        toolkit_index_bucket_name,
+        download_method,
+        oci_repository,
+    )
 
     end_time = datetime.datetime.now()
     print("End time:", end_time)

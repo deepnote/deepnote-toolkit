@@ -1,6 +1,8 @@
 FROM alpine:3.22
 
-RUN apk add --no-cache bash aws-cli python3
+RUN apk add --no-cache bash aws-cli ca-certificates python3 zstd
+
+COPY --from=docker.io/regclient/regctl:v0.11.5 /regctl /usr/local/bin/regctl
 
 COPY cache-downloader.py /usr/bin/cache-downloader
 RUN chmod 755 /usr/bin/cache-downloader
