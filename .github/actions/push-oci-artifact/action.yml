@@ -141,6 +141,9 @@ runs:
       run: |
         set -euo pipefail
 
+        workdir="$(mktemp -d)"
+        trap 'rm -rf "${workdir}"' EXIT
+
         manifest_annotations=(
           "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}"
           "org.opencontainers.image.revision=${GITHUB_SHA}"
@@ -182,7 +185,14 @@ runs:
             exit 1
           fi
 
-          oras_args+=("${file_path}:${media_type}")
+          file_name="$(basename "${file_path}")"
+          staged_path="${workdir}/${file_name}"
+          if [ -e "${staged_path}" ]; then
+            echo "Error: multiple OCI artifact files have the same basename: ${file_name}" >&2
+            exit 1
+          fi
+          cp "${file_path}" "${staged_path}"
+          oras_args+=("${file_name}:${media_type}")
           file_count=$((file_count + 1))
         done <<< "${FILES}"
 
@@ -191,6 +201,9 @@ runs:
           exit 1
         fi
 
-        oras "${oras_args[@]}"
+        (
+          cd "${workdir}"
+          oras "${oras_args[@]}"
+        )
         oras manifest fetch "${ARTIFACT_REF}" >/dev/null
         echo "Pushed ${ARTIFACT_REF}"
