@@ -102,7 +102,7 @@ jobs:
             sudo apt-get install --no-install-recommends -y zstd
           fi
 
-          zstd -T0 -3 -f \
+          zstd -T0 -6 -f \
             -o "dist/python${PYTHON_VERSION}.tar.zst" \
             "dist/python${PYTHON_VERSION}.tar"
 
