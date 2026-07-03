@@ -94,7 +94,7 @@ runs:
         layer_tar="${workdir}/rootfs.tar"
         layer_tar_gz="${workdir}/rootfs.tar.gz"
         tar -C "${rootfs_dir}" -cf "${layer_tar}" .
-        gzip -n -c "${layer_tar}" > "${layer_tar_gz}"
+        pigz -n -6 -p "$(nproc)" -c "${layer_tar}" > "${layer_tar_gz}"
 
         layer_diff_id="$(sha256sum "${layer_tar}" | awk '{print $1}')"
 
