@@ -89,6 +89,7 @@ jobs:
         run: |
           set -euo pipefail
           ./bin/build
+          sudo chown -R "$(id -u):$(id -g)" dist
 
       - name: Create zstd bundle artifact
         env:
