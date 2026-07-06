@@ -4,9 +4,10 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import List
+from typing import BinaryIO, List
 
 BASE_PATH = "/deepnote-toolkit/"
 DEFAULT_DOWNLOAD_METHOD = "s3"
@@ -22,10 +23,25 @@ def build_toolkit_bundle_ref(
     return f"{oci_repository}:{release_name}-python{python_version}-tar-zst"
 
 
-def _read_stderr(process: subprocess.Popen) -> bytes:
-    if process.stderr is None:
-        return b""
-    return process.stderr.read()
+def validate_download_config(
+    download_method: str,
+    toolkit_index_bucket_name: str | None,
+    oci_repository: str | None,
+) -> None:
+    valid_download_methods = {DEFAULT_DOWNLOAD_METHOD, OCI_ZSTD_DOWNLOAD_METHOD}
+    if download_method not in valid_download_methods:
+        raise ValueError(f"unsupported TOOLKIT_DOWNLOAD_METHOD={download_method!r}")
+    if download_method == DEFAULT_DOWNLOAD_METHOD and not toolkit_index_bucket_name:
+        raise ValueError("TOOLKIT_INDEX_BUCKET_NAME environment variable is not set")
+    if download_method == OCI_ZSTD_DOWNLOAD_METHOD and not oci_repository:
+        raise ValueError(
+            "TOOLKIT_BUNDLE_OCI_REPOSITORY environment variable is not set"
+        )
+
+
+def _read_file(file: BinaryIO) -> bytes:
+    file.seek(0)
+    return file.read()
 
 
 def download_dependency_from_s3(
@@ -37,28 +53,34 @@ def download_dependency_from_s3(
     s3_path = f"s3://{toolkit_index_bucket_name}/deepnote-toolkit/{release_name}/python{python_version}.tar"
     print(f"{datetime.datetime.now()}: Downloading {release_name} {s3_path}")
 
-    aws_process = subprocess.Popen(
-        ["aws", "s3", "cp", "--no-sign-request", s3_path, "-"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    tar_process = subprocess.Popen(
-        ["tar", "-xf", "-", "-C", version_path],
-        stdin=aws_process.stdout,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    aws_process.stdout.close()  # Allow aws_process to receive a SIGPIPE if tar_process exits.
-    _, tar_process_stderr = tar_process.communicate()
-    aws_process_returncode = aws_process.wait()
+    with (
+        tempfile.TemporaryFile() as aws_process_stderr,
+        tempfile.TemporaryFile() as tar_process_stderr,
+    ):
+        aws_process = subprocess.Popen(
+            ["aws", "s3", "cp", "--no-sign-request", s3_path, "-"],
+            stdout=subprocess.PIPE,
+            stderr=aws_process_stderr,
+        )
+        tar_process = subprocess.Popen(
+            ["tar", "-xf", "-", "-C", version_path],
+            stdin=aws_process.stdout,
+            stdout=subprocess.DEVNULL,
+            stderr=tar_process_stderr,
+        )
+        aws_process.stdout.close()  # Allow aws_process to receive a SIGPIPE if tar_process exits.
+        tar_process_returncode = tar_process.wait()
+        aws_process_returncode = aws_process.wait()
+        aws_process_stderr_bytes = _read_file(aws_process_stderr)
+        tar_process_stderr_bytes = _read_file(tar_process_stderr)
 
     if aws_process_returncode != 0:
         raise Exception(
-            f"Error downloading {release_name} (aws s3 command failed): aws stderr: {_read_stderr(aws_process)}, tar stderr: {tar_process_stderr}"
+            f"Error downloading {release_name} (aws s3 command failed): aws stderr: {aws_process_stderr_bytes}, tar stderr: {tar_process_stderr_bytes}"
         )
-    if tar_process.returncode != 0:
+    if tar_process_returncode != 0:
         raise Exception(
-            f"Error downloading {release_name} (tar command failed): {tar_process_stderr}"
+            f"Error downloading {release_name} (tar command failed): {tar_process_stderr_bytes}"
         )
 
     print(
@@ -78,41 +100,49 @@ def download_dependency_from_oci_zstd(
     )
     print(f"{datetime.datetime.now()}: Downloading {release_name} {artifact_ref}")
 
-    regctl_process = subprocess.Popen(
-        ["regctl", "artifact", "get", "--file", artifact_file, artifact_ref],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    zstd_process = subprocess.Popen(
-        ["zstd", "-dc"],
-        stdin=regctl_process.stdout,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    regctl_process.stdout.close()
-    tar_process = subprocess.Popen(
-        ["tar", "-xf", "-", "-C", version_path],
-        stdin=zstd_process.stdout,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    zstd_process.stdout.close()
+    with (
+        tempfile.TemporaryFile() as regctl_process_stderr,
+        tempfile.TemporaryFile() as zstd_process_stderr,
+        tempfile.TemporaryFile() as tar_process_stderr,
+    ):
+        regctl_process = subprocess.Popen(
+            ["regctl", "artifact", "get", "--file", artifact_file, artifact_ref],
+            stdout=subprocess.PIPE,
+            stderr=regctl_process_stderr,
+        )
+        zstd_process = subprocess.Popen(
+            ["zstd", "-dc"],
+            stdin=regctl_process.stdout,
+            stdout=subprocess.PIPE,
+            stderr=zstd_process_stderr,
+        )
+        regctl_process.stdout.close()
+        tar_process = subprocess.Popen(
+            ["tar", "-xf", "-", "-C", version_path],
+            stdin=zstd_process.stdout,
+            stdout=subprocess.DEVNULL,
+            stderr=tar_process_stderr,
+        )
+        zstd_process.stdout.close()
 
-    _, tar_process_stderr = tar_process.communicate()
-    zstd_process_returncode = zstd_process.wait()
-    regctl_process_returncode = regctl_process.wait()
+        tar_process_returncode = tar_process.wait()
+        zstd_process_returncode = zstd_process.wait()
+        regctl_process_returncode = regctl_process.wait()
+        regctl_process_stderr_bytes = _read_file(regctl_process_stderr)
+        zstd_process_stderr_bytes = _read_file(zstd_process_stderr)
+        tar_process_stderr_bytes = _read_file(tar_process_stderr)
 
     if regctl_process_returncode != 0:
         raise Exception(
-            f"Error downloading {release_name} (regctl command failed): regctl stderr: {_read_stderr(regctl_process)}, zstd stderr: {_read_stderr(zstd_process)}, tar stderr: {tar_process_stderr}"
+            f"Error downloading {release_name} (regctl command failed): regctl stderr: {regctl_process_stderr_bytes}, zstd stderr: {zstd_process_stderr_bytes}, tar stderr: {tar_process_stderr_bytes}"
         )
     if zstd_process_returncode != 0:
         raise Exception(
-            f"Error downloading {release_name} (zstd command failed): zstd stderr: {_read_stderr(zstd_process)}, tar stderr: {tar_process_stderr}"
+            f"Error downloading {release_name} (zstd command failed): zstd stderr: {zstd_process_stderr_bytes}, tar stderr: {tar_process_stderr_bytes}"
         )
-    if tar_process.returncode != 0:
+    if tar_process_returncode != 0:
         raise Exception(
-            f"Error downloading {release_name} (tar command failed): {tar_process_stderr}"
+            f"Error downloading {release_name} (tar command failed): {tar_process_stderr_bytes}"
         )
 
     print(
@@ -258,6 +288,14 @@ def main():
     oci_repository = os.getenv(
         "TOOLKIT_BUNDLE_OCI_REPOSITORY", DEFAULT_TOOLKIT_BUNDLE_OCI_REPOSITORY
     )
+
+    try:
+        validate_download_config(
+            download_method, toolkit_index_bucket_name, oci_repository
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}")
+        sys.exit(1)
 
     cleanup_old_versions(BASE_PATH, release_name)
     submit_downloading(

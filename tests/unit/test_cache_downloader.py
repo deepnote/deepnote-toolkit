@@ -23,6 +23,7 @@ _spec.loader.exec_module(_mod)
 cleanup_old_versions = _mod.cleanup_old_versions
 build_toolkit_bundle_ref = _mod.build_toolkit_bundle_ref
 download_dependency = _mod.download_dependency
+validate_download_config = _mod.validate_download_config
 
 
 class TestCleanupOldVersions:
@@ -174,6 +175,26 @@ class TestCleanupOldVersions:
 
 
 class TestDownloadDependency:
+    def test_validate_download_config_accepts_s3_bucket(self):
+        validate_download_config("s3", "fake-bucket", None)
+
+    def test_validate_download_config_accepts_oci_repository(self):
+        validate_download_config(
+            "oci-zstd", None, "registry.example.com/deepnote/toolkit-bundle"
+        )
+
+    def test_validate_download_config_rejects_unknown_method(self):
+        with pytest.raises(ValueError, match="unsupported TOOLKIT_DOWNLOAD_METHOD"):
+            validate_download_config("unknown", "fake-bucket", None)
+
+    def test_validate_download_config_rejects_missing_s3_bucket(self):
+        with pytest.raises(ValueError, match="TOOLKIT_INDEX_BUCKET_NAME"):
+            validate_download_config("s3", None, None)
+
+    def test_validate_download_config_rejects_missing_oci_repository(self):
+        with pytest.raises(ValueError, match="TOOLKIT_BUNDLE_OCI_REPOSITORY"):
+            validate_download_config("oci-zstd", None, "")
+
     def test_build_toolkit_bundle_ref(self):
         assert (
             build_toolkit_bundle_ref(
@@ -211,8 +232,7 @@ class TestDownloadDependency:
         mock_aws.wait.return_value = 0
 
         mock_tar = MagicMock()
-        mock_tar.communicate.return_value = (b"", b"")
-        mock_tar.returncode = 0
+        mock_tar.wait.return_value = 0
 
         with (
             patch.object(_mod, "BASE_PATH", str(tmp_path)),
@@ -258,8 +278,7 @@ class TestDownloadDependency:
         mock_zstd.wait.return_value = 0
 
         mock_tar = MagicMock()
-        mock_tar.communicate.return_value = (b"", b"")
-        mock_tar.returncode = 0
+        mock_tar.wait.return_value = 0
 
         with (
             patch.object(_mod, "BASE_PATH", str(tmp_path)),
