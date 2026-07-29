@@ -439,10 +439,10 @@ def _execute_sql_with_caching(
     integration_id = sql_alchemy_dict.get("integration_id")
     can_get_sql_cache = integration_id is not None and sql_caching_enabled
 
-    cache_upload_url = None
+    cache_upload = None
 
     if can_get_sql_cache:
-        dataframe_from_cache, cache_upload_url = get_sql_cache(
+        dataframe_from_cache, cache_upload = get_sql_cache(
             query, bind_params, integration_id, sql_cache_mode, return_variable_type
         )
         if dataframe_from_cache is not None:
@@ -461,7 +461,7 @@ def _execute_sql_with_caching(
         query_with_audit_comment,
         bind_params,
         sql_alchemy_dict,
-        cache_upload_url,
+        cache_upload,
         return_variable_type,
         query_preview_source,  # The original query before any transformations such as appending a LIMIT clause
     )
@@ -492,7 +492,7 @@ def _query_data_source(
     query,
     bind_params,
     sql_alchemy_dict,
-    cache_upload_url,
+    cache_upload,
     return_variable_type,
     query_preview_source,
 ):
@@ -536,8 +536,8 @@ def _query_data_source(
             # if df is larger than 5GB, don't upload it. See NB-988
             dataframe_is_cacheable = dataframe_size_in_bytes < 5 * 1024 * 1024 * 1024
 
-            if cache_upload_url is not None and dataframe_is_cacheable:
-                upload_sql_cache(dataframe, cache_upload_url)
+            if cache_upload is not None and dataframe_is_cacheable:
+                upload_sql_cache(dataframe, cache_upload)
 
             return dataframe
         finally:
