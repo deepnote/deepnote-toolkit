@@ -20,23 +20,17 @@ from ..logging import get_logger
 # Initialize logger
 logger = get_logger()
 
-# Only the connect phase is bounded. A read timeout would abort slow but healthy
-# transfers of large cache objects, which would be a regression.
-_OBJECT_STORE_TIMEOUT: tuple[int, None] = (5, None)
+# The read timeout bounds the gap between two received chunks, not the transfer as
+# a whole, so it cannot abort a large but healthy download.
+_OBJECT_STORE_TIMEOUT: tuple[int, int] = (5, 60)
 
-# Bounds on every piece of third-party text that can reach a log entry
 _MAX_ERROR_BODY_BYTES = 4096
 _MAX_ERROR_FIELD_CHARS = 500
 _MAX_OBJECT_PATH_CHARS = 200
-# An exception message is the one input that is not already bounded by the time it
-# is redacted, so it is cut first. The margin over _MAX_ERROR_FIELD_CHARS leaves
-# room for the text to grow as placeholders replace what they redact.
 _MAX_RAW_EXCEPTION_CHARS = _MAX_ERROR_FIELD_CHARS * 4
 
-# Strips the query string off anything URL-shaped, including the scheme-less,
-# path-only form that urllib3 puts in its connection error messages. The character
-# classes exclude whitespace and angle brackets, so a match can never span an XML
-# tag boundary or swallow ordinary prose containing a question mark.
+# Matches the scheme-less, path-only form that urllib3 puts in its connection
+# error messages as well as a whole URL
 _URL_QUERY_PATTERN = re.compile(
     r"((?:https?://)?[^\s?\"'<>]*/[^\s?\"'<>]*)\?[^\s\"'<>]*"
 )
@@ -46,53 +40,37 @@ _AWS_CREDENTIAL_PARAM_PATTERN = re.compile(
     r"(X-(?:Amz|Goog)-(?:Credential|Security-Token|Signature)=)[^&\s\"'<>]*",
     re.IGNORECASE,
 )
-# S3 states the real cause of a failure in an XML body. <Expires> and <ServerTime>
-# accompany a rejection for an elapsed signature and are AWS's own answer to
-# whether the URL ran out of time, independent of this pod's clock.
+# urlsplit only splits on a literal '?', so an over-encoded URL keeps its signed
+# query string in the path
+_ENCODED_QUERY_SEPARATOR = re.compile("%3F", re.IGNORECASE)
+# <Expires> and <ServerTime> are AWS's own answer to whether the URL ran out of
+# time, independent of this pod's clock
 _S3_ERROR_FIELD_PATTERN = re.compile(
     r"<(Code|Message|Expires|ServerTime)>(.*?)</\1>", re.DOTALL | re.IGNORECASE
 )
 
 
 class SqlCacheUpload(NamedTuple):
-    """A presigned upload URL together with the moment it was issued.
-
-    The URL is obtained before the query runs and used only after the query
-    completes and its result is serialized, so all of that has to fit inside the
-    URL's signed lifetime. Carrying issued_at is what makes that measurable.
-    """
+    """A presigned upload URL together with the moment it was issued."""
 
     url: str
-    # time.monotonic() taken just before the URL was requested from the webapp
     issued_at: float
 
 
 class _SqlCacheHttpError(Exception):
     """A non-2xx response from the cache object store.
 
-    Carries pre-computed, non-sensitive diagnostics for the caller to log. Its own
-    string representation deliberately contains no URL.
+    Its own string representation deliberately contains no URL.
     """
 
     def __init__(self, diagnostics: dict[str, Any]) -> None:
-        """Store diagnostics already extracted from the failed response.
-
-        Args:
-            diagnostics (dict): Log-safe fields describing the response.
-        """
+        """Store log-safe diagnostics already taken from the failed response."""
         super().__init__("SQL cache object store returned an error response")
         self.diagnostics = diagnostics
 
 
 def _redact_sensitive(text: str) -> str:
-    """Strip credential-bearing material from text destined for a log.
-
-    Dropping the query string from anything URL-shaped is the primary defence:
-    presigned URLs carry X-Amz-Credential and X-Amz-Security-Token there, and
-    urllib3 embeds the requested path and its query in every connection error.
-    Blanking named signing parameters is a backstop for the same values appearing
-    without a URL in front of them.
-    """
+    """Strip credential-bearing material from text destined for a log."""
     redacted = _URL_QUERY_PATTERN.sub(r"\1?<redacted>", text)
     return _AWS_CREDENTIAL_PARAM_PATTERN.sub(r"\1<redacted>", redacted)
 
@@ -108,27 +86,17 @@ def _to_int_or_none(value: Optional[str]) -> Optional[int]:
         return None
 
 
-def _seconds_since(issued_at: float) -> Optional[float]:
-    """Monotonic seconds elapsed since issued_at, or None if it is not a number.
-
-    Guarded because it is evaluated while building a log entry, in a function
-    documented as never failing the user's query.
-    """
-    try:
-        return round(time.monotonic() - issued_at, 1)
-    except Exception:
+def _seconds_between(start: Optional[float], end: Optional[float]) -> Optional[float]:
+    """Monotonic seconds from start to end, or None when either was not taken."""
+    if start is None or end is None:
         return None
+
+    return round(end - start, 1)
 
 
 def _safe_url_path(url: str) -> Optional[str]:
-    """The bounded path of a URL, or None when the URL cannot be parsed.
-
-    The query string is never returned, and neither is the input itself when
-    urlsplit rejects it.
-    """
+    """The bounded path of a URL, or None when the URL cannot be parsed."""
     if not isinstance(url, str):
-        # urlsplit(None) answers with bytes-valued fields instead of raising, and a
-        # bytes value in extra silently discards the whole error report
         return None
 
     try:
@@ -138,12 +106,7 @@ def _safe_url_path(url: str) -> Optional[str]:
 
 
 def _describe_presigned_url(url: str) -> dict[str, Any]:
-    """Object path and declared expiry, without the credential-bearing query string.
-
-    The query string of a presigned URL carries X-Amz-Credential and
-    X-Amz-Security-Token and must never reach a log, so it is never returned - not
-    even when the URL cannot be parsed.
-    """
+    """Object path and declared expiry, without the credential-bearing query string."""
     if not isinstance(url, str):
         # urlsplit(None) answers with bytes-valued fields instead of raising, and a
         # bytes value in extra silently discards the whole error report
@@ -152,43 +115,49 @@ def _describe_presigned_url(url: str) -> dict[str, Any]:
     try:
         parts = urlsplit(url)
         expires_values = parse_qs(parts.query).get("X-Amz-Expires")
+        path = _ENCODED_QUERY_SEPARATOR.split(parts.path, maxsplit=1)[0]
         return {
             # hostname rather than netloc, which would carry any user:pass@ userinfo
             "object_host": parts.hostname,
-            "object_path": parts.path[:_MAX_OBJECT_PATH_CHARS],
+            # cut for an encoded '?', redacted for separators urlsplit ignores
+            "object_path": _redact_sensitive(path[:_MAX_OBJECT_PATH_CHARS]),
             "url_expires_in": _to_int_or_none(
                 expires_values[0] if expires_values else None
             ),
         }
     except Exception:
-        # Built purely from literals, so an unparseable URL cannot leak through
-        # the failure path either
         return {"object_host": None, "object_path": None, "url_expires_in": None}
 
 
 def _read_response_body_prefix(response: requests.Response) -> Optional[str]:
     """Decode a bounded prefix of a response body, or None when it is unreadable.
 
-    The prefix is sliced off the raw bytes before decoding, so an oversized or
-    mis-declared body costs nothing to inspect and binary content cannot raise.
+    Taken off the wire rather than sliced off response.content, which would
+    download the whole body first, and accumulated rather than read once, because
+    a chunked response answers with one HTTP chunk per read however large a size
+    is asked for.
     """
     try:
-        return response.content[:_MAX_ERROR_BODY_BYTES].decode(
-            "utf-8", errors="replace"
-        )
+        chunks = []
+        length = 0
+        for chunk in response.iter_content(_MAX_ERROR_BODY_BYTES):
+            chunks.append(chunk)
+            length += len(chunk)
+            if length >= _MAX_ERROR_BODY_BYTES:
+                break
+
+        prefix = b"".join(chunks)[:_MAX_ERROR_BODY_BYTES]
+        return prefix.decode("utf-8", errors="replace")
     except Exception:
-        # A truncated or badly encoded transfer. The caller still has the status
-        # code, which is worth logging on its own.
         return None
 
 
 def _describe_s3_error(response: requests.Response) -> dict[str, Any]:
     """Non-sensitive diagnostics from a failed response from the object store.
 
-    Only <Code>, <Message>, <Expires> and <ServerTime> are taken from the body,
-    because the other elements of an S3 error document (<CanonicalRequest>,
-    <StringToSign>, <AWSAccessKeyId>) echo the signed query string and with it the
-    credentials this module must not log.
+    Only the allowlisted fields are taken from the body, because the other
+    elements of an S3 error document (<CanonicalRequest>, <StringToSign>,
+    <AWSAccessKeyId>) echo the signed query string and with it the credentials.
     """
     diagnostics: dict[str, Any] = {
         "status_code": response.status_code,
@@ -221,8 +190,7 @@ def _describe_s3_error(response: requests.Response) -> dict[str, Any]:
             diagnostics[key] = _redact_sensitive(value)[:_MAX_ERROR_FIELD_CHARS]
 
     if diagnostics["s3_error_code"] is None:
-        # Not an S3 error document - a proxy or gateway answered instead. Keep a
-        # short redacted snippet so that case stays diagnosable.
+        # Not an S3 error document - a proxy or gateway answered instead
         diagnostics["response_body_snippet"] = _redact_sensitive(body)[
             :_MAX_ERROR_FIELD_CHARS
         ]
@@ -236,9 +204,7 @@ def _describe_exception(exc: BaseException) -> dict[str, Any]:
         return dict(exc.diagnostics)
 
     # Cut before redacting rather than after: the URL pattern backtracks over every
-    # start position in a long run of non-separator characters, and an exception
-    # message has no bound of its own. Cutting a query string short is safe, since
-    # the pattern consumes to the end of the string either way.
+    # start position, and an exception message has no bound of its own
     message = _redact_sensitive(str(exc)[:_MAX_RAW_EXCEPTION_CHARS])
     return {
         "error_type": type(exc).__name__,
@@ -281,8 +247,7 @@ def get_sql_cache(
     query_hash = _generate_cache_key(query, bind_params)
 
     # Taken before the request because the webapp signs the upload URL somewhere
-    # inside this round trip, which makes it a conservative upper bound on how much
-    # of the URL's lifetime has been spent by the time we come to use it
+    # inside this round trip, which makes it a conservative upper bound
     requested_at = time.monotonic()
 
     cache_info = None
@@ -360,20 +325,16 @@ def upload_sql_cache(dataframe: pd.DataFrame, upload: SqlCacheUpload) -> None:
     Caching is best effort: every failure is logged under a constant message, with
     all variable data in extra so occurrences group, and then swallowed so that it
     can never fail the user's query.
-
-    Args:
-        dataframe (pd.DataFrame): The query result to cache.
-        upload (SqlCacheUpload): The presigned upload URL and when it was issued.
     """
 
+    put_started_at: Optional[float] = None
     try:
         with tempfile.TemporaryFile() as temp_file:
             try:
                 _serialize_dataframe_for_cache(dataframe, temp_file)
             except Exception as exc:
-                # Nothing was sent, so this is not an upload failure and gets its own
-                # cause. Only the type is logged: serialization errors quote the
-                # user's column names.
+                # Only the type is logged: serialization errors quote the user's
+                # column names
                 logger.error(
                     "Failed to upload SQL cache",
                     extra={
@@ -384,7 +345,9 @@ def upload_sql_cache(dataframe: pd.DataFrame, upload: SqlCacheUpload) -> None:
                 return
 
             temp_file.seek(0)
-            # PUT the file to the pre-signed s3 url
+            # S3 checks a presigned signature when the request arrives rather than
+            # when it finishes, so this is the age that decided whether it was valid
+            put_started_at = time.monotonic()
             response = requests.put(
                 upload.url, data=temp_file, timeout=_OBJECT_STORE_TIMEOUT
             )
@@ -396,7 +359,6 @@ def upload_sql_cache(dataframe: pd.DataFrame, upload: SqlCacheUpload) -> None:
         # interpolates the whole presigned URL and discards S3's error body
         failure = _describe_s3_error(response)
     except Exception as exc:
-        # The request never completed, so there is no response to describe
         failure = _describe_exception(exc)
 
     logger.error(
@@ -405,7 +367,14 @@ def upload_sql_cache(dataframe: pd.DataFrame, upload: SqlCacheUpload) -> None:
             "sql_caching_cause": "failed_to_upload_to_cache",
             **failure,
             **_describe_presigned_url(upload.url),
-            "seconds_since_url_issued": _seconds_since(upload.issued_at),
+            "seconds_since_url_issued": _seconds_between(
+                upload.issued_at, put_started_at
+            ),
+            # Separate field so "the URL was already old" stays distinguishable
+            # from "the transfer was slow"
+            "upload_duration_seconds": _seconds_between(
+                put_started_at, time.monotonic()
+            ),
         },
     )
 
@@ -416,11 +385,18 @@ def _try_read_cache(download_url: str) -> pd.DataFrame:
     The object is fetched explicitly instead of handing the URL to pandas, which
     fetches it with urllib and so raises before S3's error body is ever read.
     """
-    response = requests.get(download_url, timeout=_OBJECT_STORE_TIMEOUT)
-    if response.status_code >= 400:
-        raise _SqlCacheHttpError(_describe_s3_error(response))
+    # Streamed so that a failed download costs a bounded prefix rather than the
+    # whole error body, and so the rest of it is dropped with the connection
+    with requests.get(
+        download_url, timeout=_OBJECT_STORE_TIMEOUT, stream=True
+    ) as response:
+        if response.status_code >= 400:
+            raise _SqlCacheHttpError(_describe_s3_error(response))
 
-    buffer = BytesIO(response.content)
+        # Read inside the block: once it exits, the body reads back as empty
+        # rather than raising, which would cache-miss every hit in silence
+        buffer = BytesIO(response.content)
+
     try:
         # Attempt to read as a parquet file
         return pd.read_parquet(buffer)
@@ -431,8 +407,6 @@ def _try_read_cache(download_url: str) -> pd.DataFrame:
         # (see .to_pickle fallback in upload_sql_cache)
         pass
 
-    # The failed parquet read left the cursor part-way through the buffer. Reading
-    # from the URL used to start a fresh download for each attempt.
     buffer.seek(0)
     return pd.read_pickle(buffer)
 
@@ -446,16 +420,7 @@ def _generate_cache_key(query, bind_params):
 def _request_cache_info_from_webapp(
     query_hash: str, integration_id: str, sql_cache_mode: str
 ) -> Optional[dict[str, Any]]:
-    """Ask the webapp what the cache holds for this query.
-
-    Args:
-        query_hash (str): The cache key derived from the query and its params.
-        integration_id (str): The integration ID associated with the cache.
-        sql_cache_mode (str): The mode of the SQL cache.
-
-    Returns:
-        The cache info, or None when caching is disabled or unavailable.
-    """
+    """The cache info for this query, or None when caching is off or unavailable."""
     # calls https://github.com/deepnote/deepnote/blob/eb96467937de12db8b588e5aa0a80244cec7eae7/apps/webapp/server/api/userpod-api.ts#L133
     sql_cache_url = get_absolute_userpod_api_url(
         f"integrations/{integration_id}/sql-cache?sqlCacheKey={query_hash}&sqlCacheMode={sql_cache_mode}"

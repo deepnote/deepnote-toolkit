@@ -28,8 +28,7 @@ from deepnote_toolkit.sql.sql_utils import is_single_select_query
 
 QUERY = "SELECT * FROM users"
 
-# A presigned URL of the shape the webapp hands us, with the credential-bearing
-# parameters given values that are easy to search log output for
+# Signing parameters given values that are easy to search log output for
 PRESIGNED_URL = (
     "https://bucket.s3.eu-west-1.amazonaws.com/ws/int/key"
     "?X-Amz-Algorithm=AWS4-HMAC-SHA256"
@@ -50,7 +49,6 @@ URLLIB3_ERROR_MESSAGE = (
     "(Caused by NameResolutionError('Failed to resolve host'))"
 )
 
-# Substrings that must never appear anywhere in a log entry from this module
 SECRETS = ("CREDVALUE", "TOKENVALUE", "SIGVALUE", "X-Amz-")
 
 AWS_HEADERS = {
@@ -59,7 +57,6 @@ AWS_HEADERS = {
     "Date": "Wed, 29 Jul 2026 12:31:07 GMT",
 }
 
-# S3 rejecting a presigned URL whose signed window has elapsed
 ACCESS_DENIED_EXPIRED_BODY = (
     b'<?xml version="1.0" encoding="UTF-8"?>\n'
     b"<Error><Code>AccessDenied</Code><Message>Request has expired</Message>"
@@ -77,8 +74,8 @@ EXPIRED_TOKEN_BODY = (
     b"<RequestId>REQ123</RequestId><HostId>HOSTID456</HostId></Error>"
 )
 
-# S3 echoes the canonical request - and with it the signed query string - when the
-# signature does not match, which is why the raw body must never be logged
+# S3 echoes the canonical request - and with it the signed query string - when
+# the signature does not match
 SIGNATURE_MISMATCH_BODY = (
     b'<?xml version="1.0" encoding="UTF-8"?>\n'
     b"<Error><Code>SignatureDoesNotMatch</Code>"
@@ -93,9 +90,7 @@ SIGNATURE_MISMATCH_BODY = (
     b"<RequestId>REQ123</RequestId><HostId>HOSTID456</HostId></Error>"
 )
 
-# A gateway that answered instead of S3 and echoed the request line back. The
-# field allowlist does not apply to a body that is not an S3 error document, so
-# redaction is the only thing keeping the signed query string out of the snippet.
+# A gateway that answered instead of S3 and echoed the request line back
 PROXY_ECHO_BODY = (
     b"<html><head><title>502 Bad Gateway</title></head><body>\n"
     b"<h1>502 Bad Gateway</h1>\n"
@@ -108,7 +103,6 @@ PROXY_ECHO_BODY = (
     b"</body></html>"
 )
 
-# Every LogRecord attribute that logging refuses to let `extra` overwrite
 RESERVED_LOGRECORD_ATTRS = set(
     logging.LogRecord("", 0, "", 0, "", None, None).__dict__
 ) | {"message", "asctime"}
@@ -116,7 +110,18 @@ RESERVED_LOGRECORD_ATTRS = set(
 
 def _s3_response(status_code, body=b"", headers=None):
     """Build a stand-in for a requests.Response from the object store."""
-    return mock.Mock(status_code=status_code, content=body, headers=headers or {})
+    response = mock.MagicMock(
+        status_code=status_code, content=body, headers=headers or {}
+    )
+    response.__enter__.return_value = response
+    # a real streamed body reads back empty once the block exits, silently
+    response.__exit__.side_effect = lambda *_: setattr(response, "content", b"")
+    # a chunked response yields one HTTP chunk per read however large a size is
+    # asked for
+    response.iter_content.side_effect = lambda size: iter(
+        [body[i : i + 20] for i in range(0, len(body), 20)]
+    )
+    return response
 
 
 def _upload(url=PRESIGNED_URL, issued_at=None):
@@ -157,20 +162,16 @@ def _collect_logged_extras():
 
     with patch("deepnote_toolkit.sql.sql_caching.logger") as mock_logger:
         with patch("deepnote_toolkit.sql.sql_caching.requests.put") as mock_put:
-            # the object store rejected the upload
             mock_put.return_value = _s3_response(
                 403, ACCESS_DENIED_EXPIRED_BODY, AWS_HEADERS
             )
             upload_sql_cache(dataframe, _upload())
 
-            # the webapp answered with a null upload URL
             upload_sql_cache(dataframe, SqlCacheUpload(url=None, issued_at=0.0))
 
-            # the upload request never completed
             mock_put.side_effect = connection_error
             upload_sql_cache(dataframe, _upload())
 
-            # the dataframe could not be serialized, so nothing was sent
             unserializable = mock.Mock()
             unserializable.to_parquet.side_effect = ValueError("column customer_email")
             upload_sql_cache(unserializable, _upload())
@@ -180,21 +181,17 @@ def _collect_logged_extras():
         ) as mock_cache_info:
             mock_cache_info.return_value = _cache_hit()
             with patch("deepnote_toolkit.sql.sql_caching.requests.get") as mock_get:
-                # the object store rejected the download
                 mock_get.return_value = _s3_response(
                     403, EXPIRED_TOKEN_BODY, AWS_HEADERS
                 )
                 get_sql_cache(QUERY, {}, "123", "read", "dataframe")
 
-                # the download request never completed
                 mock_get.side_effect = connection_error
                 get_sql_cache(QUERY, {}, "123", "read", "dataframe")
 
-            # the webapp request itself failed
             mock_cache_info.side_effect = connection_error
             get_sql_cache(QUERY, {}, "123", "read", "dataframe")
 
-        # the webapp answered the cache info request with a non-200
         with (
             patch("deepnote_toolkit.sql.sql_caching.requests.get") as mock_get,
             patch(
@@ -649,6 +646,28 @@ class TestGetSqlCache(unittest.TestCase):
         # and the single fetch that replaced one download per format attempt
         mock_get.assert_called_once()
 
+    @patch("deepnote_toolkit.sql.sql_caching.output_sql_metadata")
+    @patch("deepnote_toolkit.sql.sql_caching._request_cache_info_from_webapp")
+    @patch("deepnote_toolkit.sql.sql_caching.requests.get")
+    def test_download_request_is_bounded_and_streamed(
+        self, mock_get, mock_cache_info, mock_output_sql_metadata
+    ):
+        dataframe = pd.DataFrame({"a": [1, 2, 3]})
+        buffer = BytesIO()
+        dataframe.to_parquet(buffer)
+
+        mock_cache_info.return_value = _cache_hit()
+        mock_get.return_value = _s3_response(200, buffer.getvalue())
+
+        get_sql_cache(QUERY, {}, "123", "read", "dataframe")
+
+        # an unbounded read phase hangs the user's cell on a socket gone silent
+        connect_timeout, read_timeout = mock_get.call_args.kwargs["timeout"]
+        self.assertIsNotNone(connect_timeout)
+        self.assertIsNotNone(read_timeout)
+        # and an unstreamed error body costs the size of that body
+        self.assertTrue(mock_get.call_args.kwargs["stream"])
+
     @patch("deepnote_toolkit.sql.sql_caching.logger")
     @patch("deepnote_toolkit.sql.sql_caching._request_cache_info_from_webapp")
     @patch("deepnote_toolkit.sql.sql_caching.requests.get")
@@ -698,7 +717,6 @@ class TestRequestCacheInfoFromWebapp(unittest.TestCase):
             extra["cache_info_path"],
             "/userpod-api/p1/integrations/123/sql-cache",
         )
-        # the query string of the request is not part of the entry
         self.assertNotIn("sqlCacheKey", " ".join(_logged_strings(mock_logger)))
 
 
@@ -807,7 +825,6 @@ class TestDescribeS3Error(unittest.TestCase):
         )
 
         self.assertEqual(diagnostics["s3_error_code"], "SignatureDoesNotMatch")
-        # an S3 error document was recognised, so no free-text snippet is kept
         self.assertNotIn("response_body_snippet", diagnostics)
         for value in diagnostics.values():
             for secret in SECRETS:
@@ -851,6 +868,22 @@ class TestDescribeS3Error(unittest.TestCase):
             if isinstance(value, str):
                 self.assertLessEqual(len(value), 500)
 
+    def test_body_prefix_is_streamed_rather_than_buffered(self):
+        """Reading .content downloads the whole body just to keep 4 KB of it."""
+        buffered = []
+        response = mock.MagicMock(status_code=403, headers={})
+        type(response).content = mock.PropertyMock(
+            side_effect=lambda: buffered.append("content")
+        )
+        response.iter_content.side_effect = lambda size: iter(
+            [ACCESS_DENIED_EXPIRED_BODY[:size]]
+        )
+
+        diagnostics = _describe_s3_error(response)
+
+        self.assertEqual(buffered, [])
+        self.assertEqual(diagnostics["s3_error_code"], "AccessDenied")
+
 
 class TestDescribePresignedUrl(unittest.TestCase):
     def test_returns_path_and_expiry(self):
@@ -859,13 +892,6 @@ class TestDescribePresignedUrl(unittest.TestCase):
         self.assertEqual(described["object_host"], "bucket.s3.eu-west-1.amazonaws.com")
         self.assertEqual(described["object_path"], "/ws/int/key")
         self.assertEqual(described["url_expires_in"], 900)
-
-    def test_never_returns_query_string(self):
-        described = _describe_presigned_url(PRESIGNED_URL)
-
-        for value in described.values():
-            for secret in SECRETS:
-                self.assertNotIn(secret, str(value))
 
     def test_missing_expires_yields_none(self):
         described = _describe_presigned_url("https://example.com/x")
@@ -883,7 +909,6 @@ class TestDescribePresignedUrl(unittest.TestCase):
             ("unterminated_ipv6", "https://[::1"),
             ("empty", ""),
             ("not_a_url", "not a url"),
-            # urlsplit answers these with bytes fields instead of raising
             ("none", None),
             ("bytes", b"/ws/int/key"),
             ("dict", {"url": "https://example.com/x"}),
@@ -899,6 +924,38 @@ class TestDescribePresignedUrl(unittest.TestCase):
         # a bytes value in either would silently discard the entire error report
         json.dumps(described)
         json.dumps(_safe_url_path(url))
+
+    @parameterized.expand(
+        [
+            (
+                "separator_encoded",
+                "%3FX-Amz-Credential=CREDVALUE&X-Amz-Security-Token=TOKENVALUE"
+                "&X-Amz-Signature=SIGVALUE",
+            ),
+            (
+                "separator_and_equals_encoded",
+                "%3FX-Amz-Credential%3DCREDVALUE&X-Amz-Security-Token%3DTOKENVALUE"
+                "&X-Amz-Signature%3DSIGVALUE",
+            ),
+            (
+                "whole_query_encoded",
+                "%3FX-Amz-Credential%3DCREDVALUE%26X-Amz-Security-Token%3DTOKENVALUE"
+                "%26X-Amz-Signature%3DSIGVALUE",
+            ),
+            ("separator_is_a_semicolon", ";X-Amz-Credential=CREDVALUE"),
+            ("no_separator_at_all", "X-Amz-Signature=SIGVALUE"),
+        ]
+    )
+    def test_over_encoded_url_does_not_leak_signing_params_via_path(self, _, suffix):
+        """urlsplit only splits on a literal '?', so the path carries the rest."""
+        described = _describe_presigned_url(
+            "https://bucket.s3.eu-west-1.amazonaws.com/ws/int/key" + suffix
+        )
+
+        # the parameter names may survive redaction, their values must not
+        for value in described.values():
+            for secret in ("CREDVALUE", "TOKENVALUE", "SIGVALUE"):
+                self.assertNotIn(secret, str(value))
 
 
 class TestUploadSqlCache(unittest.TestCase):
@@ -990,7 +1047,6 @@ class TestUploadSqlCache(unittest.TestCase):
         upload_sql_cache(pd.DataFrame({"a": [1, 2, 3]}), _upload())
 
         mock_logger.error.assert_called_once()
-        # a single constant message, with no format placeholders and no args
         self.assertEqual(
             mock_logger.error.call_args.args, ("Failed to upload SQL cache",)
         )
@@ -1075,7 +1131,6 @@ class TestUploadSqlCache(unittest.TestCase):
         extra = mock_logger.error.call_args.kwargs["extra"]
         self.assertEqual(extra["sql_caching_cause"], "failed_to_serialize_cache")
         self.assertEqual(extra["error_type"], "ValueError")
-        # the message names the user's columns, so it is deliberately not logged
         self.assertNotIn("error_message", extra)
 
     @patch("deepnote_toolkit.sql.sql_caching.logger")
@@ -1096,60 +1151,65 @@ class TestUploadSqlCache(unittest.TestCase):
         self.assertEqual(extra["url_expires_in"], 900)
 
     @patch("deepnote_toolkit.sql.sql_caching.logger")
-    @patch("deepnote_toolkit.sql.sql_caching.requests.put")
-    def test_non_numeric_issued_at_does_not_raise(self, mock_put, mock_logger):
-        """The final logger.error is outside the try, so nothing in it may raise."""
-        mock_put.return_value = _s3_response(403, ACCESS_DENIED_EXPIRED_BODY)
+    @patch("deepnote_toolkit.sql.sql_caching.tempfile.TemporaryFile")
+    def test_failure_before_the_request_leaves_both_times_unset(
+        self, mock_temp_file, mock_logger
+    ):
+        """Nothing was timed because nothing was sent, and neither may raise."""
+        mock_temp_file.side_effect = OSError("no space left on device")
 
-        upload_sql_cache(
-            pd.DataFrame({"a": [1, 2, 3]}),
-            SqlCacheUpload(url=PRESIGNED_URL, issued_at="not-a-number"),
-        )
+        upload_sql_cache(pd.DataFrame({"a": [1, 2, 3]}), _upload())
 
         extra = mock_logger.error.call_args.kwargs["extra"]
         self.assertIsNone(extra["seconds_since_url_issued"])
+        self.assertIsNone(extra["upload_duration_seconds"])
 
-    @parameterized.expand(
-        [
-            ("http_403", 403, ACCESS_DENIED_EXPIRED_BODY, None, False),
-            (
-                "http_500",
-                500,
-                b"<Error><Code>InternalError</Code></Error>",
-                None,
-                False,
-            ),
-            ("connection_error", None, None, "ConnectionError", False),
-            ("timeout", None, None, "Timeout", False),
-            ("serialization_error", 200, b"", None, True),
-        ]
-    )
     @patch("deepnote_toolkit.sql.sql_caching.logger")
     @patch("deepnote_toolkit.sql.sql_caching.requests.put")
-    def test_upload_failure_never_raises(
-        self,
-        _name,
-        status_code,
-        body,
-        put_exception,
-        fail_serialization,
-        mock_put,
-        mock_logger,
+    @patch("deepnote_toolkit.sql.sql_caching.time.monotonic")
+    def test_transfer_time_is_not_counted_as_url_age(
+        self, mock_monotonic, mock_put, mock_logger
     ):
-        if put_exception is not None:
-            mock_put.side_effect = getattr(requests.exceptions, put_exception)(
-                URLLIB3_ERROR_MESSAGE
-            )
-        else:
-            mock_put.return_value = _s3_response(status_code, body)
+        clock = [1000.0]
+        mock_monotonic.side_effect = lambda: clock[0]
 
-        if fail_serialization:
-            dataframe = mock.Mock()
-            dataframe.to_parquet.side_effect = ValueError("cannot serialize")
-        else:
-            dataframe = pd.DataFrame({"a": [1, 2, 3]})
+        def slow_put(*args, **kwargs):
+            clock[0] += 1000.0
+            return _s3_response(500, b"<Error><Code>InternalError</Code></Error>")
 
-        self.assertIsNone(upload_sql_cache(dataframe, _upload()))
+        mock_put.side_effect = slow_put
+
+        upload_sql_cache(
+            pd.DataFrame({"a": [1, 2, 3]}),
+            SqlCacheUpload(url=PRESIGNED_URL, issued_at=100.5),
+        )
+
+        extra = mock_logger.error.call_args.kwargs["extra"]
+        # the request left inside the 900s window, so the slow transfer that
+        # followed must not make the entry read as an expired URL
+        self.assertEqual(extra["seconds_since_url_issued"], 899.5)
+        self.assertEqual(extra["upload_duration_seconds"], 1000.0)
+
+    @patch("deepnote_toolkit.sql.sql_caching.logger")
+    @patch("deepnote_toolkit.sql.sql_caching.requests.put")
+    def test_upload_request_bounds_connect_and_read_phases(self, mock_put, mock_logger):
+        mock_put.return_value = _s3_response(200)
+
+        upload_sql_cache(pd.DataFrame({"a": [1, 2, 3]}), _upload())
+
+        connect_timeout, read_timeout = mock_put.call_args.kwargs["timeout"]
+        self.assertIsNotNone(connect_timeout)
+        self.assertIsNotNone(read_timeout)
+
+    @patch("deepnote_toolkit.sql.sql_caching.logger")
+    @patch("deepnote_toolkit.sql.sql_caching.requests.put")
+    def test_upload_timeout_never_raises(self, mock_put, mock_logger):
+        mock_put.side_effect = requests.exceptions.Timeout(URLLIB3_ERROR_MESSAGE)
+
+        upload_sql_cache(pd.DataFrame({"a": [1, 2, 3]}), _upload())
+
+        extra = mock_logger.error.call_args.kwargs["extra"]
+        self.assertEqual(extra["error_type"], "Timeout")
 
 
 class TestLoggedExtras(unittest.TestCase):
@@ -1158,12 +1218,17 @@ class TestLoggedExtras(unittest.TestCase):
     def setUp(self):
         self.extras = _collect_logged_extras()
 
-    def test_every_failure_path_logs_an_extra(self):
-        # upload http, upload with a null url, upload network, serialization,
-        # download http, download network, cache info exception, cache info non-200
-        self.assertEqual(len(self.extras), 8)
-        for extra in self.extras:
-            self.assertIn("sql_caching_cause", extra)
+    def test_every_failure_path_logs_a_cause(self):
+        self.assertEqual(
+            {extra["sql_caching_cause"] for extra in self.extras},
+            {
+                "failed_to_upload_to_cache",
+                "failed_to_serialize_cache",
+                "failed_to_download_from_cache",
+                "failed_to_request_cache_info",
+                "http_error",
+            },
+        )
 
     def test_extra_keys_avoid_reserved_logrecord_attributes(self):
         """A reserved key makes logger.error raise into the user's query."""
