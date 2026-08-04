@@ -1,0 +1,265 @@
+import json
+import time
+import unittest
+from unittest import mock
+
+from parameterized import parameterized
+
+from deepnote_toolkit.sql.sql_cache_diagnostics import (
+    _URL_QUERY_PATTERN,
+    describe_exception,
+    describe_presigned_url,
+    describe_s3_error,
+    redact_sensitive,
+    safe_url_path,
+)
+
+from .helpers.sql_cache_fixtures import (
+    ACCESS_DENIED_EXPIRED_BODY,
+    AWS_HEADERS,
+    EXPIRED_TOKEN_BODY,
+    PRESIGNED_URL,
+    PROXY_ECHO_BODY,
+    SECRETS,
+    SIGNATURE_MISMATCH_BODY,
+    URLLIB3_ERROR_MESSAGE,
+    s3_response,
+)
+
+
+class TestRedactSensitive(unittest.TestCase):
+    def test_strips_query_string_from_urlopen_style_message(self):
+        # the shape urllib3 actually produces: the URL is path-only
+        redacted = redact_sensitive(URLLIB3_ERROR_MESSAGE)
+
+        self.assertIn("bucket.s3.eu-west-1.amazonaws.com", redacted)
+        self.assertIn("/ws/int/key?<redacted>", redacted)
+        for secret in SECRETS:
+            self.assertNotIn(secret, redacted)
+
+    def test_query_string_strip_alone_redacts_urllib3_message(self):
+        """The primary defence must hold without help from the parameter backstop."""
+        stripped = _URL_QUERY_PATTERN.sub(r"\1?<redacted>", URLLIB3_ERROR_MESSAGE)
+
+        for secret in SECRETS:
+            self.assertNotIn(secret, stripped)
+
+    def test_blanks_aws_params_outside_a_url(self):
+        redacted = redact_sensitive(
+            "X-Amz-Credential=CREDVALUE&X-Amz-Security-Token=TOKENVALUE"
+            "&X-Amz-Signature=SIGVALUE"
+        )
+
+        self.assertEqual(
+            redacted,
+            "X-Amz-Credential=<redacted>&X-Amz-Security-Token=<redacted>"
+            "&X-Amz-Signature=<redacted>",
+        )
+
+    @parameterized.expand(
+        [
+            ("question_in_prose", "Is this ok? Yes it is."),
+            ("bare_question", "what? nothing"),
+            ("plain_sentence", "The provided token has expired."),
+        ]
+    )
+    def test_leaves_ordinary_text_unchanged(self, _, text):
+        self.assertEqual(redact_sensitive(text), text)
+
+
+class TestDescribeException(unittest.TestCase):
+    def test_large_message_is_bounded_and_redacted_in_bounded_time(self):
+        """The message is cut before redacting, not after.
+
+        _URL_QUERY_PATTERN backtracks over every start position in a long run of
+        non-separator characters, so redacting an untruncated exception message is
+        quadratic - 64k characters took 8.7s, charged to the user's cell.
+        """
+        message = URLLIB3_ERROR_MESSAGE + "&padding=" + "A" * 64_000
+
+        started = time.monotonic()
+        described = describe_exception(ValueError(message))
+        elapsed = time.monotonic() - started
+
+        self.assertEqual(described["error_type"], "ValueError")
+        self.assertLessEqual(len(described["error_message"]), 500)
+        # cutting the query string short is still safe: the pattern runs to the
+        # end of the string, so the remainder is stripped either way
+        self.assertIn("/ws/int/key?<redacted>", described["error_message"])
+        for secret in SECRETS:
+            self.assertNotIn(secret, described["error_message"])
+        self.assertLess(elapsed, 2.0)
+
+
+class TestDescribeS3Error(unittest.TestCase):
+    def test_extracts_code_and_message_from_xml(self):
+        diagnostics = describe_s3_error(
+            s3_response(403, ACCESS_DENIED_EXPIRED_BODY, AWS_HEADERS)
+        )
+
+        self.assertEqual(diagnostics["status_code"], 403)
+        self.assertEqual(diagnostics["s3_error_code"], "AccessDenied")
+        self.assertIn("Request has expired", diagnostics["s3_error_message"])
+        # AWS's own account of when the URL died and what time it was
+        self.assertEqual(diagnostics["s3_expires"], "2026-07-29T12:15:00Z")
+        self.assertEqual(diagnostics["s3_server_time"], "2026-07-29T12:31:07Z")
+
+    def test_extracts_expired_token_body(self):
+        diagnostics = describe_s3_error(s3_response(403, EXPIRED_TOKEN_BODY))
+
+        self.assertEqual(diagnostics["s3_error_code"], "ExpiredToken")
+        self.assertEqual(
+            diagnostics["s3_error_message"], "The provided token has expired."
+        )
+
+    def test_captures_aws_request_headers(self):
+        diagnostics = describe_s3_error(
+            s3_response(403, EXPIRED_TOKEN_BODY, AWS_HEADERS)
+        )
+
+        self.assertEqual(diagnostics["aws_request_id"], "REQ123")
+        self.assertEqual(diagnostics["aws_host_id"], "HOSTID456")
+        self.assertEqual(diagnostics["aws_date"], "Wed, 29 Jul 2026 12:31:07 GMT")
+
+    def test_signature_mismatch_body_surfaces_only_code_and_message(self):
+        """Pins the field allowlist: <CanonicalRequest> and friends are never read.
+
+        Redaction is not what protects this body - the elements carrying the signed
+        query string are simply not among the four that get extracted.
+        """
+        diagnostics = describe_s3_error(
+            s3_response(403, SIGNATURE_MISMATCH_BODY, AWS_HEADERS)
+        )
+
+        self.assertEqual(diagnostics["s3_error_code"], "SignatureDoesNotMatch")
+        self.assertNotIn("response_body_snippet", diagnostics)
+        for value in diagnostics.values():
+            for secret in SECRETS:
+                self.assertNotIn(secret, str(value))
+
+    def test_proxy_body_echoing_request_url_is_redacted(self):
+        """Pins redaction: the allowlist cannot help once the body is not S3's."""
+        diagnostics = describe_s3_error(s3_response(502, PROXY_ECHO_BODY))
+
+        self.assertIsNone(diagnostics["s3_error_code"])
+        snippet = diagnostics["response_body_snippet"]
+        # the request line survives, the credentials on it do not
+        self.assertIn("502 Bad Gateway", snippet)
+        self.assertIn("/ws/int/key?<redacted>", snippet)
+        for secret in SECRETS:
+            self.assertNotIn(secret, snippet)
+
+    def test_non_xml_body_yields_snippet_without_code(self):
+        diagnostics = describe_s3_error(
+            s3_response(502, b"<html><body>502 Bad Gateway</body></html>")
+        )
+
+        self.assertIsNone(diagnostics["s3_error_code"])
+        self.assertIsNone(diagnostics["aws_request_id"])
+        self.assertIn("502 Bad Gateway", diagnostics["response_body_snippet"])
+        self.assertLessEqual(len(diagnostics["response_body_snippet"]), 500)
+
+    def test_oversized_body_is_bounded(self):
+        body = (
+            b"<Error><Code>AccessDenied</Code><Message>"
+            + b"x" * 1000
+            + b"</Message>"
+            + b"y" * 10_000
+            + b"</Error>"
+        )
+
+        diagnostics = describe_s3_error(s3_response(403, body))
+
+        self.assertEqual(diagnostics["s3_error_code"], "AccessDenied")
+        for value in diagnostics.values():
+            if isinstance(value, str):
+                self.assertLessEqual(len(value), 500)
+
+    def test_body_prefix_is_streamed_rather_than_buffered(self):
+        """Reading .content downloads the whole body just to keep 4 KB of it."""
+        buffered = []
+        response = mock.MagicMock(status_code=403, headers={})
+        type(response).content = mock.PropertyMock(
+            side_effect=lambda: buffered.append("content")
+        )
+        response.iter_content.side_effect = lambda size: iter(
+            [ACCESS_DENIED_EXPIRED_BODY[:size]]
+        )
+
+        diagnostics = describe_s3_error(response)
+
+        self.assertEqual(buffered, [])
+        self.assertEqual(diagnostics["s3_error_code"], "AccessDenied")
+
+
+class TestDescribePresignedUrl(unittest.TestCase):
+    def test_returns_path_and_expiry(self):
+        described = describe_presigned_url(PRESIGNED_URL)
+
+        self.assertEqual(described["object_host"], "bucket.s3.eu-west-1.amazonaws.com")
+        self.assertEqual(described["object_path"], "/ws/int/key")
+        self.assertEqual(described["url_expires_in"], 900)
+
+    def test_missing_expires_yields_none(self):
+        described = describe_presigned_url("https://example.com/x")
+
+        self.assertEqual(described["object_path"], "/x")
+        self.assertIsNone(described["url_expires_in"])
+
+    def test_non_numeric_expires_yields_none(self):
+        described = describe_presigned_url("https://example.com/x?X-Amz-Expires=abc")
+
+        self.assertIsNone(described["url_expires_in"])
+
+    @parameterized.expand(
+        [
+            ("unterminated_ipv6", "https://[::1"),
+            ("empty", ""),
+            ("not_a_url", "not a url"),
+            ("none", None),
+            ("bytes", b"/ws/int/key"),
+            ("dict", {"url": "https://example.com/x"}),
+        ]
+    )
+    def test_malformed_url_does_not_raise_or_leak(self, _, url):
+        described = describe_presigned_url(url)
+
+        self.assertIsNone(described["url_expires_in"])
+        for value in described.values():
+            for secret in SECRETS:
+                self.assertNotIn(secret, str(value))
+        # a bytes value in either would silently discard the entire error report
+        json.dumps(described)
+        json.dumps(safe_url_path(url))
+
+    @parameterized.expand(
+        [
+            (
+                "separator_encoded",
+                "%3FX-Amz-Credential=CREDVALUE&X-Amz-Security-Token=TOKENVALUE"
+                "&X-Amz-Signature=SIGVALUE",
+            ),
+            (
+                "separator_and_equals_encoded",
+                "%3FX-Amz-Credential%3DCREDVALUE&X-Amz-Security-Token%3DTOKENVALUE"
+                "&X-Amz-Signature%3DSIGVALUE",
+            ),
+            (
+                "whole_query_encoded",
+                "%3FX-Amz-Credential%3DCREDVALUE%26X-Amz-Security-Token%3DTOKENVALUE"
+                "%26X-Amz-Signature%3DSIGVALUE",
+            ),
+            ("separator_is_a_semicolon", ";X-Amz-Credential=CREDVALUE"),
+            ("no_separator_at_all", "X-Amz-Signature=SIGVALUE"),
+        ]
+    )
+    def test_over_encoded_url_does_not_leak_signing_params_via_path(self, _, suffix):
+        """urlsplit only splits on a literal '?', so the path carries the rest."""
+        described = describe_presigned_url(
+            "https://bucket.s3.eu-west-1.amazonaws.com/ws/int/key" + suffix
+        )
+
+        # the parameter names may survive redaction, their values must not
+        for value in described.values():
+            for secret in ("CREDVALUE", "TOKENVALUE", "SIGVALUE"):
+                self.assertNotIn(secret, str(value))
