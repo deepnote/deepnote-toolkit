@@ -40,14 +40,12 @@ RESERVED_LOGRECORD_ATTRS = set(
 
 
 def _upload(url=PRESIGNED_URL, issued_at=None):
-    """Build an upload handle, issued now unless told otherwise."""
     return SqlCacheUpload(
         url=url, issued_at=time.monotonic() if issued_at is None else issued_at
     )
 
 
 def _cache_hit(download_url=PRESIGNED_URL):
-    """The webapp's answer when the query has a cached result waiting."""
     return {
         "result": "cacheHit",
         "downloadUrl": download_url,
@@ -56,7 +54,6 @@ def _cache_hit(download_url=PRESIGNED_URL):
 
 
 def _logged_strings(mock_logger):
-    """Every string a logger.error call would hand to the error pipeline."""
     strings = []
     for call in mock_logger.error.call_args_list:
         strings.extend(str(arg) for arg in call.args)
@@ -67,11 +64,7 @@ def _logged_strings(mock_logger):
 
 
 def _collect_logged_extras():
-    """Run every failure path in the module and collect the extras it logs.
-
-    Gathered in one place so the reserved-key and serializability guards cover all
-    of them, rather than whichever path a single test happened to exercise.
-    """
+    """Exercise every error path once for shared extra-dict guards."""
     dataframe = pd.DataFrame({"a": [1, 2, 3]})
     connection_error = requests.exceptions.ConnectionError(URLLIB3_ERROR_MESSAGE)
 
@@ -131,7 +124,6 @@ class TestGenerateCacheKey(unittest.TestCase):
     def test_empty_params_returns_valid_result(self):
         result = _generate_cache_key("SELECT * FROM users", {})
 
-        # assert that the result contains only alphanumeric characters
         self.assertTrue(result.isalnum())
 
     def test_different_order_of_params_produces_same_result(self):
@@ -466,7 +458,6 @@ class TestGetSqlCache(unittest.TestCase):
 
         result_df, upload = get_sql_cache(QUERY, {}, "123", "read", "dataframe")
 
-        # both read attempts ran, and the failure of the second was swallowed
         mock_read_parquet.assert_called_once()
         mock_read_pickle.assert_called_once()
         self.assertIsNone(result_df)
@@ -499,9 +490,7 @@ class TestGetSqlCache(unittest.TestCase):
 
     @parameterized.expand(
         [
-            # the field allowlist is what keeps this one clean
             ("signature_mismatch_body", SIGNATURE_MISMATCH_BODY),
-            # no allowlist applies here, so only redaction keeps it clean
             ("proxy_echoing_request_url", PROXY_ECHO_BODY),
         ]
     )
@@ -537,7 +526,6 @@ class TestGetSqlCache(unittest.TestCase):
         result_df, _ = get_sql_cache(QUERY, {}, "123", "read", "dataframe")
 
         pd.testing.assert_frame_equal(result_df, dataframe)
-        # the object was fetched here rather than by handing the URL to pandas
         mock_get.assert_called_once()
         self.assertEqual(mock_get.call_args.args[0], PRESIGNED_URL)
 
@@ -556,9 +544,7 @@ class TestGetSqlCache(unittest.TestCase):
 
         result_df, _ = get_sql_cache(QUERY, {}, "123", "read", "dataframe")
 
-        # pins the seek(0) that the failed parquet read makes necessary
         pd.testing.assert_frame_equal(result_df, dataframe)
-        # and the single fetch that replaced one download per format attempt
         mock_get.assert_called_once()
 
     @patch("deepnote_toolkit.sql.sql_caching.output_sql_metadata")
@@ -576,11 +562,9 @@ class TestGetSqlCache(unittest.TestCase):
 
         get_sql_cache(QUERY, {}, "123", "read", "dataframe")
 
-        # an unbounded read phase hangs the user's cell on a socket gone silent
         connect_timeout, read_timeout = mock_get.call_args.kwargs["timeout"]
         self.assertIsNotNone(connect_timeout)
         self.assertIsNotNone(read_timeout)
-        # and an unstreamed error body costs the size of that body
         self.assertTrue(mock_get.call_args.kwargs["stream"])
 
     @patch("deepnote_toolkit.sql.sql_caching.logger")
@@ -740,9 +724,7 @@ class TestUploadSqlCache(unittest.TestCase):
 
     @parameterized.expand(
         [
-            # the field allowlist is what keeps this one clean
             ("signature_mismatch_body", SIGNATURE_MISMATCH_BODY),
-            # no allowlist applies here, so only redaction keeps it clean
             ("proxy_echoing_request_url", PROXY_ECHO_BODY),
         ]
     )
@@ -823,7 +805,6 @@ class TestUploadSqlCache(unittest.TestCase):
         )
 
         extra = mock_logger.error.call_args.kwargs["extra"]
-        # the entry alone shows the URL was used after its window closed
         self.assertGreaterEqual(extra["seconds_since_url_issued"], 930)
         self.assertEqual(extra["url_expires_in"], 900)
 
@@ -832,7 +813,6 @@ class TestUploadSqlCache(unittest.TestCase):
     def test_failure_before_the_request_leaves_both_times_unset(
         self, mock_temp_file, mock_logger
     ):
-        """Nothing was timed because nothing was sent, and neither may raise."""
         mock_temp_file.side_effect = OSError("no space left on device")
 
         upload_sql_cache(pd.DataFrame({"a": [1, 2, 3]}), _upload())
@@ -862,8 +842,6 @@ class TestUploadSqlCache(unittest.TestCase):
         )
 
         extra = mock_logger.error.call_args.kwargs["extra"]
-        # the request left inside the 900s window, so the slow transfer that
-        # followed must not make the entry read as an expired URL
         self.assertEqual(extra["seconds_since_url_issued"], 899.5)
         self.assertEqual(extra["upload_duration_seconds"], 1000.0)
 
@@ -890,8 +868,6 @@ class TestUploadSqlCache(unittest.TestCase):
 
 
 class TestLoggedExtras(unittest.TestCase):
-    """Guards that apply to every extra dict this module logs."""
-
     def setUp(self):
         self.extras = _collect_logged_extras()
 
@@ -908,12 +884,12 @@ class TestLoggedExtras(unittest.TestCase):
         )
 
     def test_extra_keys_avoid_reserved_logrecord_attributes(self):
-        """A reserved key makes logger.error raise into the user's query."""
+        """Reserved extra keys make logger.error raise into the user's cell."""
         for extra in self.extras:
             self.assertEqual(set(extra) & RESERVED_LOGRECORD_ATTRS, set())
 
     def test_extra_is_json_serializable(self):
-        """A non-serializable value silently discards the whole error report."""
+        """Non-JSON-serializable extras drop the whole error report."""
         for extra in self.extras:
             for value in extra.values():
                 self.assertIsInstance(value, (str, int, float, bool, type(None)))

@@ -29,7 +29,6 @@ from .helpers.sql_cache_fixtures import (
 
 class TestRedactSensitive(unittest.TestCase):
     def test_strips_query_string_from_urlopen_style_message(self):
-        # the shape urllib3 actually produces: the URL is path-only
         redacted = redact_sensitive(URLLIB3_ERROR_MESSAGE)
 
         self.assertIn("bucket.s3.eu-west-1.amazonaws.com", redacted)
@@ -38,7 +37,7 @@ class TestRedactSensitive(unittest.TestCase):
             self.assertNotIn(secret, redacted)
 
     def test_query_string_strip_alone_redacts_urllib3_message(self):
-        """The primary defence must hold without help from the parameter backstop."""
+        """URL query stripping must redact without the AWS-param backstop."""
         stripped = _URL_QUERY_PATTERN.sub(r"\1?<redacted>", URLLIB3_ERROR_MESSAGE)
 
         for secret in SECRETS:
@@ -69,12 +68,7 @@ class TestRedactSensitive(unittest.TestCase):
 
 class TestDescribeException(unittest.TestCase):
     def test_large_message_is_bounded_and_redacted_in_bounded_time(self):
-        """The message is cut before redacting, not after.
-
-        _URL_QUERY_PATTERN backtracks over every start position in a long run of
-        non-separator characters, so redacting an untruncated exception message is
-        quadratic - 64k characters took 8.7s, charged to the user's cell.
-        """
+        """Truncate before redact: _URL_QUERY_PATTERN is quadratic on long strings."""
         message = URLLIB3_ERROR_MESSAGE + "&padding=" + "A" * 64_000
 
         started = time.monotonic()
@@ -83,8 +77,6 @@ class TestDescribeException(unittest.TestCase):
 
         self.assertEqual(described["error_type"], "ValueError")
         self.assertLessEqual(len(described["error_message"]), 500)
-        # cutting the query string short is still safe: the pattern runs to the
-        # end of the string, so the remainder is stripped either way
         self.assertIn("/ws/int/key?<redacted>", described["error_message"])
         for secret in SECRETS:
             self.assertNotIn(secret, described["error_message"])
@@ -100,7 +92,6 @@ class TestDescribeS3Error(unittest.TestCase):
         self.assertEqual(diagnostics["status_code"], 403)
         self.assertEqual(diagnostics["s3_error_code"], "AccessDenied")
         self.assertIn("Request has expired", diagnostics["s3_error_message"])
-        # AWS's own account of when the URL died and what time it was
         self.assertEqual(diagnostics["s3_expires"], "2026-07-29T12:15:00Z")
         self.assertEqual(diagnostics["s3_server_time"], "2026-07-29T12:31:07Z")
 
@@ -122,11 +113,7 @@ class TestDescribeS3Error(unittest.TestCase):
         self.assertEqual(diagnostics["aws_date"], "Wed, 29 Jul 2026 12:31:07 GMT")
 
     def test_signature_mismatch_body_surfaces_only_code_and_message(self):
-        """Pins the field allowlist: <CanonicalRequest> and friends are never read.
-
-        Redaction is not what protects this body - the elements carrying the signed
-        query string are simply not among the four that get extracted.
-        """
+        """Field allowlist must ignore <CanonicalRequest> (signed query lives there)."""
         diagnostics = describe_s3_error(
             s3_response(403, SIGNATURE_MISMATCH_BODY, AWS_HEADERS)
         )
@@ -138,12 +125,11 @@ class TestDescribeS3Error(unittest.TestCase):
                 self.assertNotIn(secret, str(value))
 
     def test_proxy_body_echoing_request_url_is_redacted(self):
-        """Pins redaction: the allowlist cannot help once the body is not S3's."""
+        """Non-S3 bodies are not on the XML allowlist; snippet redaction must apply."""
         diagnostics = describe_s3_error(s3_response(502, PROXY_ECHO_BODY))
 
         self.assertIsNone(diagnostics["s3_error_code"])
         snippet = diagnostics["response_body_snippet"]
-        # the request line survives, the credentials on it do not
         self.assertIn("502 Bad Gateway", snippet)
         self.assertIn("/ws/int/key?<redacted>", snippet)
         for secret in SECRETS:
@@ -176,7 +162,7 @@ class TestDescribeS3Error(unittest.TestCase):
                 self.assertLessEqual(len(value), 500)
 
     def test_body_prefix_is_streamed_rather_than_buffered(self):
-        """Reading .content downloads the whole body just to keep 4 KB of it."""
+        """Must not touch Response.content (downloads the full body)."""
         buffered = []
         response = mock.MagicMock(status_code=403, headers={})
         type(response).content = mock.PropertyMock(
@@ -228,7 +214,7 @@ class TestDescribePresignedUrl(unittest.TestCase):
         for value in described.values():
             for secret in SECRETS:
                 self.assertNotIn(secret, str(value))
-        # a bytes value in either would silently discard the entire error report
+        # Log extras must json.dumps; bytes values would drop the whole report.
         json.dumps(described)
         json.dumps(safe_url_path(url))
 
@@ -254,12 +240,11 @@ class TestDescribePresignedUrl(unittest.TestCase):
         ]
     )
     def test_over_encoded_url_does_not_leak_signing_params_via_path(self, _, suffix):
-        """urlsplit only splits on a literal '?', so the path carries the rest."""
+        """urlsplit only splits on a literal '?'; signing params can land in path."""
         described = describe_presigned_url(
             "https://bucket.s3.eu-west-1.amazonaws.com/ws/int/key" + suffix
         )
 
-        # the parameter names may survive redaction, their values must not
         for value in described.values():
             for secret in ("CREDVALUE", "TOKENVALUE", "SIGVALUE"):
                 self.assertNotIn(secret, str(value))

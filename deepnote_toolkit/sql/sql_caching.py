@@ -23,7 +23,6 @@ from ..get_webapp_url import get_absolute_userpod_api_url, get_project_auth_head
 from ..ipython_utils import output_sql_metadata
 from ..logging import get_logger
 
-# Initialize logger
 logger = get_logger()
 
 # The read timeout bounds the gap between two received chunks, not the transfer as
@@ -45,29 +44,10 @@ def get_sql_cache(
     sql_cache_mode: str,
     return_variable_type: str,
 ) -> tuple[Optional[pd.DataFrame], Optional[SqlCacheUpload]]:
-    """
-    Retrieves the SQL cache from webapp for a given query.
-
-    Args:
-        query (str): The SQL query to retrieve the cache for.
-        bind_params (dict): The bind parameters for the SQL query.
-        integration_id (str): The integration ID associated with the cache.
-        sql_cache_mode (str): The mode of the SQL cache.
-        return_variable_type (str): The type of variable the result is bound to.
-
-    Returns:
-        tuple: A tuple containing the cached dataframe (if available) and the
-            pending upload (if applicable).
-    """
+    """Return a cache hit dataframe and/or a presigned upload for a cache miss."""
 
     if not is_single_select_query(query):
-        # we only cache single select queries
-        output_sql_metadata(
-            {
-                "status": "cache_not_supported_for_query",
-                # We don't include the additional metadata as the query hasn't been executed/read from cache
-            }
-        )
+        output_sql_metadata({"status": "cache_not_supported_for_query"})
         return None, None
 
     query_hash = _generate_cache_key(query, bind_params)
@@ -82,7 +62,6 @@ def get_sql_cache(
             query_hash, integration_id, sql_cache_mode
         )
     except Exception as exc:
-        # we failed to request the cache info from the webapp
         logger.error(
             "Failed to request SQL cache info",
             extra={
@@ -99,7 +78,6 @@ def get_sql_cache(
             try:
                 dataframe_from_cache = _try_read_cache(download_url)
             except Exception as exc:
-                # we failed to download the dataframe from the cache
                 logger.error(
                     "Failed to download dataframe from cache",
                     extra={
@@ -137,21 +115,14 @@ def _serialize_dataframe_for_cache(
     try:
         dataframe.to_parquet(file_obj)
     except (ArrowNotImplementedError, ArrowInvalid, OverflowError):
-        # see NB-1684
-        # we fallback to pickle if parquet serialization fails (which will throw either of first 2 errors)
-        # OverflowError: PyArrow raises this for Python int / Decimal values exceeding int64 range
+        # NB-1684: pickle when parquet cannot represent the frame (e.g. int64 overflow).
         file_obj.seek(0)
         file_obj.truncate()
         dataframe.to_pickle(file_obj)
 
 
 def upload_sql_cache(dataframe: pd.DataFrame, upload: SqlCacheUpload) -> None:
-    """Upload the result to the cache as a parquet file.
-
-    Caching is best effort: every failure is logged under a constant message, with
-    all variable data in extra so occurrences group, and then swallowed so that it
-    can never fail the user's query.
-    """
+    """Best-effort cache upload; failures are logged and never raised."""
 
     put_started_at: Optional[float] = None
     try:
@@ -159,8 +130,7 @@ def upload_sql_cache(dataframe: pd.DataFrame, upload: SqlCacheUpload) -> None:
             try:
                 _serialize_dataframe_for_cache(dataframe, temp_file)
             except Exception as exc:
-                # Only the type is logged: serialization errors quote the user's
-                # column names
+                # Serialization errors embed column names; log type only.
                 logger.error(
                     "Failed to upload SQL cache",
                     extra={
@@ -171,34 +141,28 @@ def upload_sql_cache(dataframe: pd.DataFrame, upload: SqlCacheUpload) -> None:
                 return
 
             temp_file.seek(0)
-            # S3 checks a presigned signature when the request arrives rather than
-            # when it finishes, so this is the age that decided whether it was valid
+            # Presigned validity is checked when the PUT starts, not when it ends.
             put_started_at = time.monotonic()
             response = requests.put(
                 upload.url, data=temp_file, timeout=_OBJECT_STORE_TIMEOUT
             )
 
         response.raise_for_status()
-        return
     except Exception as exc:
-        failure = describe_exception(exc)
-
-    logger.error(
-        "Failed to upload SQL cache",
-        extra={
-            "sql_caching_cause": "failed_to_upload_to_cache",
-            **failure,
-            **describe_presigned_url(upload.url),
-            "seconds_since_url_issued": seconds_between(
-                upload.issued_at, put_started_at
-            ),
-            # Separate field so "the URL was already old" stays distinguishable
-            # from "the transfer was slow"
-            "upload_duration_seconds": seconds_between(
-                put_started_at, time.monotonic()
-            ),
-        },
-    )
+        logger.error(
+            "Failed to upload SQL cache",
+            extra={
+                "sql_caching_cause": "failed_to_upload_to_cache",
+                **describe_exception(exc),
+                **describe_presigned_url(upload.url),
+                "seconds_since_url_issued": seconds_between(
+                    upload.issued_at, put_started_at
+                ),
+                "upload_duration_seconds": seconds_between(
+                    put_started_at, time.monotonic()
+                ),
+            },
+        )
 
 
 def _try_read_cache(download_url: str) -> pd.DataFrame:
@@ -207,11 +171,7 @@ def _try_read_cache(download_url: str) -> pd.DataFrame:
     The object is fetched explicitly instead of handing the URL to pandas, which
     fetches it with urllib and so raises before S3's error body is ever read.
     """
-    # Streamed so that a failed download costs a bounded prefix rather than the
-    # whole error body, and so the rest of it is dropped with the connection.
-    # Both branches must read the body inside the block: once it exits the body
-    # reads back as empty rather than raising, which would silently cache-miss
-    # every hit and drop S3's error document on the way out.
+    # Read the body before leaving the context: after close, content reads empty.
     with requests.get(
         download_url, timeout=_OBJECT_STORE_TIMEOUT, stream=True
     ) as response:
@@ -223,13 +183,8 @@ def _try_read_cache(download_url: str) -> pd.DataFrame:
         buffer = BytesIO(response.content)
 
     try:
-        # Attempt to read as a parquet file
         return pd.read_parquet(buffer)
     except ArrowInvalid:
-        # ArrowInvalid means that the file at download_url is not a parquet file.
-        # We fallback to the pickle format if that happens, because the cache should either be in parquet or
-        # pickle format and we don't know which one it is, the file has no extension.
-        # (see .to_pickle fallback in upload_sql_cache)
         pass
 
     buffer.seek(0)

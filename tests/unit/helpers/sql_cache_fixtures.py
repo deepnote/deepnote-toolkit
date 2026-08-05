@@ -1,14 +1,8 @@
-"""Stand-ins for what the SQL cache object store answers with.
-
-Shared by the tests for the cache flow and for the diagnostics taken off its
-failures, so both see the same bodies and the same response semantics.
-"""
-
 from unittest import mock
 
 import requests
 
-# Signing parameters given values that are easy to search log output for
+# Distinct tokens so leak assertions can grep log output.
 PRESIGNED_URL = (
     "https://bucket.s3.eu-west-1.amazonaws.com/ws/int/key"
     "?X-Amz-Algorithm=AWS4-HMAC-SHA256"
@@ -17,8 +11,7 @@ PRESIGNED_URL = (
     "&X-Amz-Security-Token=TOKENVALUE&X-Amz-Signature=SIGVALUE"
 )
 
-# What requests raises when it cannot reach the object store. The URL urllib3
-# embeds is path-only - there is no scheme and no host in front of it.
+# urllib3 embeds a path-only URL in the message (no scheme/host).
 URLLIB3_ERROR_MESSAGE = (
     "HTTPSConnectionPool(host='bucket.s3.eu-west-1.amazonaws.com', port=443): "
     "Max retries exceeded with url: /ws/int/key"
@@ -46,7 +39,6 @@ ACCESS_DENIED_EXPIRED_BODY = (
     b"<RequestId>REQ123</RequestId><HostId>HOSTID456</HostId></Error>"
 )
 
-# S3 rejecting credentials that died before the URL's own expiry
 EXPIRED_TOKEN_BODY = (
     b'<?xml version="1.0" encoding="UTF-8"?>\n'
     b"<Error><Code>ExpiredToken</Code>"
@@ -54,8 +46,7 @@ EXPIRED_TOKEN_BODY = (
     b"<RequestId>REQ123</RequestId><HostId>HOSTID456</HostId></Error>"
 )
 
-# S3 echoes the canonical request - and with it the signed query string - when
-# the signature does not match
+# Real S3 bodies can embed the signed query in <CanonicalRequest>.
 SIGNATURE_MISMATCH_BODY = (
     b'<?xml version="1.0" encoding="UTF-8"?>\n'
     b"<Error><Code>SignatureDoesNotMatch</Code>"
@@ -70,7 +61,7 @@ SIGNATURE_MISMATCH_BODY = (
     b"<RequestId>REQ123</RequestId><HostId>HOSTID456</HostId></Error>"
 )
 
-# A gateway that answered instead of S3 and echoed the request line back
+# Non-S3 gateways may echo the full presigned URL in HTML.
 PROXY_ECHO_BODY = (
     b"<html><head><title>502 Bad Gateway</title></head><body>\n"
     b"<h1>502 Bad Gateway</h1>\n"
@@ -85,7 +76,6 @@ PROXY_ECHO_BODY = (
 
 
 def s3_response(status_code, body=b"", headers=None, url=PRESIGNED_URL):
-    """Build a stand-in for a requests.Response from the object store."""
     response = mock.MagicMock(
         status_code=status_code, content=body, headers=headers or {}, url=url
     )
@@ -97,20 +87,15 @@ def s3_response(status_code, body=b"", headers=None, url=PRESIGNED_URL):
         response.content = b""
 
     def iter_content(size):
-        # a chunked response yields one HTTP chunk per read however large a size
-        # is asked for
         if released:
             return iter([])
         return iter([body[i : i + 20] for i in range(0, len(body), 20)])
 
     response.__enter__.return_value = response
-    # a real streamed body reads back empty through either route once the block
-    # exits and the connection goes back to the pool - empty, not raising
+    # After context exit, requests clears streamed body content.
     response.__exit__.side_effect = release
     response.iter_content.side_effect = iter_content
     if status_code >= 400:
-        # the real message interpolates the whole requested URL, query string
-        # included, and carries the response so the body survives the raise
         response.raise_for_status.side_effect = requests.HTTPError(
             f"{status_code} Client Error: for url: {url}", response=response
         )
