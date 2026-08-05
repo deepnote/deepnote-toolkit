@@ -13,7 +13,6 @@ from deepnote_toolkit.sql.sql_cache_diagnostics import (
     SqlCacheHttpError,
     describe_exception,
     describe_presigned_url,
-    describe_s3_error,
     read_body_snippet,
     safe_url_path,
     seconds_between,
@@ -179,12 +178,8 @@ def upload_sql_cache(dataframe: pd.DataFrame, upload: SqlCacheUpload) -> None:
                 upload.url, data=temp_file, timeout=_OBJECT_STORE_TIMEOUT
             )
 
-        if response.status_code < 400:
-            return
-
-        # Checked explicitly rather than with raise_for_status(), whose message
-        # interpolates the whole presigned URL and discards S3's error body
-        failure = describe_s3_error(response)
+        response.raise_for_status()
+        return
     except Exception as exc:
         failure = describe_exception(exc)
 
@@ -213,15 +208,18 @@ def _try_read_cache(download_url: str) -> pd.DataFrame:
     fetches it with urllib and so raises before S3's error body is ever read.
     """
     # Streamed so that a failed download costs a bounded prefix rather than the
-    # whole error body, and so the rest of it is dropped with the connection
+    # whole error body, and so the rest of it is dropped with the connection.
+    # Both branches must read the body inside the block: once it exits the body
+    # reads back as empty rather than raising, which would silently cache-miss
+    # every hit and drop S3's error document on the way out.
     with requests.get(
         download_url, timeout=_OBJECT_STORE_TIMEOUT, stream=True
     ) as response:
-        if response.status_code >= 400:
-            raise SqlCacheHttpError(describe_s3_error(response))
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            raise SqlCacheHttpError(describe_exception(exc)) from exc
 
-        # Read inside the block: once it exits, the body reads back as empty
-        # rather than raising, which would cache-miss every hit in silence
         buffer = BytesIO(response.content)
 
     try:

@@ -6,6 +6,8 @@ failures, so both see the same bodies and the same response semantics.
 
 from unittest import mock
 
+import requests
+
 # Signing parameters given values that are easy to search log output for
 PRESIGNED_URL = (
     "https://bucket.s3.eu-west-1.amazonaws.com/ws/int/key"
@@ -82,17 +84,36 @@ PROXY_ECHO_BODY = (
 )
 
 
-def s3_response(status_code, body=b"", headers=None):
+def s3_response(status_code, body=b"", headers=None, url=PRESIGNED_URL):
     """Build a stand-in for a requests.Response from the object store."""
     response = mock.MagicMock(
-        status_code=status_code, content=body, headers=headers or {}
+        status_code=status_code, content=body, headers=headers or {}, url=url
     )
+    released = False
+
+    def release(*_):
+        nonlocal released
+        released = True
+        response.content = b""
+
+    def iter_content(size):
+        # a chunked response yields one HTTP chunk per read however large a size
+        # is asked for
+        if released:
+            return iter([])
+        return iter([body[i : i + 20] for i in range(0, len(body), 20)])
+
     response.__enter__.return_value = response
-    # a real streamed body reads back empty once the block exits, silently
-    response.__exit__.side_effect = lambda *_: setattr(response, "content", b"")
-    # a chunked response yields one HTTP chunk per read however large a size is
-    # asked for
-    response.iter_content.side_effect = lambda size: iter(
-        [body[i : i + 20] for i in range(0, len(body), 20)]
-    )
+    # a real streamed body reads back empty through either route once the block
+    # exits and the connection goes back to the pool - empty, not raising
+    response.__exit__.side_effect = release
+    response.iter_content.side_effect = iter_content
+    if status_code >= 400:
+        # the real message interpolates the whole requested URL, query string
+        # included, and carries the response so the body survives the raise
+        response.raise_for_status.side_effect = requests.HTTPError(
+            f"{status_code} Client Error: for url: {url}", response=response
+        )
+    else:
+        response.raise_for_status.return_value = None
     return response

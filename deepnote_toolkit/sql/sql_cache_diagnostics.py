@@ -29,10 +29,21 @@ _AWS_CREDENTIAL_PARAM_PATTERN = re.compile(
 # urlsplit only splits on a literal '?', so an over-encoded URL keeps its signed
 # query string in the path
 _ENCODED_QUERY_SEPARATOR = re.compile("%3F", re.IGNORECASE)
+# The only elements ever read out of an S3 error document, mapped to the log
+# field each becomes. The rest of the document (<CanonicalRequest>,
+# <StringToSign>, <AWSAccessKeyId>) echoes the signed query string and with it
+# the credentials, so nothing outside this table is touched.
 # <Expires> and <ServerTime> are AWS's own answer to whether the URL ran out of
-# time, independent of this pod's clock
+# time, independent of this pod's clock.
+_S3_ERROR_FIELDS = {
+    "Code": "s3_error_code",
+    "Message": "s3_error_message",
+    "Expires": "s3_expires",
+    "ServerTime": "s3_server_time",
+}
+
 _S3_ERROR_FIELD_PATTERN = re.compile(
-    r"<(Code|Message|Expires|ServerTime)>(.*?)</\1>", re.DOTALL | re.IGNORECASE
+    rf"<({'|'.join(_S3_ERROR_FIELDS)})>(.*?)</\1>", re.DOTALL | re.IGNORECASE
 )
 
 
@@ -78,7 +89,7 @@ def seconds_between(start: Optional[float], end: Optional[float]) -> Optional[fl
     return round(end - start, 1)
 
 
-def safe_url_path(url: str) -> Optional[str]:
+def safe_url_path(url: object) -> Optional[str]:
     """The bounded path of a URL, or None when the URL cannot be parsed."""
     if not isinstance(url, str):
         return None
@@ -89,7 +100,7 @@ def safe_url_path(url: str) -> Optional[str]:
         return None
 
 
-def describe_presigned_url(url: str) -> dict[str, Any]:
+def describe_presigned_url(url: object) -> dict[str, Any]:
     """Object path and declared expiry, without the credential-bearing query string."""
     if not isinstance(url, str):
         # urlsplit(None) answers with bytes-valued fields instead of raising, and a
@@ -145,9 +156,7 @@ def read_body_snippet(response: requests.Response) -> Optional[str]:
 def describe_s3_error(response: requests.Response) -> dict[str, Any]:
     """Non-sensitive diagnostics from a failed response from the object store.
 
-    Only the allowlisted fields are taken from the body, because the other
-    elements of an S3 error document (<CanonicalRequest>, <StringToSign>,
-    <AWSAccessKeyId>) echo the signed query string and with it the credentials.
+    Only the elements in _S3_ERROR_FIELDS are read out of the body.
     """
     diagnostics: dict[str, Any] = {
         "status_code": response.status_code,
@@ -156,28 +165,21 @@ def describe_s3_error(response: requests.Response) -> dict[str, Any]:
         "aws_host_id": response.headers.get("x-amz-id-2"),
         # AWS's clock at the moment it rejected us
         "aws_date": response.headers.get("Date"),
-        "s3_error_code": None,
-        "s3_error_message": None,
-        "s3_expires": None,
-        "s3_server_time": None,
+        **{field: None for field in _S3_ERROR_FIELDS.values()},
     }
 
     body = _read_response_body_prefix(response)
     if body is None:
         return diagnostics
 
-    fields = {
-        name.lower(): value for name, value in _S3_ERROR_FIELD_PATTERN.findall(body)
+    found = {
+        element.lower(): value
+        for element, value in _S3_ERROR_FIELD_PATTERN.findall(body)
     }
-    for key, name in (
-        ("s3_error_code", "code"),
-        ("s3_error_message", "message"),
-        ("s3_expires", "expires"),
-        ("s3_server_time", "servertime"),
-    ):
-        value = fields.get(name)
+    for element, field in _S3_ERROR_FIELDS.items():
+        value = found.get(element.lower())
         if value is not None:
-            diagnostics[key] = _redacted_snippet(value)
+            diagnostics[field] = _redacted_snippet(value)
 
     if diagnostics["s3_error_code"] is None:
         # Not an S3 error document - a proxy or gateway answered instead
@@ -190,6 +192,12 @@ def describe_exception(exc: BaseException) -> dict[str, Any]:
     """Non-sensitive diagnostics from an exception raised while using the cache."""
     if isinstance(exc, SqlCacheHttpError):
         return dict(exc.diagnostics)
+
+    # raise_for_status() attaches the response, so the error document is still
+    # there to be read - unlike its own message, which is just the status line
+    # and the whole presigned URL
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        return describe_s3_error(exc.response)
 
     # Cut before redacting rather than after: the URL pattern backtracks over every
     # start position, and an exception message has no bound of its own
