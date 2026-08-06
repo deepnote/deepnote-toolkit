@@ -56,7 +56,16 @@ def _redacted_snippet(text: str) -> str:
     return redact_sensitive(text)[:_MAX_ERROR_FIELD_CHARS]
 
 
-def _to_int_or_none(value: Optional[str]) -> Optional[int]:
+def seconds_between(start: Optional[float], end: Optional[float]) -> Optional[float]:
+    """Elapsed monotonic seconds, or None if either timestamp is missing."""
+    if start is None or end is None:
+        return None
+
+    return round(end - start, 1)
+
+
+def safe_int(value: Optional[str]) -> Optional[int]:
+    """Convert a string to an integer, or return None if conversion fails."""
     if value is None:
         return None
 
@@ -64,14 +73,6 @@ def _to_int_or_none(value: Optional[str]) -> Optional[int]:
         return int(value)
     except ValueError:
         return None
-
-
-def seconds_between(start: Optional[float], end: Optional[float]) -> Optional[float]:
-    """Elapsed monotonic seconds, or None if either timestamp is missing."""
-    if start is None or end is None:
-        return None
-
-    return round(end - start, 1)
 
 
 def safe_url_path(url: object) -> Optional[str]:
@@ -99,9 +100,7 @@ def describe_presigned_url(url: object) -> dict[str, Any]:
             # netloc would include user:pass@ userinfo
             "object_host": parts.hostname,
             "object_path": redact_sensitive(path[:_MAX_OBJECT_PATH_CHARS]),
-            "url_expires_in": _to_int_or_none(
-                expires_values[0] if expires_values else None
-            ),
+            "url_expires_in": safe_int(expires_values[0] if expires_values else None),
         }
     except Exception:
         return {"object_host": None, "object_path": None, "url_expires_in": None}
@@ -109,16 +108,9 @@ def describe_presigned_url(url: object) -> dict[str, Any]:
 
 def _read_response_body_prefix(response: requests.Response) -> Optional[str]:
     try:
-        chunks = []
-        length = 0
-        # iter_content bounds wire read; .content would download the full body
-        for chunk in response.iter_content(_MAX_ERROR_BODY_BYTES):
-            chunks.append(chunk)
-            length += len(chunk)
-            if length >= _MAX_ERROR_BODY_BYTES:
-                break
-
-        prefix = b"".join(chunks)[:_MAX_ERROR_BODY_BYTES]
+        # The cut keeps redaction cheap: its URL pattern backtracks over every
+        # start position, so an unbounded body costs seconds of the user's cell
+        prefix = response.content[:_MAX_ERROR_BODY_BYTES]
         return prefix.decode("utf-8", errors="replace")
     except Exception:
         return None

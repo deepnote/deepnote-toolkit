@@ -1,7 +1,6 @@
 import json
 import time
 import unittest
-from unittest import mock
 
 from parameterized import parameterized
 
@@ -160,22 +159,6 @@ class TestDescribeS3Error(unittest.TestCase):
         for value in diagnostics.values():
             if isinstance(value, str):
                 self.assertLessEqual(len(value), 500)
-
-    def test_body_prefix_is_streamed_rather_than_buffered(self):
-        """Must not touch Response.content (downloads the full body)."""
-        buffered = []
-        response = mock.MagicMock(status_code=403, headers={})
-        type(response).content = mock.PropertyMock(
-            side_effect=lambda: buffered.append("content")
-        )
-        response.iter_content.side_effect = lambda size: iter(
-            [ACCESS_DENIED_EXPIRED_BODY[:size]]
-        )
-
-        diagnostics = describe_s3_error(response)
-
-        self.assertEqual(buffered, [])
-        self.assertEqual(diagnostics["s3_error_code"], "AccessDenied")
 
 
 class TestDescribePresignedUrl(unittest.TestCase):

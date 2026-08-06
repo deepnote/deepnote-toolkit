@@ -79,22 +79,9 @@ def s3_response(status_code, body=b"", headers=None, url=PRESIGNED_URL):
     response = mock.MagicMock(
         status_code=status_code, content=body, headers=headers or {}, url=url
     )
-    released = False
-
-    def release(*_):
-        nonlocal released
-        released = True
-        response.content = b""
-
-    def iter_content(size):
-        if released:
-            return iter([])
-        return iter([body[i : i + 20] for i in range(0, len(body), 20)])
-
     response.__enter__.return_value = response
     # After context exit, requests clears streamed body content.
-    response.__exit__.side_effect = release
-    response.iter_content.side_effect = iter_content
+    response.__exit__.side_effect = lambda *_: setattr(response, "content", b"")
     if status_code >= 400:
         response.raise_for_status.side_effect = requests.HTTPError(
             f"{status_code} Client Error: for url: {url}", response=response
