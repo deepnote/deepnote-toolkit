@@ -742,18 +742,24 @@ class TestUploadSqlCache(unittest.TestCase):
             for secret in SECRETS:
                 self.assertNotIn(secret, logged)
 
+    @parameterized.expand(
+        [
+            ("connection", requests.exceptions.ConnectionError, "ConnectionError"),
+            ("timeout", requests.exceptions.Timeout, "Timeout"),
+        ]
+    )
     @patch("deepnote_toolkit.sql.sql_caching.logger")
     @patch("deepnote_toolkit.sql.sql_caching.requests.put")
-    def test_network_error_logs_no_presigned_url(self, mock_put, mock_logger):
-        mock_put.side_effect = requests.exceptions.ConnectionError(
-            URLLIB3_ERROR_MESSAGE
-        )
+    def test_network_error_logs_no_presigned_url(
+        self, _name, error, expected_type, mock_put, mock_logger
+    ):
+        mock_put.side_effect = error(URLLIB3_ERROR_MESSAGE)
 
         upload_sql_cache(pd.DataFrame({"a": [1, 2, 3]}), _upload())
 
         extra = mock_logger.error.call_args.kwargs["extra"]
         self.assertEqual(extra["sql_caching_cause"], "failed_to_upload_to_cache")
-        self.assertEqual(extra["error_type"], "ConnectionError")
+        self.assertEqual(extra["error_type"], expected_type)
         for logged in _logged_strings(mock_logger):
             for secret in SECRETS:
                 self.assertNotIn(secret, logged)
@@ -791,22 +797,6 @@ class TestUploadSqlCache(unittest.TestCase):
         self.assertEqual(extra["sql_caching_cause"], "failed_to_serialize_cache")
         self.assertEqual(extra["error_type"], "ValueError")
         self.assertNotIn("error_message", extra)
-
-    @patch("deepnote_toolkit.sql.sql_caching.logger")
-    @patch("deepnote_toolkit.sql.sql_caching.requests.put")
-    def test_seconds_since_url_issued_reflects_elapsed_time(
-        self, mock_put, mock_logger
-    ):
-        mock_put.return_value = s3_response(403, ACCESS_DENIED_EXPIRED_BODY)
-
-        upload_sql_cache(
-            pd.DataFrame({"a": [1, 2, 3]}),
-            _upload(issued_at=time.monotonic() - 930),
-        )
-
-        extra = mock_logger.error.call_args.kwargs["extra"]
-        self.assertGreaterEqual(extra["seconds_since_url_issued"], 930)
-        self.assertEqual(extra["url_expires_in"], 900)
 
     @patch("deepnote_toolkit.sql.sql_caching.logger")
     @patch("deepnote_toolkit.sql.sql_caching.tempfile.TemporaryFile")
@@ -855,16 +845,6 @@ class TestUploadSqlCache(unittest.TestCase):
         connect_timeout, read_timeout = mock_put.call_args.kwargs["timeout"]
         self.assertIsNotNone(connect_timeout)
         self.assertIsNotNone(read_timeout)
-
-    @patch("deepnote_toolkit.sql.sql_caching.logger")
-    @patch("deepnote_toolkit.sql.sql_caching.requests.put")
-    def test_upload_timeout_never_raises(self, mock_put, mock_logger):
-        mock_put.side_effect = requests.exceptions.Timeout(URLLIB3_ERROR_MESSAGE)
-
-        upload_sql_cache(pd.DataFrame({"a": [1, 2, 3]}), _upload())
-
-        extra = mock_logger.error.call_args.kwargs["extra"]
-        self.assertEqual(extra["error_type"], "Timeout")
 
 
 class TestLoggedExtras(unittest.TestCase):

@@ -94,13 +94,16 @@ class TestDescribeS3Error(unittest.TestCase):
         self.assertEqual(diagnostics["s3_expires"], "2026-07-29T12:15:00Z")
         self.assertEqual(diagnostics["s3_server_time"], "2026-07-29T12:31:07Z")
 
-    def test_extracts_expired_token_body(self):
+    def test_elements_absent_from_the_body_are_none(self):
+        """This body carries no <Expires> or <ServerTime>."""
         diagnostics = describe_s3_error(s3_response(403, EXPIRED_TOKEN_BODY))
 
         self.assertEqual(diagnostics["s3_error_code"], "ExpiredToken")
         self.assertEqual(
             diagnostics["s3_error_message"], "The provided token has expired."
         )
+        self.assertIsNone(diagnostics["s3_expires"])
+        self.assertIsNone(diagnostics["s3_server_time"])
 
     def test_captures_aws_request_headers(self):
         diagnostics = describe_s3_error(
@@ -160,6 +163,27 @@ class TestDescribeS3Error(unittest.TestCase):
             if isinstance(value, str):
                 self.assertLessEqual(len(value), 500)
 
+    def test_attributes_on_an_element_do_not_hide_it(self):
+        """Tag matching must survive attributes, which push the '>' away."""
+        diagnostics = describe_s3_error(
+            s3_response(
+                403,
+                b'<Error><Code lang="en">AccessDenied</Code>'
+                b"<Message>Request has expired</Message></Error>",
+            )
+        )
+
+        self.assertEqual(diagnostics["s3_error_code"], "AccessDenied")
+        self.assertEqual(diagnostics["s3_error_message"], "Request has expired")
+
+    def test_empty_code_element_falls_back_to_the_snippet(self):
+        diagnostics = describe_s3_error(
+            s3_response(403, b"<Error><Code/><Message>Denied</Message></Error>")
+        )
+
+        self.assertIsNone(diagnostics["s3_error_code"])
+        self.assertIn("Denied", diagnostics["response_body_snippet"])
+
 
 class TestDescribePresignedUrl(unittest.TestCase):
     def test_returns_path_and_expiry(self):
@@ -169,15 +193,16 @@ class TestDescribePresignedUrl(unittest.TestCase):
         self.assertEqual(described["object_path"], "/ws/int/key")
         self.assertEqual(described["url_expires_in"], 900)
 
-    def test_missing_expires_yields_none(self):
-        described = describe_presigned_url("https://example.com/x")
+    @parameterized.expand(
+        [
+            ("absent", "https://example.com/x"),
+            ("non_numeric", "https://example.com/x?X-Amz-Expires=abc"),
+        ]
+    )
+    def test_unusable_expires_yields_none(self, _, url):
+        described = describe_presigned_url(url)
 
         self.assertEqual(described["object_path"], "/x")
-        self.assertIsNone(described["url_expires_in"])
-
-    def test_non_numeric_expires_yields_none(self):
-        described = describe_presigned_url("https://example.com/x?X-Amz-Expires=abc")
-
         self.assertIsNone(described["url_expires_in"])
 
     @parameterized.expand(

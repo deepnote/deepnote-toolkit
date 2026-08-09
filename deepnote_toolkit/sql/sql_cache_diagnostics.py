@@ -4,6 +4,7 @@ Failed cache requests are described without presigned URL signing parameters.
 """
 
 import re
+import xml.etree.ElementTree as ET
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlsplit
 
@@ -11,7 +12,7 @@ import requests
 
 _MAX_ERROR_BODY_BYTES = 4096
 _MAX_ERROR_FIELD_CHARS = 500
-_MAX_OBJECT_PATH_CHARS = 200
+_MAX_OBJECT_PATH_CHARS = 500
 _MAX_RAW_EXCEPTION_CHARS = _MAX_ERROR_FIELD_CHARS * 4
 
 # urllib3 connection errors use path-only URLs as well as full URLs
@@ -32,10 +33,6 @@ _S3_ERROR_FIELDS = {
     "Expires": "s3_expires",
     "ServerTime": "s3_server_time",
 }
-
-_S3_ERROR_FIELD_PATTERN = re.compile(
-    rf"<({'|'.join(_S3_ERROR_FIELDS)})>(.*?)</\1>", re.DOTALL | re.IGNORECASE
-)
 
 
 class SqlCacheHttpError(Exception):
@@ -93,12 +90,12 @@ def describe_presigned_url(url: object) -> dict[str, Any]:
         return {"object_host": None, "object_path": None, "url_expires_in": None}
 
     try:
-        parts = urlsplit(url)
-        expires_values = parse_qs(parts.query).get("X-Amz-Expires")
-        path = _ENCODED_QUERY_SEPARATOR.split(parts.path, maxsplit=1)[0]
+        url_parts = urlsplit(url)
+        expires_values = parse_qs(url_parts.query).get("X-Amz-Expires")
+        path = _ENCODED_QUERY_SEPARATOR.split(url_parts.path, maxsplit=1)[0]
         return {
             # netloc would include user:pass@ userinfo
-            "object_host": parts.hostname,
+            "object_host": url_parts.hostname,
             "object_path": redact_sensitive(path[:_MAX_OBJECT_PATH_CHARS]),
             "url_expires_in": safe_int(expires_values[0] if expires_values else None),
         }
@@ -106,20 +103,47 @@ def describe_presigned_url(url: object) -> dict[str, Any]:
         return {"object_host": None, "object_path": None, "url_expires_in": None}
 
 
-def _read_response_body_prefix(response: requests.Response) -> Optional[str]:
+def _read_response_body_prefix(response: requests.Response) -> Optional[bytes]:
     try:
         # The cut keeps redaction cheap: its URL pattern backtracks over every
         # start position, so an unbounded body costs seconds of the user's cell
-        prefix = response.content[:_MAX_ERROR_BODY_BYTES]
-        return prefix.decode("utf-8", errors="replace")
+        return response.content[:_MAX_ERROR_BODY_BYTES]
     except Exception:
         return None
+
+
+def _parse_s3_error_fields(body: bytes) -> dict[str, str]:
+    """Allowlisted elements of an S3 error document, best-effort.
+
+    Bodies arrive cut at _MAX_ERROR_BODY_BYTES, so the document usually has no
+    closing tag. A pull parser that is never closed still reports every element
+    that ended inside the prefix, and read_events() re-raises a malformed-XML
+    failure only after yielding the events that preceded it.
+    """
+    parser = ET.XMLPullParser(["end"])
+    fields: dict[str, str] = {}
+    try:
+        parser.feed(body)
+        for _, element in parser.read_events():
+            # An empty element carries nothing, so leave it out and let the
+            # caller fall back to the body snippet
+            if element.tag in _S3_ERROR_FIELDS and element.text:
+                fields.setdefault(element.tag, element.text)
+    except Exception:
+        # Bogus encoding declarations raise LookupError rather than ParseError;
+        # nothing here may mask the failure these diagnostics describe
+        pass
+
+    return fields
 
 
 def read_body_snippet(response: requests.Response) -> Optional[str]:
     """Redacted response body prefix, or None when unreadable."""
     body = _read_response_body_prefix(response)
-    return None if body is None else _redacted_snippet(body)
+    if body is None:
+        return None
+
+    return _redacted_snippet(body.decode("utf-8", errors="replace"))
 
 
 def describe_s3_error(response: requests.Response) -> dict[str, Any]:
@@ -136,18 +160,17 @@ def describe_s3_error(response: requests.Response) -> dict[str, Any]:
     if body is None:
         return diagnostics
 
-    found = {
-        element.lower(): value
-        for element, value in _S3_ERROR_FIELD_PATTERN.findall(body)
-    }
+    found = _parse_s3_error_fields(body)
     for element, field in _S3_ERROR_FIELDS.items():
-        value = found.get(element.lower())
+        value = found.get(element)
         if value is not None:
             diagnostics[field] = _redacted_snippet(value)
 
     if diagnostics["s3_error_code"] is None:
         # Non-S3 body (proxy/gateway)
-        diagnostics["response_body_snippet"] = _redacted_snippet(body)
+        diagnostics["response_body_snippet"] = _redacted_snippet(
+            body.decode("utf-8", errors="replace")
+        )
 
     return diagnostics
 
