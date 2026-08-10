@@ -22,5 +22,8 @@
   ],
   "python.analysis.extraPaths": [
     "./installer"
+  ],
+  "cursorpyright.analysis.extraPaths": [
+    "./installer"
   ]
 }
