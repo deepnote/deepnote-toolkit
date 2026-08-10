@@ -13,6 +13,7 @@ from deepnote_toolkit.sql.sql_cache_diagnostics import (
     SqlCacheHttpError,
     describe_exception,
     describe_presigned_url,
+    diagnostics_summary,
     read_body_snippet,
     safe_url_path,
     seconds_between,
@@ -62,11 +63,13 @@ def get_sql_cache(
             query_hash, integration_id, sql_cache_mode
         )
     except Exception as exc:
+        diag = describe_exception(exc)
         logger.error(
-            "Failed to request SQL cache info",
+            "Failed to request SQL cache info: %s",
+            diagnostics_summary(diag),
             extra={
                 "sql_caching_cause": "failed_to_request_cache_info",
-                **describe_exception(exc),
+                **diag,
             },
         )
         return None, None
@@ -78,11 +81,13 @@ def get_sql_cache(
             try:
                 dataframe_from_cache = _try_read_cache(download_url)
             except Exception as exc:
+                diag = describe_exception(exc)
                 logger.error(
-                    "Failed to download dataframe from cache",
+                    "Failed to download dataframe from cache: %s",
+                    diagnostics_summary(diag),
                     extra={
                         "sql_caching_cause": "failed_to_download_from_cache",
-                        **describe_exception(exc),
+                        **diag,
                         **describe_presigned_url(download_url),
                     },
                 )
@@ -130,9 +135,9 @@ def upload_sql_cache(dataframe: pd.DataFrame, upload: SqlCacheUpload) -> None:
             try:
                 _serialize_dataframe_for_cache(dataframe, temp_file)
             except Exception as exc:
-                # Serialization errors embed column names; log type only.
                 logger.error(
-                    "Failed to upload SQL cache",
+                    "Failed to serialize SQL cache: %s",
+                    type(exc).__name__,
                     extra={
                         "sql_caching_cause": "failed_to_serialize_cache",
                         "error_type": type(exc).__name__,
@@ -149,11 +154,13 @@ def upload_sql_cache(dataframe: pd.DataFrame, upload: SqlCacheUpload) -> None:
 
         response.raise_for_status()
     except Exception as exc:
+        diag = describe_exception(exc)
         logger.error(
-            "Failed to upload SQL cache",
+            "Failed to upload SQL cache: %s",
+            diagnostics_summary(diag),
             extra={
                 "sql_caching_cause": "failed_to_upload_to_cache",
-                **describe_exception(exc),
+                **diag,
                 **describe_presigned_url(upload.url),
                 "seconds_since_url_issued": seconds_between(
                     upload.issued_at, put_started_at
@@ -216,7 +223,8 @@ def _request_cache_info_from_webapp(
     if sql_cache_response.status_code != 200:
         # the caching endpoint is not available, we can't use it. We'll skip the caching logic
         logger.error(
-            "Failed to request cache info",
+            "Failed to request cache info: %s",
+            sql_cache_response.status_code,
             extra={
                 "sql_caching_cause": "http_error",
                 "status_code": sql_cache_response.status_code,

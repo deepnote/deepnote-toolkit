@@ -189,3 +189,20 @@ def describe_exception(exc: BaseException) -> dict[str, Any]:
         "error_type": type(exc).__name__,
         "error_message": _redacted_snippet(str(exc)[:_MAX_RAW_EXCEPTION_CHARS]),
     }
+
+
+def diagnostics_summary(diag: dict[str, Any]) -> str:
+    """One-line summary from a diagnostics dict, for the log message."""
+    # S3 HTTP error: "403 AccessDenied" or just "403"
+    status = diag.get("status_code")
+    if status is not None:
+        code = diag.get("s3_error_code")
+        return f"{status} {code}" if code else str(status)
+
+    # Non-HTTP exception: "ConnectionError: timed out"
+    error_type = diag.get("error_type", "")
+    error_msg = diag.get("error_message", "")
+    if error_type and error_msg:
+        return f"{error_type}: {error_msg}"
+
+    return error_type or error_msg or "unknown error"

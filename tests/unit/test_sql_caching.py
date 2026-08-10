@@ -478,8 +478,8 @@ class TestGetSqlCache(unittest.TestCase):
         self.assertIsNone(upload)
         mock_logger.error.assert_called_once()
         self.assertEqual(
-            mock_logger.error.call_args.args,
-            ("Failed to download dataframe from cache",),
+            mock_logger.error.call_args.args[0],
+            "Failed to download dataframe from cache: %s",
         )
         extra = mock_logger.error.call_args.kwargs["extra"]
         self.assertEqual(extra["sql_caching_cause"], "failed_to_download_from_cache")
@@ -607,7 +607,7 @@ class TestRequestCacheInfoFromWebapp(unittest.TestCase):
         self.assertIsNone(_request_cache_info_from_webapp("abc", "123", "read"))
 
         self.assertEqual(
-            mock_logger.error.call_args.args, ("Failed to request cache info",)
+            mock_logger.error.call_args.args[0], "Failed to request cache info: %s"
         )
         extra = mock_logger.error.call_args.kwargs["extra"]
         self.assertEqual(extra["status_code"], 503)
@@ -709,7 +709,7 @@ class TestUploadSqlCache(unittest.TestCase):
 
         mock_logger.error.assert_called_once()
         self.assertEqual(
-            mock_logger.error.call_args.args, ("Failed to upload SQL cache",)
+            mock_logger.error.call_args.args[0], "Failed to upload SQL cache: %s"
         )
         extra = mock_logger.error.call_args.kwargs["extra"]
         self.assertEqual(extra["sql_caching_cause"], "failed_to_upload_to_cache")
@@ -780,8 +780,8 @@ class TestUploadSqlCache(unittest.TestCase):
         upload_sql_cache(df, _upload())
         upload_sql_cache(df, _upload(other_url))
 
-        messages = {call.args for call in mock_logger.error.call_args_list}
-        self.assertEqual(messages, {("Failed to upload SQL cache",)})
+        templates = {call.args[0] for call in mock_logger.error.call_args_list}
+        self.assertEqual(templates, {"Failed to upload SQL cache: %s"})
 
     @patch("deepnote_toolkit.sql.sql_caching.logger")
     @patch("deepnote_toolkit.sql.sql_caching.requests.put")

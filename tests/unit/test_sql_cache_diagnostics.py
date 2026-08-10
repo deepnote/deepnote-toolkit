@@ -9,6 +9,7 @@ from deepnote_toolkit.sql.sql_cache_diagnostics import (
     describe_exception,
     describe_presigned_url,
     describe_s3_error,
+    diagnostics_summary,
     redact_sensitive,
     safe_url_path,
 )
@@ -256,3 +257,28 @@ class TestDescribePresignedUrl(unittest.TestCase):
         for value in described.values():
             for secret in ("CREDVALUE", "TOKENVALUE", "SIGVALUE"):
                 self.assertNotIn(secret, str(value))
+
+
+class TestDiagnosticsSummary(unittest.TestCase):
+    def test_s3_error_with_code(self):
+        self.assertEqual(
+            diagnostics_summary({"status_code": 403, "s3_error_code": "AccessDenied"}),
+            "403 AccessDenied",
+        )
+
+    def test_http_error_without_s3_code(self):
+        self.assertEqual(
+            diagnostics_summary({"status_code": 502, "s3_error_code": None}),
+            "502",
+        )
+
+    def test_connection_error(self):
+        self.assertEqual(
+            diagnostics_summary(
+                {"error_type": "ConnectionError", "error_message": "timed out"}
+            ),
+            "ConnectionError: timed out",
+        )
+
+    def test_empty_dict(self):
+        self.assertEqual(diagnostics_summary({}), "unknown error")
