@@ -111,9 +111,12 @@ def upload_sql_cache(dataframe, upload_url):
             response = requests.put(upload_url, data=temp_file)
             response.raise_for_status()
     except Exception as exc:
+        detail = str(exc)
+        if isinstance(exc, requests.HTTPError) and exc.response is not None:
+            detail = f"{exc.response.status_code} {exc.response.text[:500]}"
         logger.error(
             "Failed to upload SQL cache: %s",
-            exc,
+            detail,
             extra={"sql_caching_cause": "failed_to_upload_to_cache"},
         )
 
