@@ -3,6 +3,7 @@ from unittest import mock
 from unittest.mock import patch
 
 import pandas as pd
+import requests
 from parameterized import parameterized
 from pyarrow import ArrowInvalid
 
@@ -394,3 +395,33 @@ class TestUploadSqlCache(unittest.TestCase):
 
         self.assertEqual(pickle_pos, 0, "file should be at position 0")
         self.assertEqual(pickle_size, 0, "file should be empty after truncate")
+
+    @patch("deepnote_toolkit.sql.sql_caching.logger")
+    @patch("deepnote_toolkit.sql.sql_caching.requests.put")
+    def test_http_error_logs_response_body(self, mock_put, mock_logger):
+        response = requests.Response()
+        response.status_code = 403
+        response._content = (
+            b'<?xml version="1.0"?><Error>'
+            b"<Code>AccessDenied</Code>"
+            b"<Message>Request has expired</Message>"
+            b"</Error>"
+        )
+        mock_put.return_value = response
+
+        upload_sql_cache(pd.DataFrame({"a": [1]}), "https://example.com/upload")
+
+        logged = mock_logger.error.call_args.args[1]
+        self.assertIn("403", logged)
+        self.assertIn("AccessDenied", logged)
+        self.assertNotIn("example.com/upload", logged)
+
+    @patch("deepnote_toolkit.sql.sql_caching.logger")
+    @patch("deepnote_toolkit.sql.sql_caching.requests.put")
+    def test_connection_error_logs_str_of_exception(self, mock_put, mock_logger):
+        mock_put.side_effect = requests.ConnectionError("connection timed out")
+
+        upload_sql_cache(pd.DataFrame({"a": [1]}), "https://example.com/upload")
+
+        logged = mock_logger.error.call_args.args[1]
+        self.assertIn("connection timed out", logged)
