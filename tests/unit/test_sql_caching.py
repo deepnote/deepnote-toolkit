@@ -399,8 +399,12 @@ class TestUploadSqlCache(unittest.TestCase):
     @patch("deepnote_toolkit.sql.sql_caching.logger")
     @patch("deepnote_toolkit.sql.sql_caching.requests.put")
     def test_http_error_logs_response_body(self, mock_put, mock_logger):
+        upload_url = "https://example.com/upload?signature=secret"
         response = requests.Response()
         response.status_code = 403
+        # raise_for_status() embeds response.url in str(exc), so the presigned
+        # URL only stays out of the log if we never format the exception itself
+        response.url = upload_url
         response._content = (
             b'<?xml version="1.0"?><Error>'
             b"<Code>AccessDenied</Code>"
@@ -409,12 +413,12 @@ class TestUploadSqlCache(unittest.TestCase):
         )
         mock_put.return_value = response
 
-        upload_sql_cache(pd.DataFrame({"a": [1]}), "https://example.com/upload")
+        upload_sql_cache(pd.DataFrame({"a": [1]}), upload_url)
 
         logged = mock_logger.error.call_args.args[1]
         self.assertIn("403", logged)
         self.assertIn("AccessDenied", logged)
-        self.assertNotIn("example.com/upload", logged)
+        self.assertNotIn(upload_url, logged)
 
     @patch("deepnote_toolkit.sql.sql_caching.logger")
     @patch("deepnote_toolkit.sql.sql_caching.requests.put")
