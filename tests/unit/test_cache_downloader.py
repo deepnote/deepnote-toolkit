@@ -21,7 +21,9 @@ _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
 
 cleanup_old_versions = _mod.cleanup_old_versions
+build_toolkit_bundle_ref = _mod.build_toolkit_bundle_ref
 download_dependency = _mod.download_dependency
+validate_download_config = _mod.validate_download_config
 
 
 class TestCleanupOldVersions:
@@ -173,6 +175,34 @@ class TestCleanupOldVersions:
 
 
 class TestDownloadDependency:
+    def test_validate_download_config_accepts_s3_bucket(self):
+        validate_download_config("s3", "fake-bucket", None)
+
+    def test_validate_download_config_accepts_oci_repository(self):
+        validate_download_config(
+            "oci-zstd", None, "registry.example.com/deepnote/toolkit-bundle"
+        )
+
+    def test_validate_download_config_rejects_unknown_method(self):
+        with pytest.raises(ValueError, match="unsupported TOOLKIT_DOWNLOAD_METHOD"):
+            validate_download_config("unknown", "fake-bucket", None)
+
+    def test_validate_download_config_rejects_missing_s3_bucket(self):
+        with pytest.raises(ValueError, match="TOOLKIT_INDEX_BUCKET_NAME"):
+            validate_download_config("s3", None, None)
+
+    def test_validate_download_config_rejects_missing_oci_repository(self):
+        with pytest.raises(ValueError, match="TOOLKIT_BUNDLE_OCI_REPOSITORY"):
+            validate_download_config("oci-zstd", None, "")
+
+    def test_build_toolkit_bundle_ref(self):
+        assert (
+            build_toolkit_bundle_ref(
+                "v1.0.0", "3.11", "registry.example.com/deepnote/toolkit-bundle"
+            )
+            == "registry.example.com/deepnote/toolkit-bundle:v1.0.0-python3.11-tar-zst"
+        )
+
     def test_skips_download_when_done_file_exists(self, tmp_path):
         """Already-cached version should not trigger a download."""
         release = "v1.0.0"
@@ -202,8 +232,7 @@ class TestDownloadDependency:
         mock_aws.wait.return_value = 0
 
         mock_tar = MagicMock()
-        mock_tar.communicate.return_value = (b"", b"")
-        mock_tar.returncode = 0
+        mock_tar.wait.return_value = 0
 
         with (
             patch.object(_mod, "BASE_PATH", str(tmp_path)),
@@ -214,4 +243,76 @@ class TestDownloadDependency:
             download_dependency(release, py_ver, "fake-bucket")
 
         assert mock_popen.call_count == 2
+        assert mock_popen.call_args_list[0][0][0] == [
+            "aws",
+            "s3",
+            "cp",
+            "--no-sign-request",
+            "s3://fake-bucket/deepnote-toolkit/v1.0.0/python3.11.tar",
+            "-",
+        ]
+        assert mock_popen.call_args_list[1][0][0] == [
+            "tar",
+            "-xf",
+            "-",
+            "-C",
+            str(version_path),
+        ]
+        assert (version_path / f"{py_ver}-done").exists()
+
+    def test_downloads_from_oci_zstd_when_enabled(self, tmp_path):
+        """The OCI zstd feature flag should stream regctl through zstd into tar."""
+        release = "v1.0.0"
+        py_ver = "3.11"
+        version_path = tmp_path / release / f"python{py_ver}"
+        version_path.mkdir(parents=True)
+
+        mock_regctl = MagicMock()
+        mock_regctl.stdout = MagicMock()
+        mock_regctl.stderr = MagicMock(read=MagicMock(return_value=b""))
+        mock_regctl.wait.return_value = 0
+
+        mock_zstd = MagicMock()
+        mock_zstd.stdout = MagicMock()
+        mock_zstd.stderr = MagicMock(read=MagicMock(return_value=b""))
+        mock_zstd.wait.return_value = 0
+
+        mock_tar = MagicMock()
+        mock_tar.wait.return_value = 0
+
+        with (
+            patch.object(_mod, "BASE_PATH", str(tmp_path)),
+            patch.object(
+                _mod.subprocess,
+                "Popen",
+                side_effect=[mock_regctl, mock_zstd, mock_tar],
+            ) as mock_popen,
+        ):
+            download_dependency(
+                release,
+                py_ver,
+                "fake-bucket",
+                download_method="oci-zstd",
+                oci_repository="registry.example.com/deepnote/toolkit-bundle",
+            )
+
+        assert mock_popen.call_count == 3
+        assert mock_popen.call_args_list[0][0][0] == [
+            "regctl",
+            "artifact",
+            "get",
+            "--file",
+            "python3.11.tar.zst",
+            "registry.example.com/deepnote/toolkit-bundle:v1.0.0-python3.11-tar-zst",
+        ]
+        assert mock_popen.call_args_list[1][0][0] == ["zstd", "-dc"]
+        assert mock_popen.call_args_list[2][0][0] == [
+            "tar",
+            "-xf",
+            "-",
+            "-C",
+            str(version_path),
+        ]
+        mock_regctl.stdout.close.assert_called_once()
+        mock_zstd.stdout.close.assert_called_once()
         assert (version_path / f"{py_ver}-done").exists()

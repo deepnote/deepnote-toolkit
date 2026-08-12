@@ -1,5 +1,5 @@
-name: 'Push OCI image volume artifact'
-description: 'Push one or more files as an OCI image-volume-compatible artifact'
+name: 'Push OCI artifact'
+description: 'Push one or more files as either an image-volume-compatible OCI artifact or direct-file OCI artifact'
 inputs:
   artifact_ref:
     description: 'Fully qualified OCI image reference'
@@ -16,6 +16,9 @@ inputs:
   annotations:
     description: 'Additional newline-separated OCI annotations in key=value format'
     default: ''
+  publish_mode:
+    description: 'How to publish files: image-volume wraps files in a gzipped rootfs layer, direct-files pushes files directly.'
+    default: 'image-volume'
 
 runs:
   using: "composite"
@@ -24,7 +27,24 @@ runs:
     - name: Set up ORAS
       uses: oras-project/setup-oras@38de303aac69abb66f3e6255b7198bff35f323e3 # v2.0.0
 
+    - name: Validate publish mode
+      shell: bash
+      env:
+        PUBLISH_MODE: ${{ inputs.publish_mode }}
+      run: |
+        set -euo pipefail
+
+        case "${PUBLISH_MODE}" in
+          image-volume|direct-files)
+            ;;
+          *)
+            echo "Error: unsupported publish_mode: ${PUBLISH_MODE}" >&2
+            exit 1
+            ;;
+        esac
+
     - name: Push OCI image volume artifact
+      if: ${{ inputs.publish_mode == 'image-volume' }}
       shell: bash
       env:
         ARTIFACT_REF: ${{ inputs.artifact_ref }}
@@ -53,6 +73,7 @@ runs:
           manifest_annotations+=("${annotation}")
         done <<< "${EXTRA_ANNOTATIONS}"
 
+        file_count=0
         while IFS= read -r file_descriptor; do
           [ -n "${file_descriptor}" ] || continue
           file_path="${file_descriptor%%:*}"
@@ -62,12 +83,18 @@ runs:
             exit 1
           fi
           cp "${file_path}" "${rootfs_dir}/$(basename "${file_path}")"
+          file_count=$((file_count + 1))
         done <<< "${FILES}"
+
+        if [ "${file_count}" -eq 0 ]; then
+          echo "Error: no OCI artifact files were provided" >&2
+          exit 1
+        fi
 
         layer_tar="${workdir}/rootfs.tar"
         layer_tar_gz="${workdir}/rootfs.tar.gz"
         tar -C "${rootfs_dir}" -cf "${layer_tar}" .
-        gzip -n -c "${layer_tar}" > "${layer_tar_gz}"
+        pigz -n -6 -p "$(nproc)" -c "${layer_tar}" > "${layer_tar_gz}"
 
         layer_diff_id="$(sha256sum "${layer_tar}" | awk '{print $1}')"
 
@@ -97,6 +124,85 @@ runs:
           done
           oras_args+=("rootfs.tar.gz:application/vnd.oci.image.layer.v1.tar+gzip")
 
+          oras "${oras_args[@]}"
+        )
+        oras manifest fetch "${ARTIFACT_REF}" >/dev/null
+        echo "Pushed ${ARTIFACT_REF}"
+
+    - name: Push OCI direct file artifact
+      if: ${{ inputs.publish_mode == 'direct-files' }}
+      shell: bash
+      env:
+        ARTIFACT_REF: ${{ inputs.artifact_ref }}
+        ARTIFACT_TYPE: ${{ inputs.artifact_type }}
+        FILES: ${{ inputs.files }}
+        TOOLKIT_VERSION: ${{ inputs.toolkit_version }}
+        EXTRA_ANNOTATIONS: ${{ inputs.annotations }}
+      run: |
+        set -euo pipefail
+
+        workdir="$(mktemp -d)"
+        trap 'rm -rf "${workdir}"' EXIT
+
+        manifest_annotations=(
+          "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}"
+          "org.opencontainers.image.revision=${GITHUB_SHA}"
+          "org.opencontainers.image.version=${TOOLKIT_VERSION}"
+          "com.deepnote.toolkit.artifact-type=${ARTIFACT_TYPE}"
+        )
+
+        while IFS= read -r annotation; do
+          [ -n "${annotation}" ] || continue
+          manifest_annotations+=("${annotation}")
+        done <<< "${EXTRA_ANNOTATIONS}"
+
+        oras_args=(
+          push
+          "${ARTIFACT_REF}"
+          --artifact-type "${ARTIFACT_TYPE}"
+        )
+
+        for annotation in "${manifest_annotations[@]}"; do
+          oras_args+=(--annotation "${annotation}")
+        done
+
+        file_count=0
+        while IFS= read -r file_descriptor; do
+          [ -n "${file_descriptor}" ] || continue
+          file_path="${file_descriptor%%:*}"
+          media_type="${file_descriptor#*:}"
+          if [ "${file_path}" = "${media_type}" ]; then
+            echo "Error: invalid OCI artifact file descriptor: ${file_descriptor}" >&2
+            exit 1
+          fi
+          if [[ "${file_path}" = /* ]]; then
+            echo "Error: direct-files mode requires relative file paths, got ${file_path}" >&2
+            exit 1
+          fi
+          if [ ! -f "${file_path}" ]; then
+            echo "Error: OCI artifact file not found at ${file_path}" >&2
+            ls -la "$(dirname "${file_path}")" >&2 || true
+            exit 1
+          fi
+
+          file_name="$(basename "${file_path}")"
+          staged_path="${workdir}/${file_name}"
+          if [ -e "${staged_path}" ]; then
+            echo "Error: multiple OCI artifact files have the same basename: ${file_name}" >&2
+            exit 1
+          fi
+          cp "${file_path}" "${staged_path}"
+          oras_args+=("${file_name}:${media_type}")
+          file_count=$((file_count + 1))
+        done <<< "${FILES}"
+
+        if [ "${file_count}" -eq 0 ]; then
+          echo "Error: no OCI artifact files were provided" >&2
+          exit 1
+        fi
+
+        (
+          cd "${workdir}"
           oras "${oras_args[@]}"
         )
         oras manifest fetch "${ARTIFACT_REF}" >/dev/null

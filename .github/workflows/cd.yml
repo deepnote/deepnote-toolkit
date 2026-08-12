@@ -89,6 +89,22 @@ jobs:
         run: |
           set -euo pipefail
           ./bin/build
+          sudo chown -R "$(id -u):$(id -g)" dist
+
+      - name: Create zstd bundle artifact
+        env:
+          PYTHON_VERSION: ${{ matrix.python_version }}
+        run: |
+          set -euo pipefail
+
+          if ! command -v zstd >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --no-install-recommends -y zstd
+          fi
+
+          zstd -T0 -6 -f \
+            -o "dist/python${PYTHON_VERSION}.tar.zst" \
+            "dist/python${PYTHON_VERSION}.tar"
 
       # STAGING UPLOAD
       - name: Upload to staging
@@ -127,6 +143,18 @@ jobs:
           files: dist/python${{ matrix.python_version }}.tar:application/vnd.deepnote.toolkit.python-bundle.v1.tar
           toolkit_version: ${{ steps.version.outputs.VERSION }}
           annotations: com.deepnote.toolkit.python-version=${{ matrix.python_version }}
+
+      - name: Push toolkit bundle OCI zstd artifact
+        uses: ./.github/actions/push-oci-artifact
+        with:
+          artifact_ref: docker.io/deepnote/toolkit-bundle:${{ steps.version.outputs.VERSION }}-python${{ matrix.python_version }}-tar-zst
+          artifact_type: application/vnd.deepnote.toolkit.bundle.v1
+          files: dist/python${{ matrix.python_version }}.tar.zst:application/vnd.deepnote.toolkit.python-bundle.v1.tar+zstd
+          toolkit_version: ${{ steps.version.outputs.VERSION }}
+          annotations: |
+            com.deepnote.toolkit.python-version=${{ matrix.python_version }}
+            com.deepnote.toolkit.bundle-format=tar-zst
+          publish_mode: direct-files
 
       - name: Push toolkit installer OCI artifact
         if: matrix.python_version == '3.10'
