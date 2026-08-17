@@ -1,77 +1,27 @@
-# Deepnote Toolkit - Guidelines for Claude
+# Deepnote Toolkit
 
-## Build, Lint & Test Commands
+This Python package provides the kernel, Jupyter, Streamlit, language-server, SQL, and runtime services used by Deepnote Cloud and local Deepnote clients.
 
-- Build: `./bin/build`
-- Format: `poetry run black .`
-- Lint: `poetry run flake8 .`
-- Sort imports: `poetry run isort .`
-- Setup pre-commit hooks: `poetry poe setup-hooks`
-- Run unit tests (all): `nox -e unit`
-- Run integration tests: `nox -e integration`
-- Run specific test: `nox --force-color -e unit -p 3.10 -- tests/unit/test_file.py::TestClass::test_name`
-- Run local tests: `./bin/test-local`
+## Working rules
 
-## Code Coverage Commands
+- Use the routing table before searching. Start with the owning package, its tests, and the relevant developer or user documentation; do not traverse unrelated runtime components.
+- Read `pyproject.toml`, `noxfile.py`, scripts, and CI for current Python support, dependencies, commands, and quality gates instead of copying them into guidance.
+- Add or update focused unit or integration tests for behavior changes and run the narrowest relevant environment before broader checks.
+- Follow existing typed Python patterns, use `pathlib.Path` for filesystem paths, and preserve contextual error handling at process and Jupyter boundaries.
+- Document non-obvious coupling at every affected runtime component with reciprocal references.
+- Put durable discoveries in shared documentation under `docs/`, not local memory files. Keep this file limited to behavior and routing.
+- Never publish packages, promote runtime versions, or change a deployed environment without explicit user approval.
 
-- Run tests with coverage: `./bin/test-local` (coverage enabled by default)
-- Run without coverage: `COVERAGE_ENABLED=false ./bin/test-local`
-- Combine coverage files: `poetry run coverage combine`
-- Generate coverage report: `poetry run coverage report`
-- Check coverage threshold: `poetry run coverage report --fail-under=55`
-- Generate HTML report: `poetry run coverage html`
-- Generate XML report: `poetry run coverage xml`
-- Generate JSON report: `poetry run coverage json`
+## Routing table
 
-## Code Style Guidelines
-
-- Follow PEP 8 with Black formatting (line length: 88)
-- Use isort with Black profile for import sorting
-- Use type hints consistently
-- Use docstrings for all functions/classes
-- Use f-strings instead of .format() for string formatting
-- Use pathlib.Path for file path operations instead of os.path
-
-## Type Hints and Imports
-
-- Always use `Optional[T]` for parameters that can be None (not `T = None`)
-- Use explicit type hints for function parameters and return values
-- Example: `def function(param: Optional[str] = None) -> str:`
-
-## Naming Conventions
-
-- Files/Functions/Variables: `snake_case`
-- Classes: `PascalCase`
-- Test files: `test_*.py`
-
-## Error Handling
-
-- Use appropriate exception types
-- Log errors with context
-- Handle Jupyter/IPython specific exceptions properly
-
-## Python Version Support
-
-- Python 3.10, 3.11, 3.12, 3.13
-
-## Dependencies
-
-- Use Poetry for dependency management
-- Core deps: `poetry add <package>`
-- Dev deps: `poetry add --group dev <package>`
-- Server deps: `poetry add --group server <package>`
-
-## Code Patterns
-
-- Early returns to reduce nesting: Check conditions and return early
-- Extract common checks into variables for readability
-- Use dictionary unpacking for headers: `headers = {"Content-Type": "application/json", **auth_headers}`
-- CLI arguments: Use space-separated format (`--port 8080`)
-
-## Testing
-
-You can run a single test using the following format:
-
-```sh
-TEST_TYPE="unit" TOOLKIT_VERSION="local-build" ./bin/test tests/unit/test_sql_execution.py::TestExecuteSql::test_execute_sql_with_connection_json_with_snowflake_encrypted_private_key
-```
+| When looking for                                           | Look into                                                                                                  |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Toolkit purpose and user-facing capabilities               | [README.md](README.md)                                                                                     |
+| Development setup, local Cloud integration, and releases   | [CONTRIBUTING.md](CONTRIBUTING.md)                                                                         |
+| Current dependencies, entry points, and tool configuration | `pyproject.toml`, `noxfile.py`, `bin/`, and `.github/workflows/`                                           |
+| Configuration implementation and extension points          | [docs/dev/configuration.md](docs/dev/configuration.md) and the referenced modules                          |
+| Public configuration behavior                              | [docs/user/configuration.md](docs/user/configuration.md)                                                   |
+| TypeScript notebook schemas and local orchestration        | [deepnote](https://github.com/deepnote/deepnote) (`../deepnote` when available)                            |
+| Deepnote Cloud integration and consumers                   | [deepnote-internal](https://github.com/deepnote/deepnote-internal) (`../deepnote-internal` when available) |
+| Editor-side server lifecycle and integrations              | [vscode-deepnote](https://github.com/deepnote/vscode-deepnote) (`../vscode-deepnote` when available)       |
+| Deployed Toolkit versions and review apps                  | [app-config](https://github.com/deepnote/app-config) (`../app-config` when available)                      |
