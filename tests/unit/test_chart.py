@@ -246,10 +246,7 @@ class TestDeepnoteChart(unittest.TestCase):
         spec = {"mark": "bar", "encoding": {"x": {"field": "id"}}}
         self._assert_chart_is_json_serializable(df, spec)
 
-    # Regression test for https://github.com/deepnote/vegafusion/releases/tag/v2.1.1:
-    # timestamp strings without a timezone were only parseable with exactly 0 or 3
-    # fractional digits, so microsecond-precision strings (what most databases emit)
-    # failed the whole chart with a parse error.
+    # Regression test: naive timestamp strings only parsed with 0 or 3 fractional digits.
     @parameterized.expand(
         [
             ("no_fraction", "2024-01-01 10:00:00", "2024-01-01T10:00:00.000"),
