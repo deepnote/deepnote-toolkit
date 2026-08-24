@@ -1495,18 +1495,18 @@ test = ["pytest", "pytest-cov", "pytest-xdist"]
 
 [[package]]
 name = "deepnote-vegafusion"
-version = "2.1.0"
+version = "2.1.1"
 description = "Core tools for using VegaFusion from Python"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "deepnote_vegafusion-2.1.0-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:3847971dad40d6542b5cf3033379a3f29d7c400dd51adbbba1fe33b5dff152d3"},
-    {file = "deepnote_vegafusion-2.1.0-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:5278d0e7d98a54835691308ba3853db19607f17b7d1bc7fdc3874984c50cdb52"},
-    {file = "deepnote_vegafusion-2.1.0-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:76577a98005f8180dc60423a40b9b1f330011dfac2ee846880a5b970d2ca9f21"},
-    {file = "deepnote_vegafusion-2.1.0-cp39-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:56311d3621a44003725431bbf63ab1446b9bedabcba4705769c44d17ce022168"},
-    {file = "deepnote_vegafusion-2.1.0-cp39-abi3-win_amd64.whl", hash = "sha256:45ce94a5fb0b3d3849cd0543ca57cf91416436f35f163c40eb3dd4c91a5c913c"},
-    {file = "deepnote_vegafusion-2.1.0.tar.gz", hash = "sha256:357851e7b6e50674c4f91ba07b373f3ec10b5b50e2815574b856da6e1e008725"},
+    {file = "deepnote_vegafusion-2.1.1-cp39-abi3-macosx_10_12_x86_64.whl", hash = "sha256:9a00700ca1cf2b8ea342548ef3a163f20c6d14274f1fcc97a70179121f6dd6c1"},
+    {file = "deepnote_vegafusion-2.1.1-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:6a5273d33e1c507d1ed608fe8566e2de7e9aad74b9ac54875155dbe9872036a4"},
+    {file = "deepnote_vegafusion-2.1.1-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:4a70b0d1ab7ad957c7f2f3acadc5c88b5a739150cfb6ee09d8641071debe5256"},
+    {file = "deepnote_vegafusion-2.1.1-cp39-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:128706704db43b7d7faa15e5bc0cc8d0f1b309d9913cd00bb421d82c9a7b188c"},
+    {file = "deepnote_vegafusion-2.1.1-cp39-abi3-win_amd64.whl", hash = "sha256:2e803653c212e8fc742c4ea5b5d0049240188811cb1ab81020c53cd2fc6b7111"},
+    {file = "deepnote_vegafusion-2.1.1.tar.gz", hash = "sha256:9cc74368a22f4248b144d9a96b30cd0fcb85080891dcd2064199bb02ef5f005b"},
 ]
 
 [package.dependencies]
@@ -7449,4 +7449,4 @@ server = ["deepnote-python-lsp-server", "jupyter-resource-usage", "jupyter-serve
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10.0,<3.14"
-content-hash = "3566e573e09e177f019327ea8df4779daf3f7f3e404f0b5de82eb8453b110ee1"
+content-hash = "c774c3f56bb55bf5c3227baed5f6a7b742cc499ac8b5ff17ec286897f81d302e"
