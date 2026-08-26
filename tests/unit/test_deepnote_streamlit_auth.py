@@ -145,7 +145,7 @@ def test_exchange_requires_viewer_cookie() -> None:
             return_value=APP_ID,
         ),
         patch(
-            "deepnote_toolkit.streamlit.auth._read_streamlit_token_from_context",
+            "deepnote_toolkit.streamlit.auth.read_streamlit_token_from_context",
             return_value=None,
         ),
         pytest.raises(CurrentUserApiTokenError, match="streamlit-token"),

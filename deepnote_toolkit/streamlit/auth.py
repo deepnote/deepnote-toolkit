@@ -13,7 +13,7 @@ from urllib.request import Request, urlopen
 
 from deepnote_toolkit.config import get_config
 from deepnote_toolkit.streamlit_data_apps import (
-    _read_streamlit_token_from_context,
+    read_streamlit_token_from_context,
 )
 
 OpenUrl = Callable[..., Any]
@@ -68,7 +68,7 @@ def current_user_api_credentials(
             "Could not resolve a Deepnote Streamlit app ID from the request host."
         )
 
-    viewer_token = streamlit_token or _read_streamlit_token_from_context()
+    viewer_token = streamlit_token or read_streamlit_token_from_context()
     if not viewer_token:
         raise CurrentUserApiTokenError(
             "Could not read the current viewer's streamlit-token cookie."
@@ -169,7 +169,7 @@ def _has_hosted_streamlit_context() -> bool:
     """Return whether this request carries either hosted-app identity signal."""
 
     return bool(
-        _read_streamlit_app_id_from_context() or _read_streamlit_token_from_context()
+        _read_streamlit_app_id_from_context() or read_streamlit_token_from_context()
     )
 
 
