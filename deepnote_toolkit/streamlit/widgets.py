@@ -40,7 +40,14 @@ def _render_one(container: Any, input_block: InputBlock, label: str, key: str) -
     if input_block.type == "input-select":
         options = list(input_block.options)
         if input_block.multiple:
-            defaults = input_block.value if isinstance(input_block.value, list) else []
+            raw_defaults = (
+                input_block.value if isinstance(input_block.value, list) else []
+            )
+            defaults = [
+                normalized
+                for value in raw_defaults
+                if (normalized := str(value)) in options
+            ]
             return container.multiselect(label, options, default=defaults, key=key)
         index = (
             options.index(str(input_block.value))

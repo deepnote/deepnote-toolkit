@@ -96,3 +96,20 @@ def test_slider_preserves_fractional_default_with_integer_bounds() -> None:
         "step": 0.5,
         "key": "deepnote:threshold",
     }
+
+
+def test_multiselect_normalizes_and_filters_stale_defaults() -> None:
+    values = render_inputs(
+        [
+            InputBlock(
+                "regions",
+                "input-select",
+                [1, "Europe", "Missing"],
+                options=("1", "Europe"),
+                multiple=True,
+            )
+        ],
+        FakeContainer(),
+    )
+
+    assert values == {"regions": ["1", "Europe"]}
