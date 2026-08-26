@@ -256,7 +256,12 @@ class RunResult(OutputCollection):
         if self.snapshot:
             self.outputs = self.snapshot.outputs
         else:
-            self.outputs = _outputs_from_run(raw.get("outputs"))
+            snapshot_blocks = raw.get("snapshotBlocks")
+            self.outputs = (
+                _outputs_from_snapshot_blocks(snapshot_blocks)
+                if isinstance(snapshot_blocks, list)
+                else _outputs_from_run(raw.get("outputs"))
+            )
 
 
 def _read_blocks(
@@ -301,6 +306,30 @@ def _outputs_from_run(value: Any) -> tuple[NotebookOutput, ...]:
             continue
         outputs.extend(
             NotebookOutput(block_id=block_id, block_type=None, raw=output)
+            for output in raw_outputs
+            if isinstance(output, Mapping)
+        )
+    return tuple(outputs)
+
+
+def _outputs_from_snapshot_blocks(value: Any) -> tuple[NotebookOutput, ...]:
+    if not isinstance(value, list):
+        return ()
+    outputs: list[NotebookOutput] = []
+    for block in value:
+        if not isinstance(block, Mapping):
+            continue
+        block_id = str(block.get("id", ""))
+        block_type = _optional_string(block.get("type"))
+        raw_outputs = block.get("outputs")
+        if not isinstance(raw_outputs, list):
+            continue
+        outputs.extend(
+            NotebookOutput(
+                block_id=block_id,
+                block_type=block_type,
+                raw=output,
+            )
             for output in raw_outputs
             if isinstance(output, Mapping)
         )

@@ -186,6 +186,7 @@ class DeepnoteCloudRunner:
                 "/v2/runs",
                 {
                     "notebookId": self.notebook_id,
+                    "detached": True,
                     "inputs": _normalize_cloud_inputs(inputs),
                 },
             )
@@ -219,6 +220,7 @@ class DeepnoteCloudRunner:
                 "status": status,
                 "error": str(error) if error is not None else None,
                 "snapshotYaml": snapshot_yaml,
+                "snapshotBlocks": current.get("snapshotBlocks"),
                 "viewUrl": current.get("viewUrl"),
             }
         )

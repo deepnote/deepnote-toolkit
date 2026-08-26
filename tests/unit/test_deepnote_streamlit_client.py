@@ -181,6 +181,7 @@ def test_cloud_run_posts_inputs_polls_and_parses_inline_snapshot() -> None:
 
     assert json.loads(calls[0][3]) == {
         "notebookId": "notebook-1",
+        "detached": True,
         "inputs": {"limit": "20", "enabled": True, "regions": ["EU"]},
     }
     assert calls[1][0].endswith("/v2/runs/run-1?snapshotDelivery=inline")
@@ -193,6 +194,75 @@ def test_cloud_run_posts_inputs_polls_and_parses_inline_snapshot() -> None:
     assert result.success is True
     assert result.snapshot is not None
     assert result.snapshot.project_name == "Result"
+
+
+def test_cloud_run_reads_sanitized_snapshot_blocks_without_raw_snapshot() -> None:
+    responses = iter(
+        [
+            {"run": {"runId": "run-1", "status": "pending"}},
+            {
+                "run": {
+                    "runId": "run-1",
+                    "status": "success",
+                    "snapshotBlocks": [
+                        {
+                            "id": "code-1",
+                            "type": "code",
+                            "outputs": [
+                                {
+                                    "output_type": "execute_result",
+                                    "data": {
+                                        "application/vnd.deepnote.dataframe.v3+json": {
+                                            "columns": [{"name": "revenue"}],
+                                            "rows": [{"revenue": 42}],
+                                        }
+                                    },
+                                }
+                            ],
+                            "metadata": {"deepnote_table_state": {}},
+                        },
+                        {
+                            "id": "agent-1",
+                            "type": "agent",
+                            "outputs": [
+                                {
+                                    "output_type": "display_data",
+                                    "data": {"text/markdown": "**Done**"},
+                                }
+                            ],
+                            "metadata": {},
+                        },
+                    ],
+                }
+            },
+        ]
+    )
+
+    def open_request(request: Any, *, timeout: float) -> FakeResponse:
+        assert timeout == 30
+        if request.method == "POST":
+            assert json.loads(request.data) == {
+                "notebookId": "notebook-1",
+                "detached": True,
+                "inputs": {"region": "EU"},
+            }
+        return FakeResponse(next(responses))
+
+    result = DeepnoteCloudRunner(
+        "notebook-1",
+        token="token",
+        opener=open_request,
+        sleep=lambda _delay: None,
+    ).run({"region": "EU"})
+
+    assert result.snapshot is None
+    assert result.snapshot_yaml is None
+    assert [output.block_id for output in result.outputs] == ["code-1", "agent-1"]
+    assert [output.block_type for output in result.outputs] == ["code", "agent"]
+    dataframe = result.first_dataframe()
+    assert dataframe is not None
+    assert dataframe.records() == [{"revenue": 42}]
+    assert result.agent_text() == "**Done**"
 
 
 def test_cloud_run_surfaces_terminal_error() -> None:

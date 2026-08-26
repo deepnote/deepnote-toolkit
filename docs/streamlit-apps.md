@@ -37,6 +37,12 @@ the cloud runner:
    `POST /api/streamlit-apps/{appId}/api-token`; and
 4. calls the returned `apiOrigin` with the short-lived token as a bearer.
 
+Cloud runs explicitly request `detached: true`, keeping viewer-triggered work out
+of the shared project session. Hosted app tokens receive sanitized
+`snapshotBlocks` containing the executed notebook's outputs, not the raw
+project snapshot. API-key clients remain compatible with inline
+`snapshotContent` responses.
+
 The opaque cookie is never sent to the public API. Credentials are not cached in
 process globals or Streamlit session state, and a hosted request never falls back to
 a shared environment token.
