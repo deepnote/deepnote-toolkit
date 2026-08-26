@@ -67,8 +67,7 @@ def test_loads_inputs_and_structured_outputs(tmp_path: Path) -> None:
 
 
 def test_dataframe_ignores_columns_without_names() -> None:
-    dataframe = DeepnoteDocument.parse(
-        """
+    dataframe = DeepnoteDocument.parse("""
 project:
   notebooks:
     - blocks:
@@ -80,8 +79,7 @@ project:
                 application/vnd.deepnote.dataframe.v3+json:
                   columns: [{}, {name: value}]
                   rows: [{value: 42}]
-"""
-    ).first_dataframe()
+""").first_dataframe()
 
     assert dataframe is not None
     assert dataframe.data_columns == ("value",)
