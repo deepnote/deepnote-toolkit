@@ -66,6 +66,27 @@ def test_loads_inputs_and_structured_outputs(tmp_path: Path) -> None:
     assert snapshot.agent_text() == "**Done**"
 
 
+def test_dataframe_ignores_columns_without_names() -> None:
+    dataframe = DeepnoteDocument.parse(
+        """
+project:
+  notebooks:
+    - blocks:
+        - id: table
+          type: code
+          outputs:
+            - output_type: execute_result
+              data:
+                application/vnd.deepnote.dataframe.v3+json:
+                  columns: [{}, {name: value}]
+                  rows: [{value: 42}]
+"""
+    ).first_dataframe()
+
+    assert dataframe is not None
+    assert dataframe.data_columns == ("value",)
+
+
 def test_reads_input_metadata_from_file_and_api_shapes() -> None:
     file_input = InputBlock.from_block(
         {
@@ -150,6 +171,30 @@ def test_run_result_falls_back_to_inline_outputs_without_snapshot() -> None:
     dataframe = result.first_dataframe()
     assert dataframe is not None
     assert dataframe.records() == [{"value": 42}]
+
+
+def test_run_result_falls_back_to_inline_outputs_for_malformed_snapshot() -> None:
+    result = RunResult(
+        {
+            "target": "cloud",
+            "success": True,
+            "snapshotYaml": "not: a deepnote snapshot",
+            "outputs": [
+                {
+                    "blockId": "code-1",
+                    "outputs": [
+                        {
+                            "output_type": "stream",
+                            "text": "fallback output",
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert result.snapshot is None
+    assert result.text() == "fallback output"
 
 
 @pytest.mark.parametrize(

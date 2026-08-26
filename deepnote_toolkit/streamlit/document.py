@@ -110,9 +110,9 @@ class DeepnoteDataframe:
     @property
     def data_columns(self) -> tuple[str, ...]:
         return tuple(
-            str(column["name"])
+            str(column.get("name"))
             for column in self.columns
-            if column.get("name") != INDEX_COLUMN
+            if column.get("name") not in (None, INDEX_COLUMN)
         )
 
     def records(self, *, include_index: bool = True) -> list[dict[str, Any]]:
@@ -247,9 +247,12 @@ class RunResult(OutputCollection):
         self.view_url = _optional_string(raw.get("viewUrl"))
         self.error = _optional_string(raw.get("error"))
         self.snapshot_yaml = _optional_string(raw.get("snapshotYaml"))
-        self.snapshot = (
-            DeepnoteDocument.parse(self.snapshot_yaml) if self.snapshot_yaml else None
-        )
+        self.snapshot = None
+        if self.snapshot_yaml:
+            try:
+                self.snapshot = DeepnoteDocument.parse(self.snapshot_yaml)
+            except ValueError:
+                pass
         if self.snapshot:
             self.outputs = self.snapshot.outputs
         else:
