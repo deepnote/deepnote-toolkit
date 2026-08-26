@@ -19,7 +19,9 @@ def render_inputs(
     """
 
     if container is None:
-        import streamlit as container
+        import streamlit as st  # type: ignore[import-not-found]
+
+        container = st
 
     values: dict[str, Any] = {}
     for input_block in inputs:
