@@ -142,6 +142,7 @@ runs:
             push
             "${ARTIFACT_REF}"
             --config "config.json:application/vnd.oci.image.config.v1+json"
+            --artifact-type "${ARTIFACT_TYPE}"
           )
           for annotation in "${manifest_annotations[@]}"; do
             oras_args+=(--annotation "${annotation}")
@@ -150,7 +151,19 @@ runs:
 
           oras "${oras_args[@]}"
         )
-        oras manifest fetch "${ARTIFACT_REF}" >/dev/null
+
+        published_manifest_path="${workdir}/published-manifest.json"
+        oras manifest fetch "${ARTIFACT_REF}" > "${published_manifest_path}"
+        if ! jq -e --arg artifact_type "${ARTIFACT_TYPE}" '
+          .mediaType == "application/vnd.oci.image.manifest.v1+json" and
+          .artifactType == $artifact_type and
+          .config.mediaType == "application/vnd.oci.image.config.v1+json" and
+          (.layers | length) == 1 and
+          .layers[0].mediaType == "application/vnd.oci.image.layer.v1.tar+gzip"
+        ' "${published_manifest_path}" >/dev/null; then
+          echo "Error: published OCI image manifest has an unexpected shape or artifact type: ${ARTIFACT_TYPE}" >&2
+          exit 1
+        fi
         echo "Pushed ${ARTIFACT_REF}"
 
     - name: Push OCI direct file artifact
