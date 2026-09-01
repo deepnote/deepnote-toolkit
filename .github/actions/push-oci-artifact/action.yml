@@ -82,7 +82,13 @@ runs:
             ls -la "$(dirname "${file_path}")" >&2 || true
             exit 1
           fi
-          cp "${file_path}" "${rootfs_dir}/$(basename "${file_path}")"
+          file_name="$(basename "${file_path}")"
+          staged_path="${rootfs_dir}/${file_name}"
+          if [ -e "${staged_path}" ] || [ -L "${staged_path}" ]; then
+            echo "Error: multiple OCI artifact files have the same basename: ${file_name}" >&2
+            exit 1
+          fi
+          ln -s "$(realpath "${file_path}")" "${staged_path}"
           file_count=$((file_count + 1))
         done <<< "${FILES}"
 
@@ -91,12 +97,30 @@ runs:
           exit 1
         fi
 
-        layer_tar="${workdir}/rootfs.tar"
         layer_tar_gz="${workdir}/rootfs.tar.gz"
-        tar -C "${rootfs_dir}" -cf "${layer_tar}" .
-        pigz -n -6 -p "$(nproc)" -c "${layer_tar}" > "${layer_tar_gz}"
+        layer_diff_id_path="${workdir}/layer.diff-id"
+        layer_diff_id_pipe="${workdir}/layer.diff-id.pipe"
+        mkfifo "${layer_diff_id_pipe}"
 
-        layer_diff_id="$(sha256sum "${layer_tar}" | awk '{print $1}')"
+        (
+          sha256sum < "${layer_diff_id_pipe}" | awk '{print $1}' > "${layer_diff_id_path}"
+        ) &
+        layer_diff_id_pid=$!
+
+        if ! tar -h -C "${rootfs_dir}" -cf - . \
+          | tee "${layer_diff_id_pipe}" \
+          | pigz -n -6 -p "$(nproc)" > "${layer_tar_gz}"; then
+          wait "${layer_diff_id_pid}" || true
+          echo "Error: failed to create the OCI rootfs layer" >&2
+          exit 1
+        fi
+        wait "${layer_diff_id_pid}"
+
+        layer_diff_id="$(< "${layer_diff_id_path}")"
+        if [[ ! "${layer_diff_id}" =~ ^[0-9a-f]{64}$ ]]; then
+          echo "Error: failed to calculate the OCI rootfs layer diff ID" >&2
+          exit 1
+        fi
 
         config_path="${workdir}/config.json"
         cat > "${config_path}" <<EOF
