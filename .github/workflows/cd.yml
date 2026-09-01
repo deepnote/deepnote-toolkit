@@ -21,21 +21,35 @@ env:
   POETRY_VIRTUALENVS_IN_PROJECT: true
   POETRY_INSTALLER_PARALLEL: true
   JUPYTER_FOR_LOCAL_PYTHON_VERSION: "3.11"
+  TOOLKIT_PYTHON_VERSIONS: '["3.10", "3.11", "3.12", "3.13"]'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
+  define-toolkit-python-versions:
+    name: Define toolkit Python versions
+    runs-on: ubuntu-latest
+    # Only run for base repo, not forks or dependabot
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.actor != 'dependabot[bot]'
+    outputs:
+      python_versions: ${{ steps.python_versions.outputs.json }}
+    steps:
+      - name: Export Python versions
+        id: python_versions
+        run: echo "json=${TOOLKIT_PYTHON_VERSIONS}" >> "$GITHUB_OUTPUT"
+
   build-and-push-artifacts:
     name: Build and push artifacts for Python ${{ matrix.python_version }}
     runs-on: ubuntu-latest
+    needs: define-toolkit-python-versions
     # Only run for base repo, not forks or dependabot
     if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.actor != 'dependabot[bot]'
     strategy:
       fail-fast: false
       matrix:
-        python_version: ["3.10", "3.11", "3.12", "3.13"]
+        python_version: ${{ fromJSON(needs.define-toolkit-python-versions.outputs.python_versions) }}
     permissions:
       id-token: write
       contents: read
@@ -135,15 +149,6 @@ jobs:
           aws_role_arn: ${{ secrets.AWS_PRODUCTION_ROLE_ARN }}
 
       # OCI ARTIFACT UPLOADS
-      - name: Push toolkit bundle OCI artifact
-        uses: ./.github/actions/push-oci-artifact
-        with:
-          artifact_ref: docker.io/deepnote/toolkit-bundle:${{ steps.version.outputs.VERSION }}-python${{ matrix.python_version }}
-          artifact_type: application/vnd.deepnote.toolkit.bundle.v1
-          files: dist/python${{ matrix.python_version }}.tar:application/vnd.deepnote.toolkit.python-bundle.v1.tar
-          toolkit_version: ${{ steps.version.outputs.VERSION }}
-          annotations: com.deepnote.toolkit.python-version=${{ matrix.python_version }}
-
       - name: Push toolkit bundle OCI zstd artifact
         uses: ./.github/actions/push-oci-artifact
         with:
@@ -165,12 +170,95 @@ jobs:
           files: dist/installer.zip:application/zip
           toolkit_version: ${{ steps.version.outputs.VERSION }}
 
+      - name: Upload toolkit bundle artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: toolkit-bundle-${{ steps.version.outputs.VERSION }}-python${{ matrix.python_version }}
+          path: dist/python${{ matrix.python_version }}.tar
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Upload toolkit constraints artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: toolkit-constraints-${{ steps.version.outputs.VERSION }}-python${{ matrix.python_version }}
           path: dist/constraints${{ matrix.python_version }}.txt
           if-no-files-found: error
+
+  push-toolkit-bundle-oci:
+    name: Push full toolkit bundle OCI artifact
+    runs-on: ubuntu-latest
+    needs:
+      - define-toolkit-python-versions
+      - build-and-push-artifacts
+    # Only run for base repo, not forks or dependabot
+    if: (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.actor != 'dependabot[bot]'
+    permissions:
+      contents: read
+    env:
+      PYTHON_VERSIONS: ${{ needs.define-toolkit-python-versions.outputs.python_versions }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          persist-credentials: false
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        with:
+          username: deepnotebot
+          password: ${{ secrets.DOCKERHUB_PASS }}
+
+      - name: Export version
+        id: version
+        uses: ./.github/actions/export-version
+
+      - name: Download toolkit bundle artifacts
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4
+        with:
+          pattern: toolkit-bundle-${{ steps.version.outputs.VERSION }}-python*
+          path: dist/
+          merge-multiple: true
+
+      - name: Build full toolkit bundle OCI files input
+        id: bundle_oci_files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bundle_files="$(mktemp)"
+          mapfile -t python_versions < <(jq -r '.[]' <<< "${PYTHON_VERSIONS}")
+          if [ "${#python_versions[@]}" -eq 0 ]; then
+            echo "Error: no Python versions were configured" >&2
+            exit 1
+          fi
+          python_versions_csv="$(IFS=,; echo "${python_versions[*]}")"
+
+          for python_version in "${python_versions[@]}"; do
+            bundle_file="dist/python${python_version}.tar"
+            if [ ! -f "${bundle_file}" ]; then
+              echo "Error: toolkit bundle was not downloaded: ${bundle_file}" >&2
+              find dist -maxdepth 1 -type f -print >&2
+              exit 1
+            fi
+            printf '%s:application/vnd.deepnote.toolkit.python-bundle.v1.tar\n' "${bundle_file}" >> "${bundle_files}"
+          done
+
+          {
+            echo "files<<EOF"
+            cat "${bundle_files}"
+            echo "EOF"
+            echo "python_versions=${python_versions_csv}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Push full toolkit bundle OCI artifact
+        uses: ./.github/actions/push-oci-artifact
+        with:
+          artifact_ref: docker.io/deepnote/toolkit-bundle:${{ steps.version.outputs.VERSION }}-full
+          artifact_type: application/vnd.deepnote.toolkit.bundle.v1
+          files: ${{ steps.bundle_oci_files.outputs.files }}
+          toolkit_version: ${{ steps.version.outputs.VERSION }}
+          annotations: com.deepnote.toolkit.python-versions=${{ steps.bundle_oci_files.outputs.python_versions }}
 
   push-toolkit-constraints-oci:
     name: Push toolkit constraints OCI artifact
@@ -238,6 +326,7 @@ jobs:
     runs-on: ubuntu-latest
     needs:
       - build-and-push-artifacts
+      - push-toolkit-bundle-oci
       - push-toolkit-constraints-oci
     # Only run if the artifact jobs ran (i.e., not for forks or dependabot)
     if: always() && (github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request') && github.actor != 'dependabot[bot]'
@@ -245,18 +334,20 @@ jobs:
       - name: Check artifact job results
         env:
           BUILD_RESULT: ${{ needs.build-and-push-artifacts.result }}
+          BUNDLE_RESULT: ${{ needs.push-toolkit-bundle-oci.result }}
           CONSTRAINTS_RESULT: ${{ needs.push-toolkit-constraints-oci.result }}
         run: |
           build_result="${BUILD_RESULT}"
+          bundle_result="${BUNDLE_RESULT}"
           constraints_result="${CONSTRAINTS_RESULT}"
-          if [[ $build_result == "success" && $constraints_result == "success" ]]; then
+          if [[ $build_result == "success" && $bundle_result == "success" && $constraints_result == "success" ]]; then
             echo "All artifact jobs succeeded"
             exit 0
-          elif [[ $build_result == "cancelled" || $constraints_result == "cancelled" ]]; then
+          elif [[ $build_result == "cancelled" || $bundle_result == "cancelled" || $constraints_result == "cancelled" ]]; then
             echo "One or more artifact jobs were cancelled"
             exit 1
           else
-            echo "One or more artifact jobs failed: build=${build_result}, constraints=${constraints_result}"
+            echo "One or more artifact jobs failed: build=${build_result}, bundle=${bundle_result}, constraints=${constraints_result}"
             exit 1
           fi
 
@@ -533,8 +624,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-and-push-artifacts-status
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
-    env:
-      PYTHON_VERSIONS: "3.10,3.11,3.12,3.13"
     steps:
       - name: Checkout code
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
@@ -556,7 +645,7 @@ jobs:
 
       - name: Build toolkit-cache docker image
         env:
-          PYTHON_VERS: ${{ env.PYTHON_VERSIONS }}
+          PYTHON_VERS: ${{ join(fromJSON(env.TOOLKIT_PYTHON_VERSIONS), ',') }}
         run: |
           docker build \
             --progress plain \
