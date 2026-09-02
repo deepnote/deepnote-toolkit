@@ -22,6 +22,8 @@ It starts and manages Jupyter, Streamlit, and LSP servers, and provides runtime 
 - Native **Deepnote component library** including beautiful `DataFrame` rendering and interactive inputs
 - **Python kernel with curated set of libraries preinstalled**, allowing you to focus on work instead of fighting with Python dependencies
 - Run multiple **interactive applications built with Streamlit**
+- Build custom Streamlit interfaces over local Deepnote files and hosted runs with
+  [per-viewer authentication](docs/streamlit-apps.md)
 - Language Server Protocol integration for code completion and intelligence
 - Git integration with SSH/HTTPS authentication
 
