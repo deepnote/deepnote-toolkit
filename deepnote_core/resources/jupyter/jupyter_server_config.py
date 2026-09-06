@@ -10,6 +10,11 @@ print("Loaded jupyter_server_config.py")
 # do not import explicitly it will break the config loading
 c = get_config()  # pylint: disable=E0602; # noqa: F821
 
+# Environment variable-based debug logging configuration
+# Set DEEPNOTE_ENABLE_DEBUG_LOGGING=true to enable verbose DEBUG logs
+# Set DEEPNOTE_ENABLE_ZMQ_DEBUG=true to enable detailed ZMQ message logging
+debug_logging_enabled = os.getenv("DEEPNOTE_ENABLE_DEBUG_LOGGING", "false").lower() == "true"
+log_level = "DEBUG" if debug_logging_enabled else "INFO"
 
 # ------------------------------------------------------------------------------
 # Application(SingletonConfigurable) configuration
@@ -27,7 +32,8 @@ c = get_config()  # pylint: disable=E0602; # noqa: F821
 ## Set the log level by value or name.
 #  Choices: any of [0, 10, 20, 30, 40, 50, 'DEBUG', 'INFO', 'WARN', 'ERROR', 'CRITICAL']
 #  Default: 30
-c.Application.log_level = 10
+# Conditional based on DEEPNOTE_ENABLE_DEBUG_LOGGING environment variable
+c.Application.log_level = 10 if debug_logging_enabled else 20  # DEBUG or INFO
 
 ## Configure additional log handlers.
 #
@@ -414,7 +420,15 @@ c.ServerApp.ip = "0.0.0.0"
 
 ##
 #  See also: Application.logging_config
-# c.ServerApp.logging_config = {}
+# Enhanced logging configuration for debugging
+# Uses debug_logging_enabled and log_level variables defined at the top of this file
+c.ServerApp.logging_config = {
+    "loggers": {
+        "tornado.access": {"level": log_level},
+        "jupyter_server.serverapp": {"level": log_level},
+        "jupyter_client.session": {"level": log_level},
+    }
+}
 
 ## The login handler class to use.
 #  Default: 'notebook.auth.login.LoginHandler'
@@ -820,7 +834,10 @@ c.ServerApp.tornado_settings = {
 
 ## Debug output in the Session
 #  Default: False
-# c.Session.debug = False
+# Enable ZMQ message flow debugging for troubleshooting kernel communication
+# Set DEEPNOTE_ENABLE_ZMQ_DEBUG=true to enable detailed ZMQ message logging
+if os.getenv("DEEPNOTE_ENABLE_ZMQ_DEBUG", "false").lower() == "true":
+    c.Session.debug = True
 
 ## The maximum number of digests to remember.
 #
