@@ -208,6 +208,10 @@ jobs:
           fi
         done
 
+    - name: Run pyrefly
+      run: |
+        poetry run pyrefly check --output-format min-text
+
   gitleaks:
     name: Gitleaks check
     runs-on: ubuntu-latest
