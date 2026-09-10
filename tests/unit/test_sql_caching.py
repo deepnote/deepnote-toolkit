@@ -402,7 +402,8 @@ class TestUploadSqlCache(unittest.TestCase):
     @patch("deepnote_toolkit.sql.sql_caching.requests.put")
     def test_http_error_logs_s3_diagnostics_without_presigned_url(
         self, mock_put, mock_logger
-    ):
+    ) -> None:
+        """A 403 logs S3's Code/Message, request id and URL window, never the URL."""
         response = requests.Response()
         response.status_code = 403
         # raise_for_status() embeds response.url in str(exc)
@@ -424,7 +425,9 @@ class TestUploadSqlCache(unittest.TestCase):
         self.assertEqual(extra["sql_caching_cause"], "failed_to_upload_to_cache")
         self.assertEqual(extra["error_type"], "HTTPError")
         self.assertEqual(extra["status_code"], 403)
-        self.assertIn("<Code>AccessDenied</Code>", extra["s3_error_body"])
+        self.assertEqual(extra["s3_error_code"], "AccessDenied")
+        self.assertEqual(extra["s3_error_message"], "Request has expired")
+        self.assertNotIn("s3_error_body", extra)
         self.assertEqual(extra["aws_request_id"], "REQ123")
         self.assertEqual(extra["object_path"], "/workspace/integration/cache-key")
         self.assertEqual(extra["url_expires_in"], 900)
@@ -432,7 +435,10 @@ class TestUploadSqlCache(unittest.TestCase):
 
     @patch("deepnote_toolkit.sql.sql_caching.logger")
     @patch("deepnote_toolkit.sql.sql_caching.requests.put")
-    def test_connection_error_logs_redacted_message(self, mock_put, mock_logger):
+    def test_connection_error_logs_redacted_message(
+        self, mock_put, mock_logger
+    ) -> None:
+        """Non-HTTP failures keep the exception text minus the presigned query."""
         # urllib3 puts the path and query string of the failed request in the message
         mock_put.side_effect = requests.ConnectionError(
             "HTTPSConnectionPool(host='bucket.s3.amazonaws.com', port=443): "
@@ -451,7 +457,8 @@ class TestUploadSqlCache(unittest.TestCase):
 
     @patch("deepnote_toolkit.sql.sql_caching.logger")
     @patch("deepnote_toolkit.sql.sql_caching.requests.put")
-    def test_upload_failure_never_raises(self, mock_put, mock_logger):
+    def test_upload_failure_never_raises(self, mock_put, mock_logger) -> None:
+        """Diagnostics on a garbage URL must not turn a swallowed failure into one."""
         mock_put.side_effect = requests.ConnectionError("boom")
 
         upload_sql_cache(pd.DataFrame({"a": [1]}), "not a url at all")
@@ -473,7 +480,10 @@ PRESIGNED_URL = f"https://bucket.s3.amazonaws.com{PRESIGNED_PATH_AND_QUERY}"
 
 
 class TestDescribePresignedUrl(unittest.TestCase):
-    def test_reports_path_and_validity_window_only(self):
+    """Tests for _describe_presigned_url."""
+
+    def test_reports_path_and_validity_window_only(self) -> None:
+        """Path, expiry and age are reported; the query string is not."""
         described = _describe_presigned_url(PRESIGNED_URL)
 
         self.assertEqual(described["object_path"], "/workspace/integration/cache-key")
@@ -488,19 +498,24 @@ class TestDescribePresignedUrl(unittest.TestCase):
             ("malformed_values", "https://x/path?X-Amz-Expires=soon&X-Amz-Date=today"),
         ]
     )
-    def test_unusable_values_become_none(self, _, url):
+    def test_unusable_values_become_none(self, _, url) -> None:
+        """Missing or malformed SigV4 params yield None rather than an error."""
         described = _describe_presigned_url(url)
 
         self.assertEqual(described["object_path"], "/path")
         self.assertIsNone(described["url_expires_in"])
         self.assertIsNone(described["seconds_since_url_issued"])
 
-    def test_invalid_url_does_not_raise(self):
+    def test_invalid_url_does_not_raise(self) -> None:
+        """A URL urlsplit rejects yields an empty dict."""
         self.assertEqual(_describe_presigned_url("https://[bad"), {})
 
 
 class TestRedactPresignedQuery(unittest.TestCase):
-    def test_strips_presigned_query_string_but_keeps_the_rest(self):
+    """Tests for _redact_presigned_query."""
+
+    def test_strips_presigned_query_string_but_keeps_the_rest(self) -> None:
+        """The SigV4 query string is replaced, surrounding text is untouched."""
         redacted = _redact_presigned_query(
             f"403 Client Error: Forbidden for url: {PRESIGNED_URL}"
         )
@@ -511,7 +526,8 @@ class TestRedactPresignedQuery(unittest.TestCase):
             "https://bucket.s3.amazonaws.com/workspace/integration/cache-key?<redacted>",
         )
 
-    def test_leaves_ordinary_text_alone(self):
+    def test_leaves_ordinary_text_alone(self) -> None:
+        """Question marks and non-SigV4 query strings are not redacted."""
         self.assertEqual(
             _redact_presigned_query("Is the file valid? Yes: /path?a=1"),
             "Is the file valid? Yes: /path?a=1",
