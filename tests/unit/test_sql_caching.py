@@ -8,7 +8,9 @@ from parameterized import parameterized
 from pyarrow import ArrowInvalid
 
 from deepnote_toolkit.sql.sql_caching import (
+    _describe_presigned_url,
     _generate_cache_key,
+    _redact_presigned_query,
     get_sql_cache,
     upload_sql_cache,
 )
@@ -398,13 +400,14 @@ class TestUploadSqlCache(unittest.TestCase):
 
     @patch("deepnote_toolkit.sql.sql_caching.logger")
     @patch("deepnote_toolkit.sql.sql_caching.requests.put")
-    def test_http_error_logs_response_body(self, mock_put, mock_logger):
-        upload_url = "https://example.com/upload?signature=secret"
+    def test_http_error_logs_s3_diagnostics_without_presigned_url(
+        self, mock_put, mock_logger
+    ):
         response = requests.Response()
         response.status_code = 403
-        # raise_for_status() embeds response.url in str(exc), so the presigned
-        # URL only stays out of the log if we never format the exception itself
-        response.url = upload_url
+        # raise_for_status() embeds response.url in str(exc)
+        response.url = PRESIGNED_URL
+        response.headers["x-amz-request-id"] = "REQ123"
         response._content = (
             b'<?xml version="1.0"?><Error>'
             b"<Code>AccessDenied</Code>"
@@ -413,19 +416,103 @@ class TestUploadSqlCache(unittest.TestCase):
         )
         mock_put.return_value = response
 
-        upload_sql_cache(pd.DataFrame({"a": [1]}), upload_url)
+        upload_sql_cache(pd.DataFrame({"a": [1]}), PRESIGNED_URL)
 
-        logged = mock_logger.error.call_args.args[1]
-        self.assertIn("403", logged)
-        self.assertIn("AccessDenied", logged)
-        self.assertNotIn(upload_url, logged)
+        message = mock_logger.error.call_args.args[0]
+        extra = mock_logger.error.call_args.kwargs["extra"]
+        self.assertEqual(message, "Failed to upload SQL cache")
+        self.assertEqual(extra["sql_caching_cause"], "failed_to_upload_to_cache")
+        self.assertEqual(extra["error_type"], "HTTPError")
+        self.assertEqual(extra["status_code"], 403)
+        self.assertIn("<Code>AccessDenied</Code>", extra["s3_error_body"])
+        self.assertEqual(extra["aws_request_id"], "REQ123")
+        self.assertEqual(extra["object_path"], "/workspace/integration/cache-key")
+        self.assertEqual(extra["url_expires_in"], 900)
+        self.assertNotIn(PRESIGNED_SECRET, repr(mock_logger.error.call_args))
 
     @patch("deepnote_toolkit.sql.sql_caching.logger")
     @patch("deepnote_toolkit.sql.sql_caching.requests.put")
-    def test_connection_error_logs_str_of_exception(self, mock_put, mock_logger):
-        mock_put.side_effect = requests.ConnectionError("connection timed out")
+    def test_connection_error_logs_redacted_message(self, mock_put, mock_logger):
+        # urllib3 puts the path and query string of the failed request in the message
+        mock_put.side_effect = requests.ConnectionError(
+            "HTTPSConnectionPool(host='bucket.s3.amazonaws.com', port=443): "
+            f"Max retries exceeded with url: {PRESIGNED_PATH_AND_QUERY} "
+            "(Caused by ConnectTimeoutError)"
+        )
 
-        upload_sql_cache(pd.DataFrame({"a": [1]}), "https://example.com/upload")
+        upload_sql_cache(pd.DataFrame({"a": [1]}), PRESIGNED_URL)
 
-        logged = mock_logger.error.call_args.args[1]
-        self.assertIn("connection timed out", logged)
+        extra = mock_logger.error.call_args.kwargs["extra"]
+        self.assertEqual(extra["error_type"], "ConnectionError")
+        self.assertIn("Max retries exceeded", extra["error"])
+        self.assertIn("(Caused by ConnectTimeoutError)", extra["error"])
+        self.assertNotIn("status_code", extra)
+        self.assertNotIn(PRESIGNED_SECRET, repr(mock_logger.error.call_args))
+
+    @patch("deepnote_toolkit.sql.sql_caching.logger")
+    @patch("deepnote_toolkit.sql.sql_caching.requests.put")
+    def test_upload_failure_never_raises(self, mock_put, mock_logger):
+        mock_put.side_effect = requests.ConnectionError("boom")
+
+        upload_sql_cache(pd.DataFrame({"a": [1]}), "not a url at all")
+
+        mock_logger.error.assert_called_once()
+
+
+PRESIGNED_SECRET = "SECRETTOKEN"
+PRESIGNED_PATH_AND_QUERY = (
+    "/workspace/integration/cache-key"
+    "?X-Amz-Algorithm=AWS4-HMAC-SHA256"
+    "&X-Amz-Credential=AKIA%2F20260729%2Fus-east-1%2Fs3%2Faws4_request"
+    "&X-Amz-Date=20260729T120000Z"
+    "&X-Amz-Expires=900"
+    f"&X-Amz-Security-Token={PRESIGNED_SECRET}"
+    "&X-Amz-Signature=abc123"
+)
+PRESIGNED_URL = f"https://bucket.s3.amazonaws.com{PRESIGNED_PATH_AND_QUERY}"
+
+
+class TestDescribePresignedUrl(unittest.TestCase):
+    def test_reports_path_and_validity_window_only(self):
+        described = _describe_presigned_url(PRESIGNED_URL)
+
+        self.assertEqual(described["object_path"], "/workspace/integration/cache-key")
+        self.assertEqual(described["url_expires_in"], 900)
+        # X-Amz-Date is 2026-07-29, so the URL was issued well over a day ago
+        self.assertGreater(described["seconds_since_url_issued"], 86400)
+        self.assertNotIn(PRESIGNED_SECRET, repr(described))
+
+    @parameterized.expand(
+        [
+            ("no_query_string", "https://bucket.s3.amazonaws.com/path"),
+            ("malformed_values", "https://x/path?X-Amz-Expires=soon&X-Amz-Date=today"),
+        ]
+    )
+    def test_unusable_values_become_none(self, _, url):
+        described = _describe_presigned_url(url)
+
+        self.assertEqual(described["object_path"], "/path")
+        self.assertIsNone(described["url_expires_in"])
+        self.assertIsNone(described["seconds_since_url_issued"])
+
+    def test_invalid_url_does_not_raise(self):
+        self.assertEqual(_describe_presigned_url("https://[bad"), {})
+
+
+class TestRedactPresignedQuery(unittest.TestCase):
+    def test_strips_presigned_query_string_but_keeps_the_rest(self):
+        redacted = _redact_presigned_query(
+            f"403 Client Error: Forbidden for url: {PRESIGNED_URL}"
+        )
+
+        self.assertEqual(
+            redacted,
+            "403 Client Error: Forbidden for url: "
+            "https://bucket.s3.amazonaws.com/workspace/integration/cache-key?<redacted>",
+        )
+
+    def test_leaves_ordinary_text_alone(self):
+        self.assertEqual(
+            _redact_presigned_query("Is the file valid? Yes: /path?a=1"),
+            "Is the file valid? Yes: /path?a=1",
+        )

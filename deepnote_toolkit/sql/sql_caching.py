@@ -1,6 +1,9 @@
 import hashlib
 import json
+import re
 import tempfile
+from datetime import datetime, timezone
+from urllib.parse import parse_qs, urlsplit
 
 import pandas as pd
 import requests
@@ -111,14 +114,84 @@ def upload_sql_cache(dataframe, upload_url):
             response = requests.put(upload_url, data=temp_file)
             response.raise_for_status()
     except Exception as exc:
-        detail = str(exc)
-        if isinstance(exc, requests.HTTPError) and exc.response is not None:
-            detail = f"{exc.response.status_code} {exc.response.text[:500]}"
+        # The message is constant so occurrences group in error tracking; everything
+        # variable goes in `extra`. Neither the exception string nor the URL is logged
+        # as-is: both can carry the presigned query string, which holds AWS credentials.
         logger.error(
-            "Failed to upload SQL cache: %s",
-            detail,
-            extra={"sql_caching_cause": "failed_to_upload_to_cache"},
+            "Failed to upload SQL cache",
+            extra={
+                "sql_caching_cause": "failed_to_upload_to_cache",
+                **_describe_upload_error(exc),
+                **_describe_presigned_url(upload_url),
+            },
         )
+
+
+def _describe_upload_error(exc):
+    """Non-sensitive diagnostics for a failed upload."""
+    details = {
+        "error_type": type(exc).__name__,
+        "error": _redact_presigned_query(str(exc)),
+    }
+    response = getattr(exc, "response", None)
+    if response is not None:
+        # S3 returns XML with <Code>/<Message>; that body is the only statement of the
+        # real cause. A bare 403 can be an expired URL, expired credentials, a policy
+        # change or a signature mismatch, which all need different fixes.
+        details.update(
+            {
+                "status_code": response.status_code,
+                "s3_error_body": response.text[:500],
+                "aws_request_id": response.headers.get("x-amz-request-id"),
+                "aws_host_id": response.headers.get("x-amz-id-2"),
+            }
+        )
+    return details
+
+
+def _describe_presigned_url(url):
+    """Object path and validity window of a presigned URL, without its query string.
+
+    The URL is valid from `X-Amz-Date` for `X-Amz-Expires` seconds, so comparing
+    `seconds_since_url_issued` with `url_expires_in` shows whether it had expired.
+    """
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return {}
+    query = parse_qs(parts.query)
+    expires_in = query.get("X-Amz-Expires", [None])[0]
+    return {
+        "object_path": parts.path,
+        "url_expires_in": (
+            int(expires_in) if expires_in and expires_in.isdigit() else None
+        ),
+        "seconds_since_url_issued": _seconds_since_amz_date(
+            query.get("X-Amz-Date", [None])[0]
+        ),
+    }
+
+
+def _seconds_since_amz_date(amz_date):
+    """Seconds since a SigV4 timestamp such as 20260729T120000Z, or None if unusable."""
+    if not amz_date:
+        return None
+    try:
+        signed_at = datetime.strptime(amz_date, "%Y%m%dT%H%M%SZ").replace(
+            tzinfo=timezone.utc
+        )
+    except ValueError:
+        return None
+    return round((datetime.now(timezone.utc) - signed_at).total_seconds(), 1)
+
+
+# A query string that carries SigV4 parameters, wherever it appears in a message.
+_PRESIGNED_QUERY_PATTERN = re.compile(r"""\?[^\s'"]*X-Amz-[^\s'"]*""")
+
+
+def _redact_presigned_query(text):
+    """Strip presigned query strings (credentials, signature, token) from a message."""
+    return _PRESIGNED_QUERY_PATTERN.sub("?<redacted>", text)
 
 
 def _try_read_cache(download_url):
