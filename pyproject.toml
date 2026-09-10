@@ -175,7 +175,7 @@ server = [
     "jupyter-server-terminals==0.5.3",
     "jupyter-resource-usage>=1.1.0,<2.0.0",
     "streamlit>=1.40.0,<2.0.0",
-    "deepnote-python-lsp-server==1.13.1rc2",
+    "deepnote-python-lsp-server==1.13.1",
 
     # Config dependencies - they need to be declared both in main and server extras, keep them in sync
     "pydantic>=1.10.0,<3",
