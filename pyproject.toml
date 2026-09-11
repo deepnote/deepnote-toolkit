@@ -91,7 +91,7 @@ dependencies = [
     "paramiko>=5.0.0,<6",
     "sqlalchemy<2; python_version <= '3.11'",
     "sqlalchemy>=2.0.31,<3; python_version >= '3.12'",
-    "snowflake-sqlalchemy>=1.6.0,<1.9",
+    "snowflake-sqlalchemy>=1.11.0,<2",  # 1.11.0 fixes PYSEC-2026-3921 (SQL injection, local file read)
     "snowflake-connector-python>=4.7.2,<5",
     "sqlalchemy-spanner>=1.6.2,<2",
     "clickhouse-sqlalchemy>0,<0.4",
@@ -134,7 +134,7 @@ dependencies = [
     "cryptography>=50.0.0,<51",
     "protobuf>=5.29.6,<6",
     "requests>=2.32.4,<3",
-    "tornado>=6.5.7,<7",
+    "tornado>=6.5.8,<7",  # 6.5.8 fixes PYSEC-2026-3928, GHSA-wwv5-g3v4-889x, GHSA-8423-8fgw-73vq
     "filelock>=3.20.3,<4",
     "pyjwt>=2.13.0,<3",
     "pynacl>=1.6.2,<2",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/8
