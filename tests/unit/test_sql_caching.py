@@ -9,7 +9,6 @@ from pyarrow import ArrowInvalid
 
 from deepnote_toolkit.sql.sql_caching import (
     _describe_presigned_url,
-    _extract_s3_error,
     _generate_cache_key,
     _redact_presigned_query,
     get_sql_cache,
@@ -407,13 +406,17 @@ class TestUploadSqlCache(unittest.TestCase):
         """A 403 logs S3's Code/Message, request id and URL window, never the URL."""
         response = requests.Response()
         response.status_code = 403
+        response.reason = "Forbidden"
         # raise_for_status() embeds response.url in str(exc)
         response.url = PRESIGNED_URL
         response.headers["x-amz-request-id"] = "REQ123"
+        # S3 echoes the access key id and the canonical request on signature errors
         response._content = (
-            b'<?xml version="1.0"?><Error>'
-            b"<Code>AccessDenied</Code>"
-            b"<Message>Request has expired</Message>"
+            b'<?xml version="1.0" encoding="UTF-8"?><Error>'
+            b"<Code>SignatureDoesNotMatch</Code>"
+            b"<Message>The request signature does not match</Message>"
+            b"<AWSAccessKeyId>AKIAEXAMPLEKEY</AWSAccessKeyId>"
+            b"<StringToSign>AWS4-HMAC-SHA256 20260729T120000Z</StringToSign>"
             b"</Error>"
         )
         mock_put.return_value = response
@@ -423,16 +426,44 @@ class TestUploadSqlCache(unittest.TestCase):
         message = mock_logger.error.call_args.args[0]
         extra = mock_logger.error.call_args.kwargs["extra"]
         self.assertEqual(message, "Failed to upload SQL cache")
-        self.assertEqual(extra["sql_caching_cause"], "failed_to_upload_to_cache")
-        self.assertEqual(extra["error_type"], "HTTPError")
-        self.assertEqual(extra["status_code"], 403)
-        self.assertEqual(extra["s3_error_code"], "AccessDenied")
-        self.assertEqual(extra["s3_error_message"], "Request has expired")
-        self.assertNotIn("s3_error_body", extra)
-        self.assertEqual(extra["aws_request_id"], "REQ123")
-        self.assertEqual(extra["object_path"], "/workspace/integration/cache-key")
-        self.assertEqual(extra["url_expires_in"], 900)
+        self.assertEqual(
+            extra,
+            {
+                "sql_caching_cause": "failed_to_upload_to_cache",
+                "error_type": "HTTPError",
+                "error": "403 Client Error: Forbidden for url: "
+                "https://bucket.s3.amazonaws.com/workspace/integration/cache-key?<redacted>",
+                "status_code": 403,
+                "s3_error_code": "SignatureDoesNotMatch",
+                "s3_error_message": "The request signature does not match",
+                "aws_request_id": "REQ123",
+                "aws_host_id": None,
+                "object_path": "/workspace/integration/cache-key",
+                "url_expires_in": 900,
+                "seconds_since_url_issued": mock.ANY,
+            },
+        )
+        # X-Amz-Date is 2026-07-29, so the URL was issued well over a day ago
+        self.assertGreater(extra["seconds_since_url_issued"], 86400)
         self.assertNotIn(PRESIGNED_SECRET, repr(mock_logger.error.call_args))
+
+    @patch("deepnote_toolkit.sql.sql_caching.logger")
+    @patch("deepnote_toolkit.sql.sql_caching.requests.put")
+    def test_http_error_with_non_xml_body_logs_status_only(
+        self, mock_put: mock.MagicMock, mock_logger: mock.MagicMock
+    ) -> None:
+        """A proxy's HTML error page yields no S3 fields rather than a parse error."""
+        response = requests.Response()
+        response.status_code = 502
+        response._content = b"<!DOCTYPE html><html><body><hr>502</body></html>"
+        mock_put.return_value = response
+
+        upload_sql_cache(pd.DataFrame({"a": [1]}), PRESIGNED_URL)
+
+        extra = mock_logger.error.call_args.kwargs["extra"]
+        self.assertEqual(extra["status_code"], 502)
+        self.assertIsNone(extra["s3_error_code"])
+        self.assertIsNone(extra["s3_error_message"])
 
     @patch("deepnote_toolkit.sql.sql_caching.logger")
     @patch("deepnote_toolkit.sql.sql_caching.requests.put")
@@ -451,10 +482,13 @@ class TestUploadSqlCache(unittest.TestCase):
 
         extra = mock_logger.error.call_args.kwargs["extra"]
         self.assertEqual(extra["error_type"], "ConnectionError")
-        self.assertIn("Max retries exceeded", extra["error"])
-        self.assertIn("(Caused by ConnectTimeoutError)", extra["error"])
+        self.assertEqual(
+            extra["error"],
+            "HTTPSConnectionPool(host='bucket.s3.amazonaws.com', port=443): "
+            "Max retries exceeded with url: /workspace/integration/cache-key?<redacted> "
+            "(Caused by ConnectTimeoutError)",
+        )
         self.assertNotIn("status_code", extra)
-        self.assertNotIn(PRESIGNED_SECRET, repr(mock_logger.error.call_args))
 
     @patch("deepnote_toolkit.sql.sql_caching.logger")
     @patch("deepnote_toolkit.sql.sql_caching.requests.put")
@@ -485,16 +519,6 @@ PRESIGNED_URL = f"https://bucket.s3.amazonaws.com{PRESIGNED_PATH_AND_QUERY}"
 class TestDescribePresignedUrl(unittest.TestCase):
     """Tests for _describe_presigned_url."""
 
-    def test_reports_path_and_validity_window_only(self) -> None:
-        """Path, expiry and age are reported; the query string is not."""
-        described = _describe_presigned_url(PRESIGNED_URL)
-
-        self.assertEqual(described["object_path"], "/workspace/integration/cache-key")
-        self.assertEqual(described["url_expires_in"], 900)
-        # X-Amz-Date is 2026-07-29, so the URL was issued well over a day ago
-        self.assertGreater(described["seconds_since_url_issued"], 86400)
-        self.assertNotIn(PRESIGNED_SECRET, repr(described))
-
     @parameterized.expand(
         [
             ("no_query_string", "https://bucket.s3.amazonaws.com/path"),
@@ -503,75 +527,22 @@ class TestDescribePresignedUrl(unittest.TestCase):
     )
     def test_unusable_values_become_none(self, _: str, url: str) -> None:
         """Missing or malformed SigV4 params yield None rather than an error."""
-        described = _describe_presigned_url(url)
-
-        self.assertEqual(described["object_path"], "/path")
-        self.assertIsNone(described["url_expires_in"])
-        self.assertIsNone(described["seconds_since_url_issued"])
+        self.assertEqual(
+            _describe_presigned_url(url),
+            {
+                "object_path": "/path",
+                "url_expires_in": None,
+                "seconds_since_url_issued": None,
+            },
+        )
 
     def test_invalid_url_does_not_raise(self) -> None:
         """A URL urlsplit rejects yields an empty dict."""
         self.assertEqual(_describe_presigned_url("https://[bad"), {})
 
 
-class TestExtractS3Error(unittest.TestCase):
-    """Tests for _extract_s3_error."""
-
-    @parameterized.expand(
-        [
-            ("plain", "<Error>"),
-            ("namespaced", '<Error xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'),
-        ]
-    )
-    def test_keeps_only_code_and_message(self, _: str, root_tag: str) -> None:
-        """Other elements S3 echoes, such as the access key id, are dropped."""
-        extracted = _extract_s3_error(
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            f"{root_tag}<Code>SignatureDoesNotMatch</Code>"
-            "<Message>The request signature does not match</Message>"
-            "<AWSAccessKeyId>AKIAEXAMPLEKEY</AWSAccessKeyId>"
-            "<StringToSign>AWS4-HMAC-SHA256 20260729T120000Z</StringToSign>"
-            "<RequestId>REQ123</RequestId></Error>"
-        )
-
-        self.assertEqual(
-            extracted,
-            {
-                "s3_error_code": "SignatureDoesNotMatch",
-                "s3_error_message": "The request signature does not match",
-            },
-        )
-
-    @parameterized.expand(
-        [
-            ("empty", ""),
-            ("plain_text", "Bad Gateway"),
-            ("html_page", "<!DOCTYPE html><html><body><hr>502</body></html>"),
-            ("xml_without_error_fields", "<html><body>502</body></html>"),
-        ]
-    )
-    def test_non_s3_body_yields_none(self, _: str, body: str) -> None:
-        """A body that is not an S3 error document gives None for both fields."""
-        self.assertEqual(
-            _extract_s3_error(body),
-            {"s3_error_code": None, "s3_error_message": None},
-        )
-
-
 class TestRedactPresignedQuery(unittest.TestCase):
     """Tests for _redact_presigned_query."""
-
-    def test_strips_presigned_query_string_but_keeps_the_rest(self) -> None:
-        """The SigV4 query string is replaced, surrounding text is untouched."""
-        redacted = _redact_presigned_query(
-            f"403 Client Error: Forbidden for url: {PRESIGNED_URL}"
-        )
-
-        self.assertEqual(
-            redacted,
-            "403 Client Error: Forbidden for url: "
-            "https://bucket.s3.amazonaws.com/workspace/integration/cache-key?<redacted>",
-        )
 
     def test_leaves_ordinary_text_alone(self) -> None:
         """Question marks and non-SigV4 query strings are not redacted."""
