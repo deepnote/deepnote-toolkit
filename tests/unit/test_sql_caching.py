@@ -410,10 +410,8 @@ class TestUploadSqlCache(unittest.TestCase):
         response = requests.Response()
         response.status_code = 403
         response.reason = "Forbidden"
-        # raise_for_status() embeds response.url in str(exc)
         response.url = PRESIGNED_URL
         response.headers["x-amz-request-id"] = "REQ123"
-        # S3 echoes the access key id and the canonical request on signature errors
         response._content = (
             b'<?xml version="1.0" encoding="UTF-8"?><Error>'
             b"<Code>SignatureDoesNotMatch</Code>"
@@ -446,7 +444,6 @@ class TestUploadSqlCache(unittest.TestCase):
                 "seconds_since_url_issued": mock.ANY,
             },
         )
-        # X-Amz-Date is 2026-07-29, so the URL was issued well over a day ago
         self.assertGreater(extra["seconds_since_url_issued"], 86400)
         self.assertNotIn(PRESIGNED_SECRET, repr(mock_logger.error.call_args))
 
@@ -455,7 +452,7 @@ class TestUploadSqlCache(unittest.TestCase):
     def test_http_error_with_non_xml_body_logs_status_only(
         self, mock_put: mock.MagicMock, mock_logger: mock.MagicMock
     ) -> None:
-        """A proxy's HTML error page yields no S3 fields rather than a parse error."""
+        """A non-XML body yields no S3 fields."""
         response = requests.Response()
         response.status_code = 502
         response._content = b"<!DOCTYPE html><html><body><hr>502</body></html>"
@@ -474,7 +471,6 @@ class TestUploadSqlCache(unittest.TestCase):
         self, mock_put: mock.MagicMock, mock_logger: mock.MagicMock
     ) -> None:
         """Non-HTTP failures keep the exception text minus the presigned query."""
-        # urllib3 puts the path and query string of the failed request in the message
         mock_put.side_effect = requests.ConnectionError(
             "HTTPSConnectionPool(host='bucket.s3.amazonaws.com', port=443): "
             f"Max retries exceeded with url: {PRESIGNED_PATH_AND_QUERY} "
@@ -503,7 +499,7 @@ class TestUploadSqlCache(unittest.TestCase):
         mock_put: mock.MagicMock,
         mock_logger: mock.MagicMock,
     ) -> None:
-        """Diagnostics on a bad URL must not turn a swallowed failure into a raised one."""
+        """A bad upload URL does not raise."""
         mock_put.side_effect = requests.ConnectionError("boom")
 
         upload_sql_cache(pd.DataFrame({"a": [1]}), upload_url)
@@ -528,7 +524,7 @@ class TestDescribeS3Response(unittest.TestCase):
     """Tests for _describe_s3_response."""
 
     def test_error_fields_are_redacted_and_capped(self) -> None:
-        """A proxy may echo the request URL in <Message>; the body is remote input."""
+        """Code and Message are redacted and capped at 200 characters."""
         response = requests.Response()
         response.status_code = 400
         response._content = (
@@ -557,7 +553,7 @@ class TestDescribePresignedUrl(unittest.TestCase):
         ]
     )
     def test_unusable_values_become_none(self, _: str, url: str) -> None:
-        """Missing or malformed SigV4 params yield None rather than an error."""
+        """Missing or malformed SigV4 params yield None."""
         self.assertEqual(
             _describe_presigned_url(url),
             {

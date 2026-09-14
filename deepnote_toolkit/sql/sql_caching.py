@@ -116,9 +116,6 @@ def upload_sql_cache(dataframe, upload_url):
             response = requests.put(upload_url, data=temp_file)
             response.raise_for_status()
     except Exception as exc:
-        # Constant message so occurrences group in error tracking; the variable parts
-        # go in `extra`. str(exc) and the URL are never logged as-is: both can carry
-        # the presigned query string, which holds AWS credentials.
         logger.error(
             "Failed to upload SQL cache",
             extra={
@@ -132,18 +129,12 @@ def upload_sql_cache(dataframe, upload_url):
 
 
 def _describe_s3_response(response: Optional[requests.Response]) -> dict[str, Any]:
-    """HTTP status, S3's <Code>/<Message> and the request ids AWS Support asks for.
-
-    A bare 403 can mean an expired URL, expired credentials, a policy change or a
-    signature mismatch; only <Code>/<Message> say which. Nothing else is taken from
-    the body: a SignatureDoesNotMatch body also echoes the access key id and the
-    canonical request.
-    """
+    """HTTP status, S3 <Code>/<Message> and request ids of a failed response."""
     if response is None:
         return {}
     try:
         error = ElementTree.fromstring(response.text)
-    except ElementTree.ParseError:  # not an S3 error document, e.g. HTML from a proxy
+    except ElementTree.ParseError:
         error = ElementTree.Element("Error")
     return {
         "status_code": response.status_code,
@@ -155,21 +146,16 @@ def _describe_s3_response(response: Optional[requests.Response]) -> dict[str, An
 
 
 def _s3_field(error: ElementTree.Element, tag: str) -> Optional[str]:
-    """Redacted, length-capped text of an error field; the body is remote input."""
+    """Redacted, length-capped text of an error field."""
     text = error.findtext(tag)
     return _redact_presigned_query(text)[:200] if text else None
 
 
 def _describe_presigned_url(url: Any) -> dict[str, Any]:
-    """Object path and validity window of a presigned URL, never its query string.
-
-    The URL is valid from X-Amz-Date for X-Amz-Expires seconds, so comparing
-    seconds_since_url_issued with url_expires_in shows whether it had expired.
-    Missing or malformed values become None.
-    """
+    """Object path and validity window of a presigned URL, without its query string."""
     try:
         parts = urlsplit(url)
-    except (AttributeError, TypeError, ValueError):  # untyped JSON from the webapp
+    except (AttributeError, TypeError, ValueError):
         return {}
     query = parse_qs(parts.query)
     expires_in = query.get("X-Amz-Expires", [""])[0]
