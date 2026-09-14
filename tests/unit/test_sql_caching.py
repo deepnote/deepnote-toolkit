@@ -401,7 +401,7 @@ class TestUploadSqlCache(unittest.TestCase):
     @patch("deepnote_toolkit.sql.sql_caching.logger")
     @patch("deepnote_toolkit.sql.sql_caching.requests.put")
     def test_http_error_logs_s3_diagnostics_without_presigned_url(
-        self, mock_put, mock_logger
+        self, mock_put: mock.MagicMock, mock_logger: mock.MagicMock
     ) -> None:
         """A 403 logs S3's Code/Message, request id and URL window, never the URL."""
         response = requests.Response()
@@ -436,7 +436,7 @@ class TestUploadSqlCache(unittest.TestCase):
     @patch("deepnote_toolkit.sql.sql_caching.logger")
     @patch("deepnote_toolkit.sql.sql_caching.requests.put")
     def test_connection_error_logs_redacted_message(
-        self, mock_put, mock_logger
+        self, mock_put: mock.MagicMock, mock_logger: mock.MagicMock
     ) -> None:
         """Non-HTTP failures keep the exception text minus the presigned query."""
         # urllib3 puts the path and query string of the failed request in the message
@@ -457,7 +457,9 @@ class TestUploadSqlCache(unittest.TestCase):
 
     @patch("deepnote_toolkit.sql.sql_caching.logger")
     @patch("deepnote_toolkit.sql.sql_caching.requests.put")
-    def test_upload_failure_never_raises(self, mock_put, mock_logger) -> None:
+    def test_upload_failure_never_raises(
+        self, mock_put: mock.MagicMock, mock_logger: mock.MagicMock
+    ) -> None:
         """Diagnostics on a garbage URL must not turn a swallowed failure into one."""
         mock_put.side_effect = requests.ConnectionError("boom")
 
@@ -498,7 +500,7 @@ class TestDescribePresignedUrl(unittest.TestCase):
             ("malformed_values", "https://x/path?X-Amz-Expires=soon&X-Amz-Date=today"),
         ]
     )
-    def test_unusable_values_become_none(self, _, url) -> None:
+    def test_unusable_values_become_none(self, _: str, url: str) -> None:
         """Missing or malformed SigV4 params yield None rather than an error."""
         described = _describe_presigned_url(url)
 

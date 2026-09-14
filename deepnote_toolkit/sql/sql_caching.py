@@ -3,7 +3,7 @@ import json
 import re
 import tempfile
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Optional
 from urllib.parse import parse_qs, urlsplit
 
 import pandas as pd
@@ -150,7 +150,7 @@ def _describe_upload_error(exc: BaseException) -> dict[str, Any]:
     return details
 
 
-def _extract_s3_error(body: str) -> dict[str, str | None]:
+def _extract_s3_error(body: str) -> dict[str, Optional[str]]:
     """Pull <Code> and <Message> out of an S3 error body.
 
     Only these two fields are kept. Some S3 errors (e.g. SignatureDoesNotMatch) also
@@ -163,7 +163,8 @@ def _extract_s3_error(body: str) -> dict[str, str | None]:
     }
 
 
-def _xml_text(body: str, tag: str) -> str | None:
+def _xml_text(body: str, tag: str) -> Optional[str]:
+    """Redacted, length-capped text of the first `<tag>` element, or None if absent."""
     match = re.search(rf"<{tag}>(.*?)</{tag}>", body, flags=re.DOTALL)
     return _redact_presigned_query(match.group(1))[:200] if match else None
 
@@ -191,7 +192,7 @@ def _describe_presigned_url(url: str) -> dict[str, Any]:
     }
 
 
-def _seconds_since_amz_date(amz_date: str | None) -> float | None:
+def _seconds_since_amz_date(amz_date: Optional[str]) -> Optional[float]:
     """Seconds since a SigV4 timestamp such as 20260729T120000Z, or None if unusable."""
     if not amz_date:
         return None
