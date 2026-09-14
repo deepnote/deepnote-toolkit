@@ -160,7 +160,7 @@ def _s3_field(error: ElementTree.Element, tag: str) -> Optional[str]:
     return _redact_presigned_query(text)[:200] if text else None
 
 
-def _describe_presigned_url(url: str) -> dict[str, Any]:
+def _describe_presigned_url(url: Any) -> dict[str, Any]:
     """Object path and validity window of a presigned URL, never its query string.
 
     The URL is valid from X-Amz-Date for X-Amz-Expires seconds, so comparing
