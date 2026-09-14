@@ -1,6 +1,8 @@
 import unittest
+from typing import Any
 from unittest import mock
 from unittest.mock import patch
+from xml.sax.saxutils import escape
 
 import pandas as pd
 import requests
@@ -9,6 +11,7 @@ from pyarrow import ArrowInvalid
 
 from deepnote_toolkit.sql.sql_caching import (
     _describe_presigned_url,
+    _describe_s3_response,
     _generate_cache_key,
     _redact_presigned_query,
     get_sql_cache,
@@ -490,15 +493,20 @@ class TestUploadSqlCache(unittest.TestCase):
         )
         self.assertNotIn("status_code", extra)
 
+    @parameterized.expand([("garbage_string", "not a url at all"), ("not_a_string", 1)])
     @patch("deepnote_toolkit.sql.sql_caching.logger")
     @patch("deepnote_toolkit.sql.sql_caching.requests.put")
     def test_upload_failure_never_raises(
-        self, mock_put: mock.MagicMock, mock_logger: mock.MagicMock
+        self,
+        _: str,
+        upload_url: Any,
+        mock_put: mock.MagicMock,
+        mock_logger: mock.MagicMock,
     ) -> None:
-        """Diagnostics on a garbage URL must not turn a swallowed failure into one."""
+        """Diagnostics on a bad URL must not turn a swallowed failure into a raised one."""
         mock_put.side_effect = requests.ConnectionError("boom")
 
-        upload_sql_cache(pd.DataFrame({"a": [1]}), "not a url at all")
+        upload_sql_cache(pd.DataFrame({"a": [1]}), upload_url)
 
         mock_logger.error.assert_called_once()
 
@@ -514,6 +522,29 @@ PRESIGNED_PATH_AND_QUERY = (
     "&X-Amz-Signature=abc123"
 )
 PRESIGNED_URL = f"https://bucket.s3.amazonaws.com{PRESIGNED_PATH_AND_QUERY}"
+
+
+class TestDescribeS3Response(unittest.TestCase):
+    """Tests for _describe_s3_response."""
+
+    def test_error_fields_are_redacted_and_capped(self) -> None:
+        """A proxy may echo the request URL in <Message>; the body is remote input."""
+        response = requests.Response()
+        response.status_code = 400
+        response._content = (
+            f"<Error><Code>{'X' * 300}</Code>"
+            f"<Message>Rejected {escape(PRESIGNED_URL)}</Message></Error>"
+        ).encode()
+
+        described = _describe_s3_response(response)
+
+        self.assertEqual(described["s3_error_code"], "X" * 200)
+        self.assertEqual(
+            described["s3_error_message"],
+            "Rejected https://bucket.s3.amazonaws.com/workspace/integration/cache-key"
+            "?<redacted>",
+        )
+        self.assertNotIn(PRESIGNED_SECRET, repr(described))
 
 
 class TestDescribePresignedUrl(unittest.TestCase):

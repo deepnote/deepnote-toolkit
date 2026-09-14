@@ -147,11 +147,17 @@ def _describe_s3_response(response: Optional[requests.Response]) -> dict[str, An
         error = ElementTree.Element("Error")
     return {
         "status_code": response.status_code,
-        "s3_error_code": error.findtext("Code"),
-        "s3_error_message": error.findtext("Message"),
+        "s3_error_code": _s3_field(error, "Code"),
+        "s3_error_message": _s3_field(error, "Message"),
         "aws_request_id": response.headers.get("x-amz-request-id"),
         "aws_host_id": response.headers.get("x-amz-id-2"),
     }
+
+
+def _s3_field(error: ElementTree.Element, tag: str) -> Optional[str]:
+    """Redacted, length-capped text of an error field; the body is remote input."""
+    text = error.findtext(tag)
+    return _redact_presigned_query(text)[:200] if text else None
 
 
 def _describe_presigned_url(url: str) -> dict[str, Any]:
@@ -163,7 +169,7 @@ def _describe_presigned_url(url: str) -> dict[str, Any]:
     """
     try:
         parts = urlsplit(url)
-    except ValueError:
+    except (AttributeError, TypeError, ValueError):  # untyped JSON from the webapp
         return {}
     query = parse_qs(parts.query)
     expires_in = query.get("X-Amz-Expires", [""])[0]
