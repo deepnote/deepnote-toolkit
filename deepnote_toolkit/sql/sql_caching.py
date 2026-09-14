@@ -5,6 +5,7 @@ import tempfile
 from datetime import datetime, timezone
 from typing import Any, Optional
 from urllib.parse import parse_qs, urlsplit
+from xml.etree import ElementTree
 
 import pandas as pd
 import requests
@@ -151,22 +152,27 @@ def _describe_upload_error(exc: BaseException) -> dict[str, Any]:
 
 
 def _extract_s3_error(body: str) -> dict[str, Optional[str]]:
-    """Pull <Code> and <Message> out of an S3 error body.
+    """Pull <Code> and <Message> out of an S3 error document.
 
     Only these two fields are kept. Some S3 errors (e.g. SignatureDoesNotMatch) also
     echo the access key id, the string to sign and the canonical request, which must
-    not reach the logs.
+    not reach the logs. A body that is not XML, such as an HTML page from a proxy,
+    yields None for both.
     """
+    try:
+        root = ElementTree.fromstring(body)
+    except ElementTree.ParseError:
+        return {"s3_error_code": None, "s3_error_message": None}
     return {
-        "s3_error_code": _xml_text(body, "Code"),
-        "s3_error_message": _xml_text(body, "Message"),
+        "s3_error_code": _element_text(root, "Code"),
+        "s3_error_message": _element_text(root, "Message"),
     }
 
 
-def _xml_text(body: str, tag: str) -> Optional[str]:
-    """Redacted, length-capped text of the first `<tag>` element, or None if absent."""
-    match = re.search(rf"<{tag}>(.*?)</{tag}>", body, flags=re.DOTALL)
-    return _redact_presigned_query(match.group(1))[:200] if match else None
+def _element_text(root: ElementTree.Element, tag: str) -> Optional[str]:
+    """Redacted, length-capped text of the first `tag` element in any namespace."""
+    text = root.findtext(f".//{{*}}{tag}")
+    return _redact_presigned_query(text)[:200] if text else None
 
 
 def _describe_presigned_url(url: str) -> dict[str, Any]:

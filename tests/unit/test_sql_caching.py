@@ -9,6 +9,7 @@ from pyarrow import ArrowInvalid
 
 from deepnote_toolkit.sql.sql_caching import (
     _describe_presigned_url,
+    _extract_s3_error,
     _generate_cache_key,
     _redact_presigned_query,
     get_sql_cache,
@@ -511,6 +512,50 @@ class TestDescribePresignedUrl(unittest.TestCase):
     def test_invalid_url_does_not_raise(self) -> None:
         """A URL urlsplit rejects yields an empty dict."""
         self.assertEqual(_describe_presigned_url("https://[bad"), {})
+
+
+class TestExtractS3Error(unittest.TestCase):
+    """Tests for _extract_s3_error."""
+
+    @parameterized.expand(
+        [
+            ("plain", "<Error>"),
+            ("namespaced", '<Error xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'),
+        ]
+    )
+    def test_keeps_only_code_and_message(self, _: str, root_tag: str) -> None:
+        """Other elements S3 echoes, such as the access key id, are dropped."""
+        extracted = _extract_s3_error(
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            f"{root_tag}<Code>SignatureDoesNotMatch</Code>"
+            "<Message>The request signature does not match</Message>"
+            "<AWSAccessKeyId>AKIAEXAMPLEKEY</AWSAccessKeyId>"
+            "<StringToSign>AWS4-HMAC-SHA256 20260729T120000Z</StringToSign>"
+            "<RequestId>REQ123</RequestId></Error>"
+        )
+
+        self.assertEqual(
+            extracted,
+            {
+                "s3_error_code": "SignatureDoesNotMatch",
+                "s3_error_message": "The request signature does not match",
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("empty", ""),
+            ("plain_text", "Bad Gateway"),
+            ("html_page", "<!DOCTYPE html><html><body><hr>502</body></html>"),
+            ("xml_without_error_fields", "<html><body>502</body></html>"),
+        ]
+    )
+    def test_non_s3_body_yields_none(self, _: str, body: str) -> None:
+        """A body that is not an S3 error document gives None for both fields."""
+        self.assertEqual(
+            _extract_s3_error(body),
+            {"s3_error_code": None, "s3_error_message": None},
+        )
 
 
 class TestRedactPresignedQuery(unittest.TestCase):
