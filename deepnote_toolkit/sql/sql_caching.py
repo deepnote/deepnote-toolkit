@@ -1,6 +1,11 @@
 import hashlib
 import json
+import re
 import tempfile
+from datetime import datetime, timezone
+from typing import Any, Optional
+from urllib.parse import parse_qs, urlsplit
+from xml.etree import ElementTree
 
 import pandas as pd
 import requests
@@ -111,14 +116,68 @@ def upload_sql_cache(dataframe, upload_url):
             response = requests.put(upload_url, data=temp_file)
             response.raise_for_status()
     except Exception as exc:
-        detail = str(exc)
-        if isinstance(exc, requests.HTTPError) and exc.response is not None:
-            detail = f"{exc.response.status_code} {exc.response.text[:500]}"
         logger.error(
-            "Failed to upload SQL cache: %s",
-            detail,
-            extra={"sql_caching_cause": "failed_to_upload_to_cache"},
+            "Failed to upload SQL cache",
+            extra={
+                "sql_caching_cause": "failed_to_upload_to_cache",
+                "error_type": type(exc).__name__,
+                "error": _redact_presigned_query(str(exc)),
+                **_describe_s3_response(getattr(exc, "response", None)),
+                **_describe_presigned_url(upload_url),
+            },
         )
+
+
+def _describe_s3_response(response: Optional[requests.Response]) -> dict[str, Any]:
+    """HTTP status, S3 <Code>/<Message> and request ids of a failed response."""
+    if response is None:
+        return {}
+    try:
+        error = ElementTree.fromstring(response.text)
+    except ElementTree.ParseError:
+        error = ElementTree.Element("Error")
+    return {
+        "status_code": response.status_code,
+        "s3_error_code": _s3_field(error, "Code"),
+        "s3_error_message": _s3_field(error, "Message"),
+        "aws_request_id": response.headers.get("x-amz-request-id"),
+        "aws_host_id": response.headers.get("x-amz-id-2"),
+    }
+
+
+def _s3_field(error: ElementTree.Element, tag: str) -> Optional[str]:
+    """Redacted, length-capped text of an error field."""
+    text = error.findtext(tag)
+    return _redact_presigned_query(text)[:200] if text else None
+
+
+def _describe_presigned_url(url: Any) -> dict[str, Any]:
+    """Object path and validity window of a presigned URL, without its query string."""
+    try:
+        parts = urlsplit(url)
+    except (AttributeError, TypeError, ValueError):
+        return {}
+    query = parse_qs(parts.query)
+    expires_in = query.get("X-Amz-Expires", [""])[0]
+    return {
+        "object_path": parts.path,
+        "url_expires_in": int(expires_in) if expires_in.isdigit() else None,
+        "seconds_since_url_issued": _seconds_since(query.get("X-Amz-Date", [""])[0]),
+    }
+
+
+def _seconds_since(amz_date: str) -> Optional[int]:
+    """Seconds since a SigV4 timestamp such as 20260729T120000Z, or None if malformed."""
+    try:
+        issued_at = datetime.strptime(amz_date, "%Y%m%dT%H%M%S%z")
+    except ValueError:
+        return None
+    return int((datetime.now(timezone.utc) - issued_at).total_seconds())
+
+
+def _redact_presigned_query(text: str) -> str:
+    """Strip query strings carrying SigV4 parameters: credentials, signature, token."""
+    return re.sub(r"""\?[^\s'"]*X-Amz-[^\s'"]*""", "?<redacted>", text)
 
 
 def _try_read_cache(download_url):
