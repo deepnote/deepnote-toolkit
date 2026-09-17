@@ -1,8 +1,6 @@
 [virtualenvs]
 create = true
 
-# Honor the lockfile's Python version markers when installing. Re-resolving can
-# otherwise select dependencies intended for Python 3.14 on older interpreters.
 [installer]
 modern-installation = true
 re-resolve = false
