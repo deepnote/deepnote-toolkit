@@ -92,14 +92,13 @@ def test_exchanges_opaque_cookie_for_public_api_credentials() -> None:
 
     credentials = current_user_api_credentials(
         app_id=APP_ID,
-        webapp_url="https://deepnote-staging.com/",
         streamlit_token="opaque-cookie",
         timeout=7,
         opener=open_request,
     )
 
     assert captured["url"] == (
-        f"https://deepnote-staging.com/api/streamlit-apps/{APP_ID}/api-token"
+        f"http://localhost:19456/userpod-api/streamlit-apps/{APP_ID}/api-token"
     )
     assert captured["method"] == "POST"
     assert captured["body"] == b""
@@ -179,7 +178,6 @@ def test_exchange_rejects_invalid_response(payload: dict[str, Any]) -> None:
     with pytest.raises(CurrentUserApiTokenError):
         current_user_api_credentials(
             app_id=APP_ID,
-            webapp_url="https://deepnote.com",
             streamlit_token="opaque-cookie",
             opener=lambda *_args, **_kwargs: FakeResponse(payload),
         )
@@ -190,7 +188,7 @@ def test_exchange_error_does_not_expose_response_body() -> None:
 
     def open_request(*_args: Any, **_kwargs: Any) -> FakeResponse:
         raise HTTPError(
-            "https://deepnote.com/api/streamlit-apps/id/api-token",
+            "http://localhost:19456/userpod-api/streamlit-apps/id/api-token",
             401,
             "Unauthorized",
             {},
@@ -200,7 +198,6 @@ def test_exchange_error_does_not_expose_response_body() -> None:
     with pytest.raises(CurrentUserApiTokenError) as exc_info:
         current_user_api_credentials(
             app_id=APP_ID,
-            webapp_url="https://deepnote.com",
             streamlit_token="opaque-cookie",
             opener=open_request,
         )

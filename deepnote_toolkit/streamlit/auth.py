@@ -11,7 +11,10 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from deepnote_toolkit.config import get_config
+from deepnote_toolkit.get_webapp_url import (
+    get_absolute_userpod_api_url,
+    get_project_auth_headers,
+)
 from deepnote_toolkit.streamlit_data_apps import (
     read_streamlit_token_from_context,
 )
@@ -50,7 +53,6 @@ def current_user_api_token() -> str:
 def current_user_api_credentials(
     *,
     app_id: str | None = None,
-    webapp_url: str | None = None,
     streamlit_token: str | None = None,
     timeout: float = 10,
     opener: OpenUrl = urlopen,
@@ -74,23 +76,15 @@ def current_user_api_credentials(
             "Could not read the current viewer's streamlit-token cookie."
         )
 
-    resolved_webapp_url = webapp_url or get_config().runtime.webapp_url
-    if not resolved_webapp_url:
-        raise CurrentUserApiTokenError(
-            "DEEPNOTE_WEBAPP_URL is required in a hosted Streamlit app."
-        )
-    resolved_webapp_url = _validated_origin(
-        resolved_webapp_url, name="DEEPNOTE_WEBAPP_URL"
-    )
-
     request = Request(
-        (f"{resolved_webapp_url}/api/streamlit-apps/" f"{resolved_app_id}/api-token"),
+        get_absolute_userpod_api_url(f"streamlit-apps/{resolved_app_id}/api-token"),
         data=b"",
         method="POST",
         headers={
             "Accept": "application/json",
             "Content-Type": "application/json",
             "StreamlitToken": viewer_token,
+            **get_project_auth_headers(),
         },
     )
     try:

@@ -33,8 +33,8 @@ the cloud runner:
 
 1. reads the current viewer's opaque `streamlit-token` cookie;
 2. resolves the app ID from `x-original-host`, falling back to `host`;
-3. exchanges the cookie at
-   `POST /api/streamlit-apps/{appId}/api-token`; and
+3. exchanges the cookie through the project's userpod API at
+   `POST /userpod-api/streamlit-apps/{appId}/api-token`; and
 4. calls the returned `apiOrigin` with the short-lived token as a bearer.
 
 Cloud runs explicitly request `detached: true`, keeping viewer-triggered work out
@@ -48,8 +48,8 @@ process globals or Streamlit session state, and a hosted request never falls bac
 a shared environment token.
 
 The exchange endpoint must return `token`, `apiOrigin`, and
-`expiresAtSeconds`. Deployments must provide `DEEPNOTE_WEBAPP_URL` through the
-Toolkit runtime configuration.
+`expiresAtSeconds`. The request goes through the same userpod API route as the
+Toolkit's other webapp calls, so a hosted app needs no extra configuration.
 
 For another public API client, use both values returned by
 `current_user_api_credentials()`. `current_user_api_token()` is a token-provider
