@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import sys
+import time
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -111,7 +112,79 @@ def test_exchanges_opaque_cookie_for_public_api_credentials() -> None:
     assert credentials.expires_at_seconds == 1_800_000_000
 
 
-def test_public_token_provider_exchanges_on_every_call() -> None:
+def _hosted_session_modules(session_state: dict[str, Any]) -> dict[str, Any]:
+    scriptrunner = SimpleNamespace(get_script_run_ctx=lambda: object())
+    return {
+        "streamlit": SimpleNamespace(session_state=session_state),
+        "streamlit.runtime": SimpleNamespace(scriptrunner=scriptrunner),
+        "streamlit.runtime.scriptrunner": scriptrunner,
+    }
+
+
+def _counting_opener(expires_at_seconds: float) -> tuple[list[Any], Any]:
+    requests: list[Any] = []
+
+    def open_request(request: Any, *, timeout: float) -> FakeResponse:
+        requests.append(request)
+        return FakeResponse(
+            {
+                "token": f"viewer-api-token-{len(requests)}",
+                "apiOrigin": "https://api.deepnote.com",
+                "expiresAtSeconds": expires_at_seconds,
+            }
+        )
+
+    return requests, open_request
+
+
+def test_reuses_credentials_within_a_streamlit_session() -> None:
+    requests, open_request = _counting_opener(time.time() + 15 * 60)
+
+    with patch.dict(sys.modules, _hosted_session_modules({})):
+        first = current_user_api_credentials(
+            app_id=APP_ID, streamlit_token="opaque-cookie", opener=open_request
+        )
+        second = current_user_api_credentials(
+            app_id=APP_ID, streamlit_token="opaque-cookie", opener=open_request
+        )
+
+    assert len(requests) == 1
+    assert second == first
+
+
+def test_does_not_share_credentials_between_sessions() -> None:
+    requests, open_request = _counting_opener(time.time() + 15 * 60)
+
+    for _session in range(2):
+        with patch.dict(sys.modules, _hosted_session_modules({})):
+            current_user_api_credentials(
+                app_id=APP_ID, streamlit_token="opaque-cookie", opener=open_request
+            )
+
+    assert len(requests) == 2
+
+
+@pytest.mark.parametrize(
+    ("expires_in_seconds", "second_cookie"),
+    [(30, "opaque-cookie"), (15 * 60, "another-cookie")],
+)
+def test_exchanges_again_near_expiry_or_for_another_cookie(
+    expires_in_seconds: int, second_cookie: str
+) -> None:
+    requests, open_request = _counting_opener(time.time() + expires_in_seconds)
+
+    with patch.dict(sys.modules, _hosted_session_modules({})):
+        current_user_api_credentials(
+            app_id=APP_ID, streamlit_token="opaque-cookie", opener=open_request
+        )
+        current_user_api_credentials(
+            app_id=APP_ID, streamlit_token=second_cookie, opener=open_request
+        )
+
+    assert len(requests) == 2
+
+
+def test_public_token_provider_returns_the_current_credentials_token() -> None:
     with patch(
         "deepnote_toolkit.streamlit.auth.current_user_api_credentials"
     ) as exchange:

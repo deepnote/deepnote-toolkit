@@ -28,8 +28,7 @@ Deepnote CLI. `DeepnoteRunner` is available for the local-runner sidecar.
 
 ## Authentication modes
 
-A hosted Deepnote Streamlit app needs no token configuration. For each API request,
-the cloud runner:
+A hosted Deepnote Streamlit app needs no token configuration. The cloud runner:
 
 1. reads the current viewer's opaque `streamlit-token` cookie;
 2. resolves the app ID from `x-original-host`, falling back to `host`;
@@ -43,9 +42,12 @@ of the shared project session. Hosted app tokens receive sanitized
 project snapshot. API-key clients remain compatible with inline
 `snapshotContent` responses.
 
-The opaque cookie is never sent to the public API. Credentials are not cached in
-process globals or Streamlit session state, and a hosted request never falls back to
-a shared environment token.
+The opaque cookie is never sent to the public API. The exchanged credentials are kept
+in the viewer's own Streamlit session state and reused until a minute before they
+expire. They are never kept in process globals or shared between sessions, and a
+hosted request never falls back to a shared environment token. Deepnote rechecks
+the viewer's access on every API request, so a reused bearer stops working as soon
+as access is revoked.
 
 The exchange endpoint must return `token`, `apiOrigin`, and
 `expiresAtSeconds`. The request goes through the same userpod API route as the

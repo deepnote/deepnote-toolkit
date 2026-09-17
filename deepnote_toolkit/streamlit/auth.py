@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
+import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -26,6 +28,10 @@ STREAMLIT_APP_HOST_PATTERN = re.compile(
 )
 
 
+_SESSION_STATE_KEY = "_deepnote_current_user_api_credentials"
+_EXPIRY_MARGIN_SECONDS = 60
+
+
 class CurrentUserApiTokenError(RuntimeError):
     """Raised when a hosted app cannot obtain the current viewer's API token."""
 
@@ -43,8 +49,7 @@ def current_user_api_token() -> str:
     """Return a short-lived public API bearer for the current Streamlit viewer.
 
     The opaque streamlit-token cookie is exchanged for a viewer-scoped token.
-    It is never itself used as a public API bearer. The exchange happens on
-    every call so a long-lived, multi-user process does not retain credentials.
+    It is never itself used as a public API bearer.
     """
 
     return current_user_api_credentials().token
@@ -59,9 +64,9 @@ def current_user_api_credentials(
 ) -> CurrentUserApiCredentials:
     """Exchange the active viewer cookie for public API credentials.
 
-    The returned API origin must be used with the returned bearer. Hosted clients
-    should call this for every request, or cache it only within the current
-    Streamlit session until shortly before expires_at_seconds.
+    The returned API origin must be used with the returned bearer. Credentials are
+    reused within the current Streamlit session until shortly before they expire,
+    and never shared between sessions.
     """
 
     resolved_app_id = app_id or _read_streamlit_app_id_from_context()
@@ -75,6 +80,20 @@ def current_user_api_credentials(
         raise CurrentUserApiTokenError(
             "Could not read the current viewer's streamlit-token cookie."
         )
+
+    session_state = _read_streamlit_session_state()
+    cache_key = (
+        resolved_app_id,
+        hashlib.sha256(viewer_token.encode()).hexdigest(),
+    )
+    if session_state is not None:
+        cached = session_state.get(_SESSION_STATE_KEY)
+        if (
+            isinstance(cached, tuple)
+            and cached[0] == cache_key
+            and cached[1].expires_at_seconds - _EXPIRY_MARGIN_SECONDS > time.time()
+        ):
+            return cached[1]
 
     request = Request(
         get_absolute_userpod_api_url(f"streamlit-apps/{resolved_app_id}/api-token"),
@@ -126,11 +145,30 @@ def current_user_api_credentials(
             "Current viewer API-token exchange response is missing required fields."
         )
 
-    return CurrentUserApiCredentials(
+    credentials = CurrentUserApiCredentials(
         token=token,
         api_origin=_validated_origin(api_origin, name="apiOrigin"),
         expires_at_seconds=float(expires_at_seconds),
     )
+    if session_state is not None:
+        session_state[_SESSION_STATE_KEY] = (cache_key, credentials)
+    return credentials
+
+
+def _read_streamlit_session_state() -> Any | None:
+    """Return the current session's state, or None outside a Streamlit script run."""
+
+    try:
+        import streamlit as st  # type: ignore[import-not-found]
+        from streamlit.runtime.scriptrunner import (  # type: ignore[import-not-found]
+            get_script_run_ctx,
+        )
+    except ImportError:
+        return None
+
+    if get_script_run_ctx() is None:
+        return None
+    return st.session_state
 
 
 def _read_streamlit_app_id_from_context() -> str | None:

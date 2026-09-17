@@ -127,7 +127,8 @@ class DeepnoteCloudRunner:
     """Run an existing notebook directly through the Deepnote public API.
 
     A token provider is called for every request, which lets long-lived Streamlit
-    sessions use short-lived credentials without caching them in this library.
+    sessions use short-lived credentials. Hosted viewer credentials are reused
+    within the viewer's own Streamlit session until shortly before they expire.
     """
 
     def __init__(
