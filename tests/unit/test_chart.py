@@ -20,6 +20,7 @@ from deepnote_toolkit.chart.types import VEGA_5_MIME_TYPE
 from deepnote_toolkit.chart.utils import (
     sanitize_dataframe_for_chart,
     sanitize_polars_dataframe_for_chart,
+    stringify_incompatible_arrow_columns,
 )
 
 from .helpers.testing_dataframes import testing_dataframes
@@ -281,6 +282,26 @@ class TestDeepnoteChart(unittest.TestCase):
 
 
 class TestDeepnoteSanitizeDataframe(unittest.TestCase):
+    def test_arrow_fallback_preserves_nulls_and_valid_column_types(self):
+        df = pd.DataFrame(
+            {
+                "mixed": [1, "text", None],
+                "mixed_reverse": ["text", 1, None],
+                "nested": [[], ["a"], [[4]]],
+                "number": pd.Series([1, 2, None], dtype=object),
+            }
+        )
+        original = df.copy(deep=True)
+
+        converted = stringify_incompatible_arrow_columns(df)
+
+        self.assertEqual(converted["mixed"].iloc[:2].tolist(), ["1", "text"])
+        self.assertTrue(pd.isna(converted["mixed"].iloc[2]))
+        self.assertEqual(converted["mixed_reverse"].iloc[:2].tolist(), ["text", "1"])
+        self.assertEqual(converted["nested"].tolist(), ["[]", "['a']", "[[4]]"])
+        pd.testing.assert_series_equal(converted["number"], original["number"])
+        pd.testing.assert_frame_equal(df, original)
+
     def test_small_dataframe_remains_ordered_the_same(self):
         df = pd.DataFrame({"a": [1, 2, 3]})
         df_sanitized = sanitize_dataframe_for_chart(df)

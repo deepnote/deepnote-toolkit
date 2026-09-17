@@ -1,9 +1,12 @@
 import os
 
+import nox
 from nox import session
 
+nox.options.error_on_missing_interpreters = bool(os.environ.get("CI"))
 
-@session(python=["3.10", "3.11", "3.12", "3.13"], reuse_venv=True)
+
+@session(python=["3.10", "3.11", "3.12", "3.13", "3.14"], reuse_venv=True)
 def unit(session):
     """Run unit tests. Coverage is disabled by default, use --coverage to enable."""
 
@@ -67,7 +70,7 @@ def unit(session):
     )
 
 
-@session(python=["3.10", "3.11", "3.12", "3.13"], reuse_venv=True)
+@session(python=["3.10", "3.11", "3.12", "3.13", "3.14"], reuse_venv=True)
 def integration(session):
     """Run integration tests. Coverage is disabled by default, use --coverage to enable."""
     # Validate required environment variables
