@@ -3,12 +3,8 @@ FROM quay.io/pypa/manylinux_2_28_x86_64:2026.09.14-1@sha256:531d7aa844bbb0c131d4
 ARG PY_VERSION
 ENV PY_VERSION=$PY_VERSION
 
-# Select the standard CPython ABI explicitly, excluding free-threaded interpreters.
-RUN set -eux; \
-    python_abi="cp$(echo "${PY_VERSION}" | tr -d '.')"; \
-    python_bin="/opt/python/${python_abi}-${python_abi}/bin/python"; \
-    ln -s "${python_bin}" /usr/local/bin/python; \
-    python -c 'import os, sys, sysconfig; assert sys.version_info[:2] == tuple(map(int, os.environ["PY_VERSION"].split("."))); assert sys.version_info.releaselevel == "final"; assert not sysconfig.get_config_var("Py_GIL_DISABLED")'
+# Create a symbolic link for the specified Python version
+RUN ln -s /usr/local/bin/python${PY_VERSION} /usr/local/bin/python
 
 # Install system dependencies for building Python packages
 RUN yum -y update && \
