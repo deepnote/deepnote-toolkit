@@ -8,6 +8,7 @@ from deepnote_toolkit.notebooks.runner import RunnerError
 from .auth import (
     CurrentUserApiTokenError,
     _has_hosted_streamlit_context,
+    _has_script_run_context,
     _is_streamlit_thread_without_request,
     current_user_api_credentials,
 )
@@ -24,7 +25,7 @@ class StreamlitCloudRunner(DeepnoteCloudRunner):
             return super()._credentials()
 
         # A hosted request authenticates as the viewer and never uses DEEPNOTE_TOKEN.
-        if _has_hosted_streamlit_context():
+        if _has_script_run_context() and _has_hosted_streamlit_context():
             try:
                 credentials = current_user_api_credentials(
                     timeout=min(self.timeout, 30), opener=self._open

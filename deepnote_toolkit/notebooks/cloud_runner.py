@@ -111,7 +111,7 @@ class DeepnoteCloudRunner:
         # The snapshot can attach shortly after the status turns terminal.
         for _ in range(SNAPSHOT_SETTLE_ATTEMPTS):
             is_pending = current.get("snapshotStatus", "pending") == "pending"
-            if not is_pending or _has_snapshot(current):
+            if not is_pending or isinstance(current.get("snapshotBlocks"), list):
                 break
             self._sleep(self.poll_interval)
             try:
@@ -121,10 +121,6 @@ class DeepnoteCloudRunner:
                     raise
 
         status = str(current.get("status", ""))
-        snapshot = current.get("snapshot")
-        snapshot_yaml = current.get("snapshotContent")
-        if snapshot_yaml is None and isinstance(snapshot, Mapping):
-            snapshot_yaml = snapshot.get("snapshotContent")
         error = current.get("error")
         if isinstance(error, Mapping):
             error = error.get("message") or json.dumps(error)
@@ -136,15 +132,15 @@ class DeepnoteCloudRunner:
                 "status": status,
                 "error": str(error) if error is not None else None,
                 "snapshotStatus": current.get("snapshotStatus"),
-                "snapshotYaml": snapshot_yaml,
                 "snapshotBlocks": current.get("snapshotBlocks"),
                 "viewUrl": current.get("viewUrl"),
             }
         )
 
     def _get_run(self, run_id: str) -> Mapping[str, Any]:
+        # The blocks delivery holds the executed notebook alone, not the whole project.
         return self._run_payload(
-            self._request("GET", f"/v2/runs/{run_id}?snapshotDelivery=inline")
+            self._request("GET", f"/v2/runs/{run_id}?snapshotDelivery=blocks")
         )
 
     def _request(
@@ -188,15 +184,6 @@ class DeepnoteCloudRunner:
     def _run_payload(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         run = payload.get("run")
         return run if isinstance(run, Mapping) else payload
-
-
-def _has_snapshot(run: Mapping[str, Any]) -> bool:
-    snapshot = run.get("snapshot")
-    return bool(
-        run.get("snapshotContent")
-        or isinstance(run.get("snapshotBlocks"), list)
-        or (isinstance(snapshot, Mapping) and snapshot.get("snapshotContent"))
-    )
 
 
 def _required_run_id(run: Mapping[str, Any]) -> str:

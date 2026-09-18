@@ -217,6 +217,19 @@ def _has_hosted_streamlit_context() -> bool:
     )
 
 
+def _has_script_run_context() -> bool:
+    """Return whether this thread is running a Streamlit script for a viewer."""
+
+    try:
+        from streamlit.runtime.scriptrunner import (  # type: ignore[import-not-found]
+            get_script_run_ctx,
+        )
+    except ImportError:
+        return False
+
+    return get_script_run_ctx(suppress_warning=True) is not None
+
+
 def _is_streamlit_thread_without_request() -> bool:
     """Return whether a Streamlit server is running but this thread has no viewer request.
 
@@ -225,13 +238,10 @@ def _is_streamlit_thread_without_request() -> bool:
 
     try:
         from streamlit import runtime  # type: ignore[import-not-found]
-        from streamlit.runtime.scriptrunner import (  # type: ignore[import-not-found]
-            get_script_run_ctx,
-        )
     except ImportError:
         return False
 
-    return runtime.exists() and get_script_run_ctx(suppress_warning=True) is None
+    return runtime.exists() and not _has_script_run_context()
 
 
 def _validated_origin(value: str, *, name: str) -> str:

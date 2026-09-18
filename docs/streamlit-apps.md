@@ -34,8 +34,10 @@ program:
   the notebook you run so the inputs match it:
   `DeepnoteDocument.load(path, notebook_id="your-notebook-id")`.
 - `DeepnoteCloudRunner` runs an existing notebook in Deepnote Cloud and returns
-  its outputs as a `RunResult`. A dataframe output holds the first page of rows.
-  `row_count` is the full size and `is_truncated` tells whether rows are missing.
+  its outputs as a `RunResult`, which holds the outputs of that notebook alone. A
+  dataframe output holds the first page of rows. `row_count` is the full size and
+  `is_truncated` tells whether rows are missing. Deepnote sends every non-numeric
+  cell as text, so a boolean column arrives as `"True"` and `"False"`.
 - `DeepnoteRunner` does the same through a local `@deepnote/local-runner` sidecar
   at `http://127.0.0.1:8787`.
 - `Runner` is the interface both runners implement, for code that accepts either.

@@ -62,6 +62,10 @@ def test_hosted_cloud_runner_exchanges_per_request_and_uses_api_origin(
     ]
     with (
         patch(
+            "deepnote_toolkit.streamlit.cloud_runner._has_script_run_context",
+            return_value=True,
+        ),
+        patch(
             "deepnote_toolkit.streamlit.cloud_runner._has_hosted_streamlit_context",
             return_value=True,
         ),
@@ -85,7 +89,7 @@ def test_hosted_cloud_runner_exchanges_per_request_and_uses_api_origin(
             30,
         ),
         (
-            "https://api.deepnote-staging.com/v2/runs/run-1" "?snapshotDelivery=inline",
+            "https://api.deepnote-staging.com/v2/runs/run-1" "?snapshotDelivery=blocks",
             "Bearer viewer-token-2",
             30,
         ),
@@ -98,6 +102,10 @@ def test_hosted_runner_never_falls_back_to_environment_token(
     monkeypatch.setenv("DEEPNOTE_TOKEN", "shared-token")
     opener = MagicMock()
     with (
+        patch(
+            "deepnote_toolkit.streamlit.cloud_runner._has_script_run_context",
+            return_value=True,
+        ),
         patch(
             "deepnote_toolkit.streamlit.cloud_runner._has_hosted_streamlit_context",
             return_value=True,
@@ -147,6 +155,10 @@ def test_cloud_run_retries_a_transient_token_exchange_failure() -> None:
         expires_at_seconds=1_800_000_000,
     )
     with (
+        patch(
+            "deepnote_toolkit.streamlit.cloud_runner._has_script_run_context",
+            return_value=True,
+        ),
         patch(
             "deepnote_toolkit.streamlit.cloud_runner._has_hosted_streamlit_context",
             return_value=True,
@@ -202,6 +214,10 @@ def test_hosted_runner_sends_the_viewer_token_only_to_the_returned_origin() -> N
 
     with (
         patch(
+            "deepnote_toolkit.streamlit.cloud_runner._has_script_run_context",
+            return_value=True,
+        ),
+        patch(
             "deepnote_toolkit.streamlit.cloud_runner._has_hosted_streamlit_context",
             return_value=True,
         ),
@@ -219,3 +235,30 @@ def test_hosted_runner_sends_the_viewer_token_only_to_the_returned_origin() -> N
         ).info()
 
     assert urls == ["https://api.deepnote.com/v2/notebooks/notebook-1"]
+
+
+def test_runner_skips_streamlit_lookups_outside_a_script_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEEPNOTE_TOKEN", "local-token")
+
+    def open_request(request: Any, *, timeout: float) -> FakeResponse:
+        assert request.headers["Authorization"] == "Bearer local-token"
+        return FakeResponse({"notebook": {"name": "Revenue", "inputs": []}})
+
+    with (
+        patch(
+            "deepnote_toolkit.streamlit.cloud_runner._has_script_run_context",
+            return_value=False,
+        ),
+        patch(
+            "deepnote_toolkit.streamlit.cloud_runner._has_hosted_streamlit_context"
+        ) as hosted_lookup,
+        patch(
+            "deepnote_toolkit.streamlit.cloud_runner._is_streamlit_thread_without_request",
+            return_value=False,
+        ),
+    ):
+        StreamlitCloudRunner("notebook-1", opener=open_request).info()
+
+    hosted_lookup.assert_not_called()

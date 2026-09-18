@@ -137,7 +137,7 @@ def test_cloud_info_reads_public_notebook_contract() -> None:
     assert info.inputs[0].variable_name == "region"
 
 
-def test_cloud_run_posts_inputs_polls_and_parses_inline_snapshot() -> None:
+def test_cloud_run_posts_inputs_polls_and_reads_the_executed_blocks() -> None:
     calls = []
     responses = iter(
         [
@@ -147,9 +147,13 @@ def test_cloud_run_posts_inputs_polls_and_parses_inline_snapshot() -> None:
                 "run": {
                     "runId": "run-1",
                     "status": "success",
-                    "snapshot": {
-                        "snapshotContent": "project:\n  name: Result\n  notebooks:\n    - blocks: []\n"
-                    },
+                    "snapshotBlocks": [
+                        {
+                            "id": "code-1",
+                            "type": "code",
+                            "outputs": [{"output_type": "stream", "text": "done"}],
+                        }
+                    ],
                 }
             },
         ]
@@ -182,7 +186,7 @@ def test_cloud_run_posts_inputs_polls_and_parses_inline_snapshot() -> None:
         "detached": True,
         "inputs": {"limit": "20", "enabled": True, "regions": ["EU"]},
     }
-    assert calls[1][0].endswith("/v2/runs/run-1?snapshotDelivery=inline")
+    assert calls[1][0].endswith("/v2/runs/run-1?snapshotDelivery=blocks")
     assert [call[2] for call in calls] == [
         "Bearer token-1",
         "Bearer token-2",
@@ -190,8 +194,7 @@ def test_cloud_run_posts_inputs_polls_and_parses_inline_snapshot() -> None:
     ]
     assert sleeps == [0.25, 0.25]
     assert result.success is True
-    assert result.snapshot is not None
-    assert result.snapshot.project_name == "Result"
+    assert result.text() == "done"
 
 
 def test_cloud_run_reads_sanitized_snapshot_blocks_without_raw_snapshot() -> None:
