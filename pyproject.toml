@@ -173,14 +173,7 @@ dependencies = [
     "grpcio>=1.66.2; python_version >= '3.13'",
     "greenlet>=3.1.0; python_version >= '3.13'",
     "parso>=0.8.5,<0.9; python_version >= '3.14'", # also used by IPython/Jedi without server extras
-    # CPython 3.14 binary/ABI support; keep older interpreter resolutions available.
-    "arro3-core>=0.6.4; python_version >= '3.14'",
-    "ciso8601>=2.3.3; python_version >= '3.14'",
-    "clickhouse-driver>=0.2.10; python_version >= '3.14'",
-    "google-crc32c>=1.8.0; python_version >= '3.14'",
-    "MarkupSafe>=3.0.3; python_version >= '3.14'",
-    "pyzmq>=27.0.0; python_version >= '3.14'",
-    "rpds-py>=0.26.0; python_version >= '3.14'"
+    "rpds-py>=0.25.0; python_version >= '3.14'" # older PyO3 bindings can crash on Python 3.14
 ]
 
 [project.urls]
