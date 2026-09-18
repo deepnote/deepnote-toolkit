@@ -2,83 +2,29 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
+from dataclasses import dataclass
 
+from .api_types import SnapshotStatus
 from .document import DeepnoteDocument
-from .models import NotebookOutput, optional_string
+from .models import NotebookOutput
 from .outputs import OutputCollection
 
 
+@dataclass(frozen=True)
 class RunResult(OutputCollection):
-    """The normalized result of `POST /api/run`, for either cloud or local execution."""
+    """What one run produced, whether it ran in Deepnote Cloud or locally.
 
-    def __init__(self, raw: Mapping[str, Any]):
-        self.raw = raw
-        self.target = str(raw.get("target", ""))
-        self.success = raw.get("success") is True
-        self.run_id = optional_string(raw.get("runId"))
-        self.status = optional_string(raw.get("status"))
-        self.created = raw.get("created") is True
-        self.view_url = optional_string(raw.get("viewUrl"))
-        self.error = optional_string(raw.get("error"))
-        self.snapshot_status = optional_string(raw.get("snapshotStatus"))
-        self.snapshot_yaml = optional_string(raw.get("snapshotYaml"))
-        self.snapshot = None
-        if self.snapshot_yaml:
-            try:
-                self.snapshot = DeepnoteDocument.parse(self.snapshot_yaml)
-            except ValueError:
-                pass
-        if self.snapshot:
-            self.outputs = self.snapshot.outputs
-        else:
-            snapshot_blocks = raw.get("snapshotBlocks")
-            self.outputs = (
-                _outputs_from_snapshot_blocks(snapshot_blocks)
-                if isinstance(snapshot_blocks, list)
-                else _outputs_from_run(raw.get("outputs"))
-            )
+    `snapshot_status` is set for cloud runs. `snapshot` and `created` are set by
+    the local runner.
+    """
 
-
-def _outputs_from_run(value: Any) -> tuple[NotebookOutput, ...]:
-    if not isinstance(value, list):
-        return ()
-    outputs: list[NotebookOutput] = []
-    for block in value:
-        if not isinstance(block, Mapping):
-            continue
-        block_id = str(block.get("blockId", ""))
-        raw_outputs = block.get("outputs")
-        if not isinstance(raw_outputs, list):
-            continue
-        outputs.extend(
-            NotebookOutput(block_id=block_id, block_type=None, raw=output)
-            for output in raw_outputs
-            if isinstance(output, Mapping)
-        )
-    return tuple(outputs)
-
-
-def _outputs_from_snapshot_blocks(value: Any) -> tuple[NotebookOutput, ...]:
-    if not isinstance(value, list):
-        return ()
-    outputs: list[NotebookOutput] = []
-    for block in value:
-        if not isinstance(block, Mapping):
-            continue
-        block_id = str(block.get("id", ""))
-        block_type = optional_string(block.get("type"))
-        raw_outputs = block.get("outputs")
-        if not isinstance(raw_outputs, list):
-            continue
-        outputs.extend(
-            NotebookOutput(
-                block_id=block_id,
-                block_type=block_type,
-                raw=output,
-            )
-            for output in raw_outputs
-            if isinstance(output, Mapping)
-        )
-    return tuple(outputs)
+    target: str
+    success: bool
+    outputs: tuple[NotebookOutput, ...] = ()
+    run_id: str | None = None
+    status: str | None = None
+    error: str | None = None
+    snapshot_status: SnapshotStatus | None = None
+    view_url: str | None = None
+    snapshot: DeepnoteDocument | None = None
+    created: bool = False

@@ -42,12 +42,24 @@ program:
   at `http://127.0.0.1:8787`.
 - `Runner` is the interface both runners implement, for code that accepts either.
 
+The cloud runner only starts a run and waits for it. The parts under it can be
+used or replaced on their own:
+
+- `DeepnoteApiClient` sends the API requests and validates the responses.
+- A `CredentialsProvider` is any callable that returns `ApiCredentials`, a token
+  with the API origin it is valid at. It is called before every request. Pass one
+  as `credentials=` in place of `token`, `token_provider` and `base_url`.
+- A `Transport` sends one JSON request. `UrllibTransport` is the default. Pass
+  your own as `transport=` to use another HTTP library.
+
 `deepnote_toolkit.streamlit` holds the Streamlit-specific parts:
 
 - `render_inputs` maps Deepnote input blocks to native Streamlit widgets and
   returns values ready to submit to a runner.
 - `StreamlitCloudRunner` is a `DeepnoteCloudRunner` that runs notebooks as the
   person viewing the app when Deepnote hosts it.
+- `ViewerCredentials` is the `CredentialsProvider` behind it, for use with
+  `DeepnoteCloudRunner` or `DeepnoteApiClient` directly.
 
 A static app only loads a committed snapshot with `DeepnoteDocument`. It requires
 no token or network access.

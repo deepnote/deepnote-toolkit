@@ -1,4 +1,6 @@
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -6,10 +8,24 @@ from deepnote_toolkit.notebooks import (
     DATAFRAME_MIME,
     DeepnoteDataframe,
     DeepnoteDocument,
+    DeepnoteRunner,
     InputBlock,
     RunResult,
     join_text,
 )
+
+
+class FakeTransport:
+    def __init__(self, payload: Mapping[str, Any]):
+        self.payload = payload
+
+    def request_json(self, *_args: Any, **_kwargs: Any) -> Mapping[str, Any]:
+        return self.payload
+
+
+def run_locally(payload: Mapping[str, Any]) -> RunResult:
+    return DeepnoteRunner(transport=FakeTransport(payload)).run({})
+
 
 SNAPSHOT_YAML = """
 project:
@@ -87,29 +103,47 @@ project:
 
 
 def test_reads_input_metadata_from_file_and_api_shapes() -> None:
-    file_input = InputBlock.from_block(
+    document = DeepnoteDocument(
         {
-            "type": "input-slider",
-            "metadata": {
-                "deepnote_variable_name": "limit",
-                "deepnote_input_label": "Row limit",
-                "deepnote_variable_value": "20",
-                "deepnote_slider_min_value": 10,
-                "deepnote_slider_max_value": 100,
-                "deepnote_slider_step": 10,
-            },
+            "project": {
+                "notebooks": [
+                    {
+                        "blocks": [
+                            {
+                                "type": "input-slider",
+                                "metadata": {
+                                    "deepnote_variable_name": "limit",
+                                    "deepnote_input_label": "Row limit",
+                                    "deepnote_variable_value": "20",
+                                    "deepnote_slider_min_value": 10,
+                                    "deepnote_slider_max_value": 100,
+                                    "deepnote_slider_step": 10,
+                                },
+                            }
+                        ]
+                    }
+                ]
+            }
         }
     )
-    api_input = InputBlock.from_api(
-        {
-            "variableName": "countries",
-            "type": "input-select",
-            "label": "Countries",
-            "value": ["Panama"],
-            "options": ["Panama", "Colombia"],
-            "multiple": True,
-        }
-    )
+    info = DeepnoteRunner(
+        transport=FakeTransport(
+            {
+                "inputs": [
+                    {
+                        "variableName": "countries",
+                        "type": "input-select",
+                        "label": "Countries",
+                        "value": ["Panama"],
+                        "options": ["Panama", "Colombia"],
+                        "multiple": True,
+                    }
+                ]
+            }
+        )
+    ).info()
+    (file_input,) = document.inputs
+    (api_input,) = info.inputs
 
     assert file_input == InputBlock(
         variable_name="limit",
@@ -125,7 +159,7 @@ def test_reads_input_metadata_from_file_and_api_shapes() -> None:
 
 
 def test_run_result_prefers_snapshot_outputs_and_preserves_cloud_fields() -> None:
-    result = RunResult(
+    result = run_locally(
         {
             "target": "cloud",
             "success": True,
@@ -144,7 +178,7 @@ def test_run_result_prefers_snapshot_outputs_and_preserves_cloud_fields() -> Non
 
 
 def test_run_result_falls_back_to_inline_outputs_without_snapshot() -> None:
-    result = RunResult(
+    result = run_locally(
         {
             "target": "local",
             "success": True,
@@ -173,7 +207,7 @@ def test_run_result_falls_back_to_inline_outputs_without_snapshot() -> None:
 
 
 def test_run_result_falls_back_to_inline_outputs_for_malformed_snapshot() -> None:
-    result = RunResult(
+    result = run_locally(
         {
             "target": "cloud",
             "success": True,

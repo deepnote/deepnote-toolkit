@@ -8,6 +8,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from .api_types import InputBlockType
+
 DATAFRAME_MIME = "application/vnd.deepnote.dataframe.v3+json"
 INDEX_COLUMN = "_deepnote_index_column"
 
@@ -25,7 +27,7 @@ class InputBlock:
     """The metadata a UI needs to render one Deepnote input block."""
 
     variable_name: str
-    type: str
+    type: InputBlockType
     value: Any
     label: str | None = None
     options: tuple[str, ...] = ()
@@ -33,55 +35,6 @@ class InputBlock:
     min: float | int | None = None
     max: float | int | None = None
     step: float | int | None = None
-
-    @classmethod
-    def from_block(cls, block: Mapping[str, Any]) -> InputBlock | None:
-        """Read an input block from a `.deepnote` file, or None for another block."""
-
-        block_type = str(block.get("type", ""))
-        metadata = block.get("metadata")
-        if not block_type.startswith("input-") or not isinstance(metadata, Mapping):
-            return None
-        variable_name = metadata.get("deepnote_variable_name")
-        if not isinstance(variable_name, str) or not variable_name:
-            return None
-        options = metadata.get("deepnote_variable_options")
-        return cls(
-            variable_name=variable_name,
-            type=block_type,
-            label=optional_string(metadata.get("deepnote_input_label")),
-            value=metadata.get("deepnote_variable_value"),
-            options=(
-                tuple(str(option) for option in options)
-                if isinstance(options, list)
-                else ()
-            ),
-            multiple=metadata.get("deepnote_allow_multiple_values") is True,
-            min=optional_number(metadata.get("deepnote_slider_min_value")),
-            max=optional_number(metadata.get("deepnote_slider_max_value")),
-            step=optional_number(metadata.get("deepnote_slider_step")),
-        )
-
-    @classmethod
-    def from_api(cls, value: Mapping[str, Any]) -> InputBlock:
-        """Read the camelCase shape returned by `GET /api/info`."""
-
-        options = value.get("options")
-        return cls(
-            variable_name=str(value["variableName"]),
-            type=str(value["type"]),
-            label=optional_string(value.get("label")),
-            value=value.get("value"),
-            options=(
-                tuple(str(option) for option in options)
-                if isinstance(options, list)
-                else ()
-            ),
-            multiple=value.get("multiple") is True,
-            min=optional_number(value.get("min")),
-            max=optional_number(value.get("max")),
-            step=optional_number(value.get("step")),
-        )
 
 
 @dataclass(frozen=True)
@@ -132,7 +85,7 @@ class DeepnoteDataframe:
         )
 
     def records(self, *, include_index: bool = True) -> list[dict[str, Any]]:
-        """Return rows ready for `st.dataframe`, optionally without the index column."""
+        """Return rows as plain dicts, optionally without the index column."""
 
         if include_index:
             return [dict(row) for row in self.rows]
@@ -206,20 +159,4 @@ class RunnerInfo:
 def _input_contract(inputs: Iterable[InputBlock]) -> frozenset[tuple[str, str]]:
     return frozenset(
         (input_block.variable_name, input_block.type) for input_block in inputs
-    )
-
-
-def optional_string(value: Any) -> str | None:
-    """Return the value when it is a string, otherwise None."""
-
-    return value if isinstance(value, str) else None
-
-
-def optional_number(value: Any) -> float | int | None:
-    """Return the value when it is a number other than a boolean, otherwise None."""
-
-    return (
-        value
-        if isinstance(value, (float, int)) and not isinstance(value, bool)
-        else None
     )
