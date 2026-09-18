@@ -10,6 +10,7 @@ import yaml
 
 from .models import InputBlock, NotebookOutput, optional_string
 from .outputs import OutputCollection
+from .yaml_loader import load_yaml
 
 
 class DeepnoteDocument(OutputCollection):
@@ -43,7 +44,7 @@ class DeepnoteDocument(OutputCollection):
     ) -> DeepnoteDocument:
         source = Path(path)
         try:
-            raw = yaml.safe_load(source.read_text(encoding="utf-8"))
+            raw = load_yaml(source.read_text(encoding="utf-8"))
         except yaml.YAMLError as error:
             raise ValueError(f"Could not parse {source}: {error}") from error
         if not isinstance(raw, Mapping):
@@ -53,7 +54,7 @@ class DeepnoteDocument(OutputCollection):
     @classmethod
     def parse(cls, content: str, *, notebook_id: str | None = None) -> DeepnoteDocument:
         try:
-            raw = yaml.safe_load(content)
+            raw = load_yaml(content)
         except yaml.YAMLError as error:
             raise ValueError(f"Could not parse .deepnote YAML: {error}") from error
         if not isinstance(raw, Mapping):

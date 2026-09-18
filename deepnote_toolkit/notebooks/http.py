@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping
+from http.client import HTTPException
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
@@ -34,6 +35,11 @@ def request_json(
     except TimeoutError as error:
         raise RunnerError(
             f"The {service} at {origin} timed out after {timeout:g} seconds",
+            transient=True,
+        ) from error
+    except (OSError, HTTPException) as error:
+        raise RunnerError(
+            f"The connection to the {service} at {origin} dropped: {error}",
             transient=True,
         ) from error
     except (json.JSONDecodeError, UnicodeDecodeError) as error:

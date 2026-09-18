@@ -15,7 +15,13 @@ values = render_inputs(document.inputs, st.sidebar)
 
 if st.button("Run"):
     result = StreamlitCloudRunner("your-notebook-id").run(values)
-    st.dataframe(result.first_dataframe().records())
+    dataframe = result.first_dataframe()
+    if not result.success:
+        st.error(result.error or "The run failed.")
+    elif dataframe is None:
+        st.info("The run produced no table.")
+    else:
+        st.dataframe(dataframe.records())
 ```
 
 ## Two packages
@@ -28,7 +34,8 @@ program:
   the notebook you run so the inputs match it:
   `DeepnoteDocument.load(path, notebook_id="your-notebook-id")`.
 - `DeepnoteCloudRunner` runs an existing notebook in Deepnote Cloud and returns
-  its outputs as a `RunResult`.
+  its outputs as a `RunResult`. A dataframe output holds the first page of rows.
+  `row_count` is the full size and `is_truncated` tells whether rows are missing.
 - `DeepnoteRunner` does the same through a local `@deepnote/local-runner` sidecar
   at `http://127.0.0.1:8787`.
 - `Runner` is the interface both runners implement, for code that accepts either.

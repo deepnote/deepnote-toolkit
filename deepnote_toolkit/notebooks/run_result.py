@@ -22,6 +22,7 @@ class RunResult(OutputCollection):
         self.created = raw.get("created") is True
         self.view_url = optional_string(raw.get("viewUrl"))
         self.error = optional_string(raw.get("error"))
+        self.snapshot_status = optional_string(raw.get("snapshotStatus"))
         self.snapshot_yaml = optional_string(raw.get("snapshotYaml"))
         self.snapshot = None
         if self.snapshot_yaml:

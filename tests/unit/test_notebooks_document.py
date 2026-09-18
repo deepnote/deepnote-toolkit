@@ -4,6 +4,7 @@ import pytest
 
 from deepnote_toolkit.notebooks import (
     DATAFRAME_MIME,
+    DeepnoteDataframe,
     DeepnoteDocument,
     InputBlock,
     RunResult,
@@ -235,3 +236,50 @@ def test_notebook_id_scopes_inputs_to_one_notebook() -> None:
 def test_unknown_notebook_id_is_rejected() -> None:
     with pytest.raises(ValueError, match="notebook-c is not in this document"):
         DeepnoteDocument.parse(MULTI_NOTEBOOK_YAML, notebook_id="notebook-c")
+
+
+WRITER_STYLE_YAML = """
+project:
+  name: Survey
+  notebooks:
+    - id: notebook-a
+      blocks:
+        - type: input-select
+          metadata:
+            deepnote_variable_name: answer
+            deepnote_variable_value: No
+            deepnote_variable_options:
+              - Yes
+              - No
+        - type: input-date
+          metadata:
+            deepnote_variable_name: as_of
+            deepnote_variable_value: 2026-08-17T00:00:00.000Z
+        - type: input-text
+          metadata:
+            deepnote_variable_name: time
+            deepnote_variable_value: 12:30
+"""
+
+
+def test_plain_scalars_the_deepnote_writer_leaves_unquoted_stay_strings() -> None:
+    document = DeepnoteDocument.parse(WRITER_STYLE_YAML)
+
+    assert document.inputs == (
+        InputBlock("answer", "input-select", "No", options=("Yes", "No")),
+        InputBlock("as_of", "input-date", "2026-08-17T00:00:00.000Z"),
+        InputBlock("time", "input-text", "12:30"),
+    )
+
+
+def test_dataframe_reports_rows_beyond_the_first_page() -> None:
+    dataframe = DeepnoteDataframe.from_value(
+        {"columns": [{"name": "a"}], "rows": [{"a": 1}], "row_count": 250}
+    )
+    whole = DeepnoteDataframe.from_value(
+        {"columns": [{"name": "a"}], "rows": [{"a": 1}]}
+    )
+
+    assert dataframe is not None and whole is not None
+    assert (dataframe.row_count, dataframe.is_truncated) == (250, True)
+    assert (whole.row_count, whole.is_truncated) == (1, False)

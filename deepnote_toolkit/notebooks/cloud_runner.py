@@ -63,16 +63,11 @@ class DeepnoteCloudRunner:
             raise RunnerError("Deepnote API response did not include a notebook")
         raw_inputs = notebook.get("inputs")
         inputs = tuple(
-            InputBlock.from_api(
-                {
-                    "variableName": value.get("name"),
-                    "type": value.get("type"),
-                    "value": value.get("value"),
-                    "label": value.get("label"),
-                }
-            )
+            InputBlock.from_api({**value, "variableName": value["name"]})
             for value in raw_inputs or []
-            if isinstance(value, Mapping) and isinstance(value.get("name"), str)
+            if isinstance(value, Mapping)
+            and isinstance(value.get("name"), str)
+            and isinstance(value.get("type"), str)
         )
         return RunnerInfo(
             notebook=str(notebook.get("name", "Untitled notebook")),
@@ -115,7 +110,8 @@ class DeepnoteCloudRunner:
 
         # The snapshot can attach shortly after the status turns terminal.
         for _ in range(SNAPSHOT_SETTLE_ATTEMPTS):
-            if _has_snapshot(current):
+            is_pending = current.get("snapshotStatus", "pending") == "pending"
+            if not is_pending or _has_snapshot(current):
                 break
             self._sleep(self.poll_interval)
             try:
@@ -139,6 +135,7 @@ class DeepnoteCloudRunner:
                 "runId": run_id,
                 "status": status,
                 "error": str(error) if error is not None else None,
+                "snapshotStatus": current.get("snapshotStatus"),
                 "snapshotYaml": snapshot_yaml,
                 "snapshotBlocks": current.get("snapshotBlocks"),
                 "viewUrl": current.get("viewUrl"),

@@ -1,5 +1,6 @@
 import io
 import json
+from http.client import RemoteDisconnected
 from typing import Any
 from urllib.error import HTTPError, URLError
 
@@ -422,3 +423,96 @@ def test_info_skips_inputs_without_a_name_or_type() -> None:
     info = DeepnoteRunner(opener=open_request).info()
 
     assert info.inputs == (InputBlock("region", "input-text", None),)
+
+
+def test_cloud_run_retries_a_dropped_connection() -> None:
+    responses = iter(
+        [
+            {"run": {"runId": "run-1", "status": "pending"}},
+            RemoteDisconnected("Remote end closed connection without response"),
+            {"run": {"runId": "run-1", "status": "success", "snapshotBlocks": []}},
+        ]
+    )
+
+    def open_request(_request: Any, *, timeout: float) -> FakeResponse:
+        response = next(responses)
+        if isinstance(response, Exception):
+            raise response
+        return FakeResponse(response)
+
+    result = DeepnoteCloudRunner(
+        "notebook-1", token="token", opener=open_request, sleep=lambda _delay: None
+    ).run({})
+
+    assert result.success is True
+
+
+def test_cloud_run_does_not_wait_for_a_snapshot_that_will_not_come() -> None:
+    sleeps = []
+    result = DeepnoteCloudRunner(
+        "notebook-1",
+        token="token",
+        opener=lambda _request, *, timeout: FakeResponse(
+            {
+                "run": {
+                    "runId": "run-1",
+                    "status": "error",
+                    "snapshotStatus": "unavailable",
+                }
+            }
+        ),
+        sleep=sleeps.append,
+    ).run({})
+
+    assert sleeps == []
+    assert result.snapshot_status == "unavailable"
+
+
+def test_cloud_info_keeps_select_options_and_slider_bounds() -> None:
+    def open_request(_request: Any, *, timeout: float) -> FakeResponse:
+        return FakeResponse(
+            {
+                "notebook": {
+                    "name": "Revenue",
+                    "inputs": [
+                        {
+                            "name": "region",
+                            "type": "input-select",
+                            "value": "EU",
+                            "options": ["EU", "US"],
+                            "multiple": True,
+                        },
+                        {
+                            "name": "limit",
+                            "type": "input-slider",
+                            "value": "5",
+                            "min": 1,
+                            "max": 9,
+                            "step": 2,
+                        },
+                    ],
+                }
+            }
+        )
+
+    info = DeepnoteCloudRunner("notebook-1", token="token", opener=open_request).info()
+
+    assert info.inputs == (
+        InputBlock("region", "input-select", "EU", options=("EU", "US"), multiple=True),
+        InputBlock("limit", "input-slider", "5", min=1, max=9, step=2),
+    )
+
+
+def test_runner_info_ignores_repeated_input_names() -> None:
+    info = RunnerInfo(
+        notebook="Revenue",
+        inputs=(InputBlock("region", "input-text", "EU"),),
+        run_target="cloud",
+    )
+
+    assert info.accepts_inputs(
+        [
+            InputBlock("region", "input-text", "EU"),
+            InputBlock("region", "input-text", "US"),
+        ]
+    )

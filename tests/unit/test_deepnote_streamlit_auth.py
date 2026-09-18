@@ -4,6 +4,7 @@ import io
 import json
 import sys
 import time
+from http.client import RemoteDisconnected
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -12,13 +13,12 @@ from urllib.error import HTTPError
 import pytest
 
 from deepnote_toolkit.streamlit import (
+    CurrentUserApiCredentials,
     CurrentUserApiTokenError,
     current_user_api_credentials,
     current_user_api_token,
 )
-from deepnote_toolkit.streamlit.auth import (
-    _read_streamlit_app_id_from_context,
-)
+from deepnote_toolkit.streamlit.auth import _read_streamlit_app_id_from_context
 
 APP_ID = "3853c7f5-2048-4b57-946d-6c5592c3317e"
 
@@ -277,3 +277,27 @@ def test_exchange_error_does_not_expose_response_body() -> None:
 
     assert "HTTP 401" in str(exc_info.value)
     assert secret_response not in str(exc_info.value)
+
+
+def test_credentials_repr_hides_the_token() -> None:
+    credentials = CurrentUserApiCredentials(
+        token="secret-token",
+        api_origin="https://api.deepnote.com",
+        expires_at_seconds=1_800_000_000,
+    )
+
+    assert "secret-token" not in repr(credentials)
+
+
+def test_dropped_connection_during_exchange_is_transient() -> None:
+    def open_request(_request: Any, *, timeout: float) -> Any:
+        raise RemoteDisconnected("Remote end closed connection without response")
+
+    with pytest.raises(CurrentUserApiTokenError) as exc_info:
+        current_user_api_credentials(
+            app_id="11111111-2222-3333-4444-555555555555",
+            streamlit_token="cookie",
+            opener=open_request,
+        )
+
+    assert exc_info.value.transient is True

@@ -105,6 +105,17 @@ class DeepnoteDataframe:
         return cls(columns=tuple(columns), rows=tuple(rows), raw=value)
 
     @property
+    def row_count(self) -> int:
+        """Rows in the full dataframe. `rows` holds only the first page of them."""
+
+        count = self.raw.get("row_count")
+        return count if isinstance(count, int) else len(self.rows)
+
+    @property
+    def is_truncated(self) -> bool:
+        return self.row_count > len(self.rows)
+
+    @property
     def data_columns(self) -> tuple[str, ...]:
         return tuple(
             str(column.get("name"))
@@ -174,9 +185,9 @@ class RunnerInfo:
         return _input_contract(inputs) == _input_contract(self.inputs)
 
 
-def _input_contract(inputs: Iterable[InputBlock]) -> tuple[tuple[str, str], ...]:
-    return tuple(
-        sorted((input_block.variable_name, input_block.type) for input_block in inputs)
+def _input_contract(inputs: Iterable[InputBlock]) -> frozenset[tuple[str, str]]:
+    return frozenset(
+        (input_block.variable_name, input_block.type) for input_block in inputs
     )
 
 

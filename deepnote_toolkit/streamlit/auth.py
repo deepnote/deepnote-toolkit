@@ -7,7 +7,8 @@ import json
 import re
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from http.client import HTTPException
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
@@ -44,7 +45,7 @@ class CurrentUserApiTokenError(RuntimeError):
 class CurrentUserApiCredentials:
     """A short-lived viewer-scoped public API credential."""
 
-    token: str
+    token: str = field(repr=False)
     api_origin: str
     expires_at_seconds: float
 
@@ -126,6 +127,11 @@ def current_user_api_credentials(
     except TimeoutError as error:
         raise CurrentUserApiTokenError(
             "Current viewer API-token exchange timed out.", transient=True
+        ) from error
+    except (OSError, HTTPException) as error:
+        raise CurrentUserApiTokenError(
+            "The connection dropped during the current viewer API-token exchange.",
+            transient=True,
         ) from error
     except (json.JSONDecodeError, UnicodeDecodeError) as error:
         raise CurrentUserApiTokenError(
