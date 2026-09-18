@@ -35,6 +35,10 @@ _EXPIRY_MARGIN_SECONDS = 60
 class CurrentUserApiTokenError(RuntimeError):
     """Raised when a hosted app cannot obtain the current viewer's API token."""
 
+    def __init__(self, message: str, *, transient: bool = False):
+        super().__init__(message)
+        self.transient = transient
+
 
 @dataclass(frozen=True)
 class CurrentUserApiCredentials:
@@ -111,15 +115,17 @@ def current_user_api_credentials(
             payload = json.loads(response.read())
     except HTTPError as error:
         raise CurrentUserApiTokenError(
-            f"Current viewer API-token exchange returned HTTP {error.code}."
+            f"Current viewer API-token exchange returned HTTP {error.code}.",
+            transient=error.code == 429 or error.code >= 500,
         ) from error
     except URLError as error:
         raise CurrentUserApiTokenError(
-            "Could not reach Deepnote to exchange the current viewer's API token."
+            "Could not reach Deepnote to exchange the current viewer's API token.",
+            transient=True,
         ) from error
     except TimeoutError as error:
         raise CurrentUserApiTokenError(
-            "Current viewer API-token exchange timed out."
+            "Current viewer API-token exchange timed out.", transient=True
         ) from error
     except (json.JSONDecodeError, UnicodeDecodeError) as error:
         raise CurrentUserApiTokenError(

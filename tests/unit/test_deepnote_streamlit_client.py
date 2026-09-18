@@ -520,3 +520,38 @@ def test_worker_thread_never_falls_back_to_environment_token(
         DeepnoteCloudRunner("notebook-1", opener=opener).info()
 
     opener.assert_not_called()
+
+
+def test_cloud_run_retries_a_transient_token_exchange_failure() -> None:
+    responses = iter(
+        [
+            {"run": {"runId": "run-1", "status": "pending"}},
+            {"run": {"runId": "run-1", "status": "success", "snapshotBlocks": []}},
+        ]
+    )
+    credentials = CurrentUserApiCredentials(
+        token="viewer-token",
+        api_origin="https://api.deepnote.com",
+        expires_at_seconds=1_800_000_000,
+    )
+    with (
+        patch(
+            "deepnote_toolkit.streamlit.client._has_hosted_streamlit_context",
+            return_value=True,
+        ),
+        patch(
+            "deepnote_toolkit.streamlit.client.current_user_api_credentials",
+            side_effect=[
+                credentials,
+                CurrentUserApiTokenError("exchange timed out", transient=True),
+                credentials,
+            ],
+        ),
+    ):
+        result = DeepnoteCloudRunner(
+            "notebook-1",
+            opener=lambda _request, *, timeout: FakeResponse(next(responses)),
+            sleep=lambda _delay: None,
+        ).run({})
+
+    assert result.success is True

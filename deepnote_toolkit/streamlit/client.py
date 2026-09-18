@@ -324,7 +324,7 @@ class DeepnoteCloudRunner:
                     timeout=min(self.timeout, 30), opener=self._open
                 )
             except CurrentUserApiTokenError as error:
-                raise RunnerError(str(error)) from error
+                raise RunnerError(str(error), transient=error.transient) from error
             api_origin = (
                 credentials.api_origin
                 if self.base_url == DEFAULT_API_ORIGIN
