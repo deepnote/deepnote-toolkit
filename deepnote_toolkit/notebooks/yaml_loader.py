@@ -24,10 +24,15 @@ class _CoreSchemaLoader(_BaseLoader):  # type: ignore[misc,valid-type]
 for _tag, _pattern, _first in (
     ("null", r"^(?:~|null|Null|NULL|)$", ["~", "n", "N", ""]),
     ("bool", r"^(?:true|True|TRUE|false|False|FALSE)$", list("tTfF")),
-    ("int", r"^(?:[-+]?[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+)$", list("-+0123456789")),
+    # A leading zero marks a string such as a postal code. No writer emits numbers so.
+    (
+        "int",
+        r"^(?:[-+]?(?:0|[1-9][0-9]*)|0o[0-7]+|0x[0-9a-fA-F]+)$",
+        list("-+0123456789"),
+    ),
     (
         "float",
-        r"^(?:[-+]?(?:\.[0-9]+|[0-9]+(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?"
+        r"^(?:[-+]?(?:\.[0-9]+|(?:0|[1-9][0-9]*)(?:\.[0-9]*)?)(?:[eE][-+]?[0-9]+)?"
         r"|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$",
         list("-+0123456789."),
     ),
@@ -43,5 +48,7 @@ def load_yaml(content: str) -> Any:
     loader = _CoreSchemaLoader(content)
     try:
         return loader.get_single_data()
+    except ValueError as error:
+        raise yaml.YAMLError(str(error)) from error
     finally:
         loader.dispose()

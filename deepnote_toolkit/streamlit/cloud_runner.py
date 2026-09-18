@@ -17,7 +17,8 @@ from .auth import (
 class StreamlitCloudRunner(DeepnoteCloudRunner):
     """Run a notebook from a Streamlit app, as the current viewer when Deepnote hosts it.
 
-    A hosted app needs no token. Elsewhere this behaves like `DeepnoteCloudRunner`.
+    A hosted app needs no token, and `base_url` does not apply to it. Elsewhere
+    this behaves like `DeepnoteCloudRunner`.
     """
 
     def _credentials(self) -> tuple[str, str]:

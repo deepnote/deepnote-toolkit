@@ -82,7 +82,9 @@ project session.
 
 The cloud runner retries a poll that fails with a timeout, a network error, HTTP
 429 or a 5xx, up to five times in a row. After the run finishes it waits briefly
-for the outputs, which can arrive after the final status.
+for the outputs, which can arrive after the final status. When
+`result.snapshot_status` is still `pending`, the outputs had not arrived by the end
+of that wait.
 
 Use `runner.info().accepts_inputs(document.inputs)` before submitting values to
 verify that the deployed notebook still has matching input names and block types.
