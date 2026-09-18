@@ -36,6 +36,8 @@ class InputBlock:
 
     @classmethod
     def from_block(cls, block: Mapping[str, Any]) -> InputBlock | None:
+        """Read an input block from a `.deepnote` file. Returns None for other blocks."""
+
         block_type = str(block.get("type", ""))
         metadata = block.get("metadata")
         if not block_type.startswith("input-") or not isinstance(metadata, Mapping):
@@ -92,6 +94,8 @@ class DeepnoteDataframe:
 
     @classmethod
     def from_value(cls, value: Any) -> DeepnoteDataframe | None:
+        """Read a dataframe output payload. Returns None when the value is not one."""
+
         if not isinstance(value, Mapping):
             return None
         columns = value.get("columns")
@@ -113,10 +117,14 @@ class DeepnoteDataframe:
 
     @property
     def is_truncated(self) -> bool:
+        """Whether the full dataframe has more rows than `rows` holds."""
+
         return self.row_count > len(self.rows)
 
     @property
     def data_columns(self) -> tuple[str, ...]:
+        """Column names without Deepnote's index column."""
+
         return tuple(
             str(column.get("name"))
             for column in self.columns
@@ -144,19 +152,27 @@ class NotebookOutput:
 
     @property
     def output_type(self) -> str:
+        """The nbformat output type, such as `stream` or `execute_result`."""
+
         return str(self.raw.get("output_type", ""))
 
     @property
     def data(self) -> Mapping[str, Any]:
+        """The output's MIME bundle, empty for outputs that have none."""
+
         value = self.raw.get("data")
         return value if isinstance(value, Mapping) else {}
 
     def text(self, mime: str = "text/plain") -> str:
+        """The output's text for a MIME type. Stream outputs count as `text/plain`."""
+
         if self.output_type == "stream" and mime == "text/plain":
             return join_text(self.raw.get("text"))
         return join_text(self.data.get(mime))
 
     def image_bytes(self, mime: str = "image/png") -> bytes | None:
+        """The decoded image for a MIME type, or None when absent or not valid base64."""
+
         value = self.data.get(mime)
         if value is None:
             return None
@@ -168,6 +184,8 @@ class NotebookOutput:
 
     @property
     def dataframe(self) -> DeepnoteDataframe | None:
+        """The output as a Deepnote dataframe, or None when it is not one."""
+
         return DeepnoteDataframe.from_value(self.data.get(DATAFRAME_MIME))
 
 
@@ -192,10 +210,14 @@ def _input_contract(inputs: Iterable[InputBlock]) -> frozenset[tuple[str, str]]:
 
 
 def optional_string(value: Any) -> str | None:
+    """Return the value when it is a string, otherwise None."""
+
     return value if isinstance(value, str) else None
 
 
 def optional_number(value: Any) -> float | int | None:
+    """Return the value when it is a number other than a boolean, otherwise None."""
+
     return (
         value
         if isinstance(value, (float, int)) and not isinstance(value, bool)

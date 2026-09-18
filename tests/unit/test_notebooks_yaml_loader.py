@@ -67,3 +67,16 @@ def test_python_object_tags_are_rejected(load_yaml: Any) -> None:
 def test_a_scalar_the_constructor_rejects_raises_a_yaml_error(load_yaml: Any) -> None:
     with pytest.raises(yaml.YAMLError):
         load_yaml("value: !!int twelve\n")
+
+
+def test_a_repeated_mapping_key_is_rejected(load_yaml: Any) -> None:
+    with pytest.raises(yaml.YAMLError, match="duplicate key 'notebooks'"):
+        load_yaml("project:\n  notebooks: [a]\n  notebooks: [b]\n")
+
+
+def test_the_same_key_may_repeat_in_separate_mappings(load_yaml: Any) -> None:
+    assert load_yaml("- id: a\n- id: b\n- 1: x\n  '1': y\n") == [
+        {"id": "a"},
+        {"id": "b"},
+        {1: "x", "1": "y"},
+    ]

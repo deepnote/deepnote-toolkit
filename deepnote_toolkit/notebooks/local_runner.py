@@ -27,6 +27,8 @@ class DeepnoteRunner:
         self._open = opener
 
     def info(self) -> RunnerInfo:
+        """Read the notebook's name and input blocks from the sidecar."""
+
         payload = self._request("GET", "/api/info")
         values = payload.get("inputs")
         inputs = (
@@ -47,6 +49,8 @@ class DeepnoteRunner:
         )
 
     def run(self, inputs: Mapping[str, Any]) -> RunResult:
+        """Run the notebook in the sidecar with the given input values."""
+
         return RunResult(self._request("POST", "/api/run", {"inputs": dict(inputs)}))
 
     def _request(

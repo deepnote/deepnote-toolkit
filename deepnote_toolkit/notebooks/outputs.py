@@ -11,15 +11,21 @@ class OutputCollection:
     outputs: tuple[NotebookOutput, ...]
 
     def outputs_for_mime(self, mime: str) -> list[NotebookOutput]:
+        """Outputs that carry the given MIME type."""
+
         return [output for output in self.outputs if mime in output.data]
 
     def first_dataframe(self) -> DeepnoteDataframe | None:
+        """The first dataframe output, or None when there is none."""
+
         for output in self.outputs:
             if dataframe := output.dataframe:
                 return dataframe
         return None
 
     def images(self, mime: str = "image/png") -> list[bytes]:
+        """Every image of the given MIME type, decoded."""
+
         return [
             image
             for output in self.outputs
@@ -27,9 +33,13 @@ class OutputCollection:
         ]
 
     def text(self, mime: str = "text/plain") -> str:
+        """The text of all outputs for a MIME type, joined."""
+
         return "".join(output.text(mime) for output in self.outputs).strip()
 
     def agent_text(self) -> str:
+        """The text written by agent blocks, preferring Markdown over plain text."""
+
         chunks: list[str] = []
         for output in self.outputs:
             if output.block_type != "agent":

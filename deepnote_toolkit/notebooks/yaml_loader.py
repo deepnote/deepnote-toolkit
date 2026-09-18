@@ -20,6 +20,26 @@ class _CoreSchemaLoader(_BaseLoader):  # type: ignore[misc,valid-type]
 
     yaml_implicit_resolvers: dict[str, Any] = {}
 
+    def construct_mapping(
+        self, node: yaml.MappingNode, deep: bool = False
+    ) -> dict[Any, Any]:
+        """Build a mapping, rejecting a repeated key. PyYAML keeps the last one silently."""
+
+        seen: set[tuple[str, str]] = set()
+        for key_node, _value_node in node.value:
+            if not isinstance(key_node, yaml.ScalarNode):
+                continue
+            key = (key_node.tag, key_node.value)
+            if key in seen:
+                raise yaml.constructor.ConstructorError(
+                    None,
+                    None,
+                    f"found duplicate key {key_node.value!r}",
+                    key_node.start_mark,
+                )
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)
+
 
 for _tag, _pattern, _first in (
     ("null", r"^(?:~|null|Null|NULL|)$", ["~", "n", "N", ""]),

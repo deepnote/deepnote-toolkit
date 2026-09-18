@@ -42,6 +42,8 @@ class DeepnoteDocument(OutputCollection):
     def load(
         cls, path: str | Path, *, notebook_id: str | None = None
     ) -> DeepnoteDocument:
+        """Read a `.deepnote` file from disk. Raises `ValueError` when it cannot be parsed."""
+
         source = Path(path)
         try:
             raw = load_yaml(source.read_text(encoding="utf-8"))
@@ -53,6 +55,8 @@ class DeepnoteDocument(OutputCollection):
 
     @classmethod
     def parse(cls, content: str, *, notebook_id: str | None = None) -> DeepnoteDocument:
+        """Read `.deepnote` YAML from a string. Raises `ValueError` when it cannot be parsed."""
+
         try:
             raw = load_yaml(content)
         except yaml.YAMLError as error:

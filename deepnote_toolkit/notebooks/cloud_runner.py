@@ -57,6 +57,8 @@ class DeepnoteCloudRunner:
         self._sleep = sleep
 
     def info(self) -> RunnerInfo:
+        """Read the notebook's name and input blocks from the public API."""
+
         payload = self._request("GET", f"/v2/notebooks/{self.notebook_id}")
         notebook = payload.get("notebook")
         if not isinstance(notebook, Mapping):
@@ -76,6 +78,8 @@ class DeepnoteCloudRunner:
         )
 
     def run(self, inputs: Mapping[str, Any]) -> RunResult:
+        """Start a detached run with the given input values and wait for its result."""
+
         started = self._run_payload(
             self._request(
                 "POST",

@@ -181,3 +181,19 @@ def test_inputs_sharing_a_variable_name_render_once() -> None:
     )
 
     assert values == {"region": "EU"}
+
+
+def test_multiselect_treats_a_scalar_default_as_one_selection() -> None:
+    values = render_inputs(
+        [
+            InputBlock(
+                "regions", "input-select", "EU", options=("EU", "US"), multiple=True
+            ),
+            InputBlock(
+                "empty", "input-select", None, options=("EU", "US"), multiple=True
+            ),
+        ],
+        FakeContainer(),
+    )
+
+    assert values == {"regions": ["EU"], "empty": []}
