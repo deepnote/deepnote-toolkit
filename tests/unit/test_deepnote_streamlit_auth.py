@@ -256,16 +256,18 @@ def test_exchange_rejects_invalid_response(payload: dict[str, Any]) -> None:
         )
 
 
-def test_exchange_error_does_not_expose_response_body() -> None:
-    secret_response = "must-not-leak"
-
+def test_exchange_error_includes_the_server_message() -> None:
     def open_request(*_args: Any, **_kwargs: Any) -> FakeResponse:
         raise HTTPError(
             "http://localhost:19456/userpod-api/streamlit-apps/id/api-token",
-            401,
-            "Unauthorized",
+            403,
+            "Forbidden",
             {},
-            io.BytesIO(json.dumps({"error": secret_response}).encode()),
+            io.BytesIO(
+                json.dumps(
+                    {"error": "API access is not available for this app"}
+                ).encode()
+            ),
         )
 
     with pytest.raises(CurrentUserApiTokenError) as exc_info:
@@ -275,8 +277,30 @@ def test_exchange_error_does_not_expose_response_body() -> None:
             opener=open_request,
         )
 
-    assert "HTTP 401" in str(exc_info.value)
-    assert secret_response not in str(exc_info.value)
+    assert str(exc_info.value) == (
+        "Current viewer API-token exchange returned HTTP 403: "
+        "API access is not available for this app"
+    )
+
+
+def test_exchange_error_does_not_expose_a_raw_response_body() -> None:
+    def open_request(*_args: Any, **_kwargs: Any) -> FakeResponse:
+        raise HTTPError(
+            "http://localhost:19456/userpod-api/streamlit-apps/id/api-token",
+            502,
+            "Bad Gateway",
+            {},
+            io.BytesIO(b"<html>must-not-leak</html>"),
+        )
+
+    with pytest.raises(CurrentUserApiTokenError) as exc_info:
+        current_user_api_credentials(
+            app_id=APP_ID,
+            streamlit_token="opaque-cookie",
+            opener=open_request,
+        )
+
+    assert str(exc_info.value) == "Current viewer API-token exchange returned HTTP 502."
 
 
 def test_credentials_repr_hides_the_token() -> None:

@@ -115,8 +115,10 @@ def current_user_api_credentials(
         with opener(request, timeout=timeout) as response:
             payload = json.loads(response.read())
     except HTTPError as error:
+        message = _server_message(error)
         raise CurrentUserApiTokenError(
-            f"Current viewer API-token exchange returned HTTP {error.code}.",
+            f"Current viewer API-token exchange returned HTTP {error.code}"
+            + (f": {message}" if message else "."),
             transient=error.code == 429 or error.code >= 500,
         ) from error
     except URLError as error:
@@ -242,6 +244,19 @@ def _is_streamlit_thread_without_request() -> bool:
         return False
 
     return runtime.exists() and not _has_script_run_context()
+
+
+def _server_message(error: HTTPError) -> str | None:
+    """Return the message of a JSON error response. A body of any other shape is not shown."""
+
+    try:
+        payload = json.loads(error.read())
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    message = payload.get("error") or payload.get("message")
+    return message if isinstance(message, str) else None
 
 
 def _validated_origin(value: str, *, name: str) -> str:
