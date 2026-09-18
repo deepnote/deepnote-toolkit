@@ -36,7 +36,7 @@ class InputBlock:
 
     @classmethod
     def from_block(cls, block: Mapping[str, Any]) -> InputBlock | None:
-        """Read an input block from a `.deepnote` file. Returns None for other blocks."""
+        """Read an input block from a `.deepnote` file, or None for another block."""
 
         block_type = str(block.get("type", ""))
         metadata = block.get("metadata")
@@ -132,7 +132,7 @@ class DeepnoteDataframe:
         )
 
     def records(self, *, include_index: bool = True) -> list[dict[str, Any]]:
-        """Return rows ready for `st.dataframe`, optionally omitting Deepnote's index column."""
+        """Return rows ready for `st.dataframe`, optionally without the index column."""
 
         if include_index:
             return [dict(row) for row in self.rows]
@@ -171,7 +171,7 @@ class NotebookOutput:
         return join_text(self.data.get(mime))
 
     def image_bytes(self, mime: str = "image/png") -> bytes | None:
-        """The decoded image for a MIME type, or None when absent or not valid base64."""
+        """The decoded image for a MIME type, or None when absent or not base64."""
 
         value = self.data.get(mime)
         if value is None:

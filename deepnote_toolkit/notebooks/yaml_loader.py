@@ -23,7 +23,7 @@ class _CoreSchemaLoader(_BaseLoader):  # type: ignore[misc,valid-type]
     def construct_mapping(
         self, node: yaml.MappingNode, deep: bool = False
     ) -> dict[Any, Any]:
-        """Build a mapping, rejecting a repeated key. PyYAML keeps the last one silently."""
+        """Build a mapping, rejecting a repeated key. PyYAML would keep the last."""
 
         seen: set[tuple[str, str]] = set()
         for key_node, _value_node in node.value:

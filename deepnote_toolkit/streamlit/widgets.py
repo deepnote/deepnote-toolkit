@@ -23,8 +23,9 @@ def render_inputs(
 ) -> dict[str, Any]:
     """Render input blocks and return API-ready values keyed by variable name.
 
-    `container` may be `st`, `st.sidebar`, or a fake with the same widget methods for tests. When it
-    is omitted, Streamlit is imported lazily so parsing and API clients work without the app extra.
+    `container` may be `st`, `st.sidebar`, or a fake with the same widget methods
+    for tests. When it is omitted, Streamlit is imported lazily so parsing and API
+    clients work without the app extra.
     """
 
     if container is None:

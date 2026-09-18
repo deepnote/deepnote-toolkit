@@ -233,7 +233,7 @@ def _has_script_run_context() -> bool:
 
 
 def _is_streamlit_thread_without_request() -> bool:
-    """Return whether a Streamlit server is running but this thread has no viewer request.
+    """Return whether Streamlit is running but this thread has no viewer request.
 
     Worker threads see no headers or cookies, so they look identical to a local script.
     """
@@ -247,7 +247,7 @@ def _is_streamlit_thread_without_request() -> bool:
 
 
 def _server_message(error: HTTPError) -> str | None:
-    """Return the message of a JSON error response. A body of any other shape is not shown."""
+    """Return the message of a JSON error response, or None for any other body."""
 
     try:
         payload = json.loads(error.read())

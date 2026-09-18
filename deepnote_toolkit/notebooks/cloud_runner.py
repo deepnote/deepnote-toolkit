@@ -98,7 +98,7 @@ class DeepnoteCloudRunner:
         while str(current.get("status", "")) not in TERMINAL_RUN_STATUSES:
             if time.monotonic() >= deadline:
                 raise RunnerError(
-                    f"Deepnote run {run_id} did not finish within {self.timeout:g} seconds"
+                    f"Deepnote run {run_id} did not finish in {self.timeout:g} seconds"
                 )
             self._sleep(self.poll_interval)
             try:
