@@ -97,3 +97,28 @@ class TestStartStreamlitServers(unittest.TestCase):
 
         assert mock_logger.warning.call_count == 2
         assert mock_venv.start_server.call_count == 1
+
+    def test_exports_a_valid_app_id_to_the_app_process(self):
+        """The app ID reaches the process only when it is a UUID, since it enters a shell command."""
+        apps = [
+            {
+                "id": "11111111-2222-3333-4444-555555555555",
+                "entrypoint": "a/app.py",
+                "port": "8501",
+            },
+            {"id": "x; rm -rf /", "entrypoint": "b/app.py", "port": "8502"},
+        ]
+        mock_venv = MagicMock()
+
+        with (
+            patch("installer.module.streamlit.fetch_streamlit_apps", return_value=apps),
+            patch("installer.module.streamlit.os.path.exists", return_value=True),
+        ):
+            start_streamlit_servers(mock_venv, MagicMock(spec=logging.Logger))
+
+        commands = [call[0][0] for call in mock_venv.start_server.call_args_list]
+        assert commands[0].startswith(
+            "DEEPNOTE_STREAMLIT_APP_ID=11111111-2222-3333-4444-555555555555 "
+            "streamlit run '/work/a/app.py' "
+        )
+        assert commands[1].startswith("streamlit run '/work/b/app.py' ")

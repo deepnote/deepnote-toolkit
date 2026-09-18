@@ -25,6 +25,8 @@ class _CoreSchemaLoader(_BaseLoader):  # type: ignore[misc,valid-type]
     ) -> dict[Any, Any]:
         """Build a mapping, rejecting a repeated key. PyYAML would keep the last."""
 
+        if not isinstance(node, yaml.MappingNode):
+            return super().construct_mapping(node, deep=deep)
         seen: set[tuple[str, str]] = set()
         for key_node, _value_node in node.value:
             if not isinstance(key_node, yaml.ScalarNode):

@@ -317,3 +317,29 @@ def test_dataframe_reports_rows_beyond_the_first_page() -> None:
     assert dataframe is not None and whole is not None
     assert (dataframe.row_count, dataframe.is_truncated) == (250, True)
     assert (whole.row_count, whole.is_truncated) == (1, False)
+
+
+def test_images_decode_wrapped_base64_and_skip_invalid_data() -> None:
+    result = run_locally(
+        {
+            "outputs": [
+                {
+                    "blockId": "code-1",
+                    "outputs": [
+                        {
+                            "output_type": "display_data",
+                            "data": {"image/png": "aGVs\nbG8="},
+                        },
+                        {
+                            "output_type": "display_data",
+                            "data": {"image/png": "not base64!"},
+                        },
+                        {"output_type": "display_data", "data": {"image/jpeg": "aGk="}},
+                    ],
+                }
+            ]
+        }
+    )
+
+    assert result.images() == [b"hello"]
+    assert result.images("image/jpeg") == [b"hi"]

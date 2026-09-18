@@ -1,5 +1,7 @@
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
+
+import pytest
 
 from deepnote_toolkit.notebooks import InputBlock
 from deepnote_toolkit.streamlit import render_inputs
@@ -148,26 +150,79 @@ def test_empty_dates_stay_empty_instead_of_becoming_today() -> None:
     assert values == {"as_of": "", "period": ["", ""]}
 
 
-def test_relative_date_ranges_resolve_to_concrete_dates() -> None:
+class FrozenDate(date):
+    @classmethod
+    def today(cls) -> "FrozenDate":
+        return cls(2024, 3, 31)
+
+
+def test_relative_date_ranges_resolve_to_concrete_dates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("deepnote_toolkit.streamlit.widgets.date", FrozenDate)
+
     values = render_inputs(
         [
             InputBlock("week", "input-date-range", "past7days"),
             InputBlock("custom", "input-date-range", "customDays3"),
+            InputBlock("month", "input-date-range", "pastMonth"),
             InputBlock("year", "input-date-range", "pastYear"),
         ],
         FakeContainer(),
     )
 
-    today = date.today()
-    # Feb 29 has no counterpart a year earlier and clamps to Feb 28.
-    year_ago_day = 28 if (today.month, today.day) == (2, 29) else today.day
+    # Mar 31 has no counterpart a month earlier and clamps to Feb 29.
     assert values == {
-        "week": [(today - timedelta(days=7)).isoformat(), today.isoformat()],
-        "custom": [(today - timedelta(days=3)).isoformat(), today.isoformat()],
-        "year": [
-            today.replace(year=today.year - 1, day=year_ago_day).isoformat(),
-            today.isoformat(),
-        ],
+        "week": ["2024-03-24", "2024-03-31"],
+        "custom": ["2024-03-28", "2024-03-31"],
+        "month": ["2024-02-29", "2024-03-31"],
+        "year": ["2023-03-31", "2024-03-31"],
+    }
+
+
+def test_render_inputs_runs_on_real_streamlit_widgets() -> None:
+    pytest.importorskip("streamlit")
+    from streamlit.testing.v1 import AppTest
+
+    def app() -> None:
+        import streamlit as st
+
+        from deepnote_toolkit.notebooks import InputBlock
+        from deepnote_toolkit.streamlit import render_inputs
+
+        st.session_state["values"] = render_inputs(
+            [
+                InputBlock("name", "input-text", "Ada"),
+                InputBlock("enabled", "input-checkbox", True),
+                InputBlock("region", "input-select", "EU", options=("US", "EU")),
+                InputBlock(
+                    "regions",
+                    "input-select",
+                    ["EU"],
+                    options=("US", "EU"),
+                    multiple=True,
+                ),
+                InputBlock("limit", "input-slider", "20", min=0, max=100, step=5),
+                InputBlock("day", "input-date", "2026-08-17"),
+                InputBlock("no_day", "input-date", ""),
+                InputBlock("span", "input-date-range", ["2026-08-01", "2026-08-17"]),
+                InputBlock("no_span", "input-date-range", ["", ""]),
+            ]
+        )
+
+    at = AppTest.from_function(app).run()
+
+    assert not at.exception
+    assert at.session_state["values"] == {
+        "name": "Ada",
+        "enabled": True,
+        "region": "EU",
+        "regions": ["EU"],
+        "limit": 20,
+        "day": "2026-08-17",
+        "no_day": "",
+        "span": ["2026-08-01", "2026-08-17"],
+        "no_span": ["", ""],
     }
 
 

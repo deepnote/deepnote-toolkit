@@ -85,7 +85,9 @@ class DeepnoteApiClient:
         body: dict[str, Any] = {
             "notebookId": notebook_id,
             "detached": True,
-            "inputs": {name: _encode_input(value) for name, value in inputs.items()},
+            "inputs": {
+                name: _encode_input(name, value) for name, value in inputs.items()
+            },
         }
         if storage_mode is not None:
             body["detachedRunStorageMode"] = storage_mode
@@ -111,11 +113,16 @@ class DeepnoteApiClient:
         )
 
 
-def _encode_input(value: Any) -> InputValue:
+def _encode_input(name: str, value: Any) -> InputValue:
     if isinstance(value, bool):
         return value
-    if isinstance(value, list):
+    if isinstance(value, (list, tuple)):
         return [str(item) for item in value]
+    if value is None or isinstance(value, (Mapping, set, frozenset, bytes)):
+        raise ValueError(
+            f'Input "{name}" has a {type(value).__name__} value. '
+            "Pass text, a number, a boolean or a list of texts."
+        )
     return str(value)
 
 

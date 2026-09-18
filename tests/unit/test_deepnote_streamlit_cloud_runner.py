@@ -355,3 +355,19 @@ def test_viewer_credentials_use_an_explicit_token_on_a_worker_thread() -> None:
         credentials = ViewerCredentials(token="local-token")()
 
     assert credentials == ApiCredentials("local-token", "https://api.deepnote.com")
+
+
+def test_hosted_process_raises_off_the_script_thread_even_with_a_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "DEEPNOTE_STREAMLIT_APP_ID", "11111111-2222-3333-4444-555555555555"
+    )
+    with (
+        patch(
+            "deepnote_toolkit.streamlit.viewer_credentials._has_script_run_context",
+            return_value=False,
+        ),
+        pytest.raises(RunnerError, match="No viewer request"),
+    ):
+        ViewerCredentials(token="owner-token")()

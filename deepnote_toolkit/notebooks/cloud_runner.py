@@ -22,7 +22,6 @@ from .transport import Transport
 Sleep = Callable[[float], None]
 
 MAX_TRANSIENT_POLL_FAILURES = 5
-SNAPSHOT_SETTLE_ATTEMPTS = 3
 
 
 class DeepnoteCloudRunner:
@@ -35,6 +34,10 @@ class DeepnoteCloudRunner:
 
     `storage_mode="readonly"` keeps the run from changing the project's stored
     files. None leaves the choice to the API, which allows writes.
+
+    The outputs can arrive after the run finishes. `snapshot_timeout` is how many
+    seconds to wait for them. A result whose `snapshot_status` is still `pending`
+    has none because that wait ran out.
     """
 
     def __init__(
@@ -47,12 +50,15 @@ class DeepnoteCloudRunner:
         credentials: CredentialsProvider | None = None,
         storage_mode: StorageMode | None = None,
         timeout: float = 600,
+        snapshot_timeout: float = 10,
         poll_interval: float = 2,
         transport: Transport | None = None,
         sleep: Sleep = time.sleep,
     ):
         if not notebook_id:
             raise ValueError("notebook_id is required")
+        if poll_interval <= 0:
+            raise ValueError("poll_interval must be positive")
         if credentials is not None and (
             token is not None or token_provider is not None
         ):
@@ -60,6 +66,7 @@ class DeepnoteCloudRunner:
         self.notebook_id = notebook_id
         self.storage_mode = storage_mode
         self.timeout = timeout
+        self.snapshot_timeout = snapshot_timeout
         self.poll_interval = poll_interval
         self._client = DeepnoteApiClient(
             credentials or token_credentials(token, token_provider, base_url=base_url),
@@ -117,12 +124,14 @@ class DeepnoteCloudRunner:
         return run
 
     def _settle_snapshot(self, run: CloudRun) -> CloudRun:
-        # The snapshot can attach shortly after the status turns terminal.
-        for _ in range(SNAPSHOT_SETTLE_ATTEMPTS):
-            is_pending = run.snapshot_status in (None, "pending")
-            if not is_pending or run.outputs is not None:
-                break
+        waited = 0.0
+        while (
+            run.outputs is None
+            and run.snapshot_status in (None, "pending")
+            and waited < self.snapshot_timeout
+        ):
             self._sleep(self.poll_interval)
+            waited += self.poll_interval
             try:
                 run = self._client.get_run(run.run_id)
             except RunnerError as error:

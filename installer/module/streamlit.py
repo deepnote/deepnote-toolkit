@@ -3,11 +3,16 @@
 import json
 import logging
 import os
+import re
 import urllib.request
 from typing import List
 
 from .helper import request_with_retries
 from .virtual_environment import VirtualEnvironment
+
+_APP_ID_PATTERN = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE
+)
 
 
 def get_webapp_url() -> str:
@@ -118,9 +123,17 @@ def start_streamlit_servers(
 
             arg_str = " ".join(args)
 
+            # The toolkit reads the app ID to run notebooks as the app's viewer.
+            app_id = app.get("id")
+            is_app_id_valid = isinstance(app_id, str) and _APP_ID_PATTERN.fullmatch(
+                app_id
+            )
+            env = f"DEEPNOTE_STREAMLIT_APP_ID={app_id} " if is_app_id_valid else ""
+
             processes.append(
                 venv.start_server(
-                    f"streamlit run '{entrypoint_path}' {arg_str}", cwd=directory_path
+                    f"{env}streamlit run '{entrypoint_path}' {arg_str}",
+                    cwd=directory_path,
                 )
             )
     except Exception as e:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import time
 from collections.abc import Callable, Mapping
@@ -12,21 +13,21 @@ from http.client import HTTPException
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
 from deepnote_toolkit.get_webapp_url import (
     get_absolute_userpod_api_url,
     get_project_auth_headers,
 )
+from deepnote_toolkit.notebooks.transport import open_url
 from deepnote_toolkit.streamlit_data_apps import (
     read_streamlit_token_from_context,
 )
 
 OpenUrl = Callable[..., Any]
-STREAMLIT_APP_HOST_PATTERN = re.compile(
-    r"^streamlit-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.",
-    re.IGNORECASE,
-)
+_APP_ID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+STREAMLIT_APP_HOST_PATTERN = re.compile(rf"^streamlit-({_APP_ID})\.", re.IGNORECASE)
+STREAMLIT_APP_ID_ENV = "DEEPNOTE_STREAMLIT_APP_ID"
 
 
 _SESSION_STATE_KEY = "_deepnote_current_user_api_credentials"
@@ -65,7 +66,7 @@ def current_user_api_credentials(
     app_id: str | None = None,
     streamlit_token: str | None = None,
     timeout: float = 10,
-    opener: OpenUrl = urlopen,
+    opener: OpenUrl = open_url,
 ) -> CurrentUserApiCredentials:
     """Exchange the active viewer cookie for public API credentials.
 
@@ -74,7 +75,9 @@ def current_user_api_credentials(
     never shared between sessions.
     """
 
-    resolved_app_id = app_id or _read_streamlit_app_id_from_context()
+    resolved_app_id = (
+        app_id or _read_hosted_app_id() or _read_streamlit_app_id_from_context()
+    )
     if not resolved_app_id:
         raise CurrentUserApiTokenError(
             "Could not resolve a Deepnote Streamlit app ID from the request host."
@@ -185,8 +188,19 @@ def _read_streamlit_session_state() -> Any | None:
     return st.session_state
 
 
+def _read_hosted_app_id() -> str | None:
+    """Return the app ID that Deepnote's launcher exports to a hosted app's process."""
+
+    app_id = os.environ.get(STREAMLIT_APP_ID_ENV, "")
+    return app_id.lower() if re.fullmatch(_APP_ID, app_id, re.IGNORECASE) else None
+
+
 def _read_streamlit_app_id_from_context() -> str | None:
-    """Resolve the app UUID from the external Streamlit request hostname."""
+    """Resolve the app UUID from the external Streamlit request hostname.
+
+    The exchange checks the viewer's token against this app, so a forged host
+    gains nothing.
+    """
 
     try:
         import streamlit as st  # type: ignore[import-not-found]

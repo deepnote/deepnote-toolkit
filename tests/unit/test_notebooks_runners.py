@@ -1,6 +1,8 @@
 import io
 import json
+import threading
 from http.client import RemoteDisconnected
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 from urllib.error import HTTPError, URLError
 
@@ -667,3 +669,103 @@ def test_cloud_runner_rejects_credentials_together_with_a_token() -> None:
             token="token",
             credentials=lambda: ApiCredentials("other-token"),
         )
+
+
+def test_default_transport_refuses_a_redirect_to_another_origin() -> None:
+    received = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            received.append((self.server.server_port, self.headers["Authorization"]))
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:{other.server_port}/")
+            self.end_headers()
+
+        def log_message(self, *_args: Any) -> None:
+            return None
+
+    api = HTTPServer(("127.0.0.1", 0), Handler)
+    other = HTTPServer(("127.0.0.1", 0), Handler)
+    for server in (api, other):
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with pytest.raises(RunnerError, match="HTTP 302: Refused a redirect"):
+            DeepnoteCloudRunner(
+                "notebook-1",
+                token="token",
+                base_url=f"http://127.0.0.1:{api.server_port}",
+            ).info()
+    finally:
+        for server in (api, other):
+            server.shutdown()
+            server.server_close()
+
+    assert received == [(api.server_port, "Bearer token")]
+
+
+def test_http_error_keeps_a_body_that_is_not_json_out_of_the_message() -> None:
+    def open_request(*_: Any, **__: Any) -> FakeResponse:
+        raise HTTPError(
+            "http://runner/api/run",
+            502,
+            "Bad Gateway",
+            {},
+            io.BytesIO(b"<html>proxy internals</html>"),
+        )
+
+    with pytest.raises(RunnerError) as raised:
+        DeepnoteRunner("http://runner", transport=UrllibTransport(open_request)).run({})
+
+    assert str(raised.value) == "http://runner returned HTTP 502: Bad Gateway"
+
+
+def test_cloud_run_raises_when_the_run_outlasts_the_timeout() -> None:
+    transport = FakeTransport({"run": {"runId": "run-1", "status": "running"}})
+
+    with pytest.raises(RunnerError, match="run-1 did not finish in 0 seconds"):
+        DeepnoteCloudRunner(
+            "notebook-1", token="token", timeout=0, transport=transport
+        ).run({})
+
+
+def test_cloud_run_stops_waiting_for_a_snapshot_after_the_snapshot_timeout() -> None:
+    transport = FakeTransport(
+        {"run": {"runId": "run-1", "status": "success", "snapshotStatus": "pending"}}
+    )
+    sleeps: list[float] = []
+
+    result = DeepnoteCloudRunner(
+        "notebook-1",
+        token="token",
+        snapshot_timeout=1,
+        poll_interval=0.5,
+        transport=transport,
+        sleep=sleeps.append,
+    ).run({})
+
+    assert sleeps == [0.5, 0.5]
+    assert result.success is True
+    assert result.snapshot_status == "pending"
+    assert result.outputs == ()
+
+
+def test_cloud_run_sends_a_tuple_as_a_list_and_rejects_a_missing_value() -> None:
+    bodies = []
+
+    class RecordingTransport(FakeTransport):
+        def request_json(self, method: str, url: str, **kwargs: Any) -> Any:
+            bodies.append(kwargs["body"])
+            return self.payload
+
+    runner = DeepnoteCloudRunner(
+        "notebook-1",
+        token="token",
+        transport=RecordingTransport(
+            {"run": {"runId": "run-1", "status": "success", "snapshotBlocks": []}}
+        ),
+    )
+    runner.run({"regions": ("EU", "US")})
+
+    assert bodies[0]["inputs"] == {"regions": ["EU", "US"]}
+    with pytest.raises(ValueError, match='Input "region" has a NoneType value'):
+        runner.run({"region": None})

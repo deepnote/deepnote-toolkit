@@ -80,3 +80,8 @@ def test_the_same_key_may_repeat_in_separate_mappings(load_yaml: Any) -> None:
         {"id": "b"},
         {1: "x", "1": "y"},
     ]
+
+
+def test_mapping_tag_on_another_node_is_a_yaml_error(load_yaml: Any) -> None:
+    with pytest.raises(yaml.YAMLError, match="expected a mapping node"):
+        load_yaml("!!map [1, 2]")

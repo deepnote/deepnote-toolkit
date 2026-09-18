@@ -39,7 +39,8 @@ program:
   `is_truncated` tells whether rows are missing. Deepnote sends every non-numeric
   cell as text, so a boolean column arrives as `"True"` and `"False"`.
 - `DeepnoteRunner` does the same through a local `@deepnote/local-runner` sidecar
-  at `http://127.0.0.1:8787`.
+  at `http://127.0.0.1:8787`. The sidecar does not say which notebook it ran, so
+  for a file with several notebooks the result holds the outputs of all of them.
 - `Runner` is the interface both runners implement, for code that accepts either.
 
 The cloud runner only starts a run and waits for it. The parts under it can be
@@ -83,8 +84,8 @@ script works locally and deployed. To run notebooks with one fixed token for eve
 viewer, use `DeepnoteCloudRunner` with that token.
 
 Call the runner from the Streamlit script thread. A worker thread has no viewer
-request, so the runner raises there instead of using `DEEPNOTE_TOKEN`. With an
-explicit token it uses that token there, even in a hosted app.
+request. In a hosted app the runner raises there, whatever token it was given.
+Elsewhere it raises instead of using `DEEPNOTE_TOKEN`, and uses an explicit token.
 
 For another Deepnote API client inside a hosted app,
 `current_user_api_credentials()` returns a short-lived token for the current
@@ -99,10 +100,10 @@ change them. Pass `storage_mode="read_write"` for a notebook that must write the
 `DeepnoteCloudRunner` leaves the mode to the API, which allows writes.
 
 The cloud runner retries a poll that fails with a timeout, a network error, HTTP
-429 or a 5xx, up to five times in a row. After the run finishes it waits briefly
-for the outputs, which can arrive after the final status. When
-`result.snapshot_status` is still `pending`, the outputs had not arrived by the end
-of that wait.
+429 or a 5xx, up to five times in a row. After the run finishes it waits up to
+`snapshot_timeout` seconds, 10 by default, for the outputs, which can arrive after
+the final status. When `result.snapshot_status` is still `pending`, the outputs
+had not arrived by the end of that wait, so a successful run can have none.
 
 Use `runner.info().accepts_inputs(document.inputs)` before submitting values to
 verify that the deployed notebook still matches the file the app was built from.

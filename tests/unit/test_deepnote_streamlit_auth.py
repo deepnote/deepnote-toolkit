@@ -325,3 +325,32 @@ def test_dropped_connection_during_exchange_is_transient() -> None:
         )
 
     assert exc_info.value.transient is True
+
+
+def test_exchange_prefers_the_app_id_exported_by_the_launcher(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEEPNOTE_STREAMLIT_APP_ID", APP_ID.upper())
+    urls = []
+
+    def open_request(request: Any, *, timeout: float) -> FakeResponse:
+        urls.append(request.full_url)
+        return FakeResponse(
+            {
+                "token": "viewer-api-token",
+                "apiOrigin": "https://api.deepnote.com",
+                "expiresAtSeconds": 1_800_000_000,
+            }
+        )
+
+    with patch(
+        "deepnote_toolkit.streamlit.auth._read_streamlit_app_id_from_context",
+        return_value="00000000-0000-0000-0000-000000000000",
+    ):
+        current_user_api_credentials(
+            streamlit_token="opaque-cookie", opener=open_request
+        )
+
+    assert urls == [
+        f"http://localhost:19456/userpod-api/streamlit-apps/{APP_ID}/api-token"
+    ]
