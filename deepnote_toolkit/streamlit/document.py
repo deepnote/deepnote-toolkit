@@ -1,4 +1,4 @@
-"""Typed, deliberately small views over `.deepnote` YAML and run responses."""
+"""Typed views over `.deepnote` YAML and run responses."""
 
 from __future__ import annotations
 
@@ -202,8 +202,7 @@ class OutputCollection:
 class DeepnoteDocument(OutputCollection):
     """A parsed source or snapshot `.deepnote` file.
 
-    Pass `notebook_id` to read one notebook of a multi-notebook project, so the
-    inputs match what a runner for that notebook accepts.
+    `notebook_id` limits the inputs and outputs to one notebook of the project.
     """
 
     def __init__(self, raw: Mapping[str, Any], *, notebook_id: str | None = None):

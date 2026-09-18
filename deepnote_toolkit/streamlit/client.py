@@ -315,9 +315,7 @@ class DeepnoteCloudRunner:
         if self._static_token is not None:
             return self._required_token(self._static_token), self.base_url
 
-        # Hosted apps always authenticate as the current viewer. In particular,
-        # never fall back to a process-wide environment token when this request
-        # has a hosted Streamlit app hostname.
+        # A hosted request authenticates as the viewer and never uses DEEPNOTE_TOKEN.
         if _has_hosted_streamlit_context():
             try:
                 credentials = current_user_api_credentials(

@@ -68,9 +68,9 @@ def current_user_api_credentials(
 ) -> CurrentUserApiCredentials:
     """Exchange the active viewer cookie for public API credentials.
 
-    The returned API origin must be used with the returned bearer. Credentials are
-    reused within the current Streamlit session until shortly before they expire,
-    and never shared between sessions.
+    The bearer is only valid at the returned API origin. Credentials are reused
+    within the current Streamlit session until shortly before they expire, and
+    never shared between sessions.
     """
 
     resolved_app_id = app_id or _read_streamlit_app_id_from_context()

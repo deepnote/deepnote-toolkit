@@ -127,7 +127,7 @@ def _as_number(value: Any, fallback: float | int) -> float | int:
 
 
 def _as_date(value: Any) -> date | None:
-    """Read a date or the date part of a timestamp; None leaves the widget empty."""
+    """Read a date or the date part of a timestamp. None leaves the widget empty."""
 
     if isinstance(value, date):
         return value
@@ -138,7 +138,7 @@ def _as_date(value: Any) -> date | None:
 
 
 def _as_date_range(value: Any) -> tuple[date, ...]:
-    """Resolve an absolute or relative Deepnote range; () leaves the widget empty."""
+    """Resolve an absolute or relative Deepnote range. () leaves the widget empty."""
 
     if isinstance(value, list):
         dates = tuple(_as_date(item) for item in value[:2])
