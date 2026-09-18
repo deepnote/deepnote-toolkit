@@ -105,4 +105,8 @@ for the outputs, which can arrive after the final status. When
 of that wait.
 
 Use `runner.info().accepts_inputs(document.inputs)` before submitting values to
-verify that the deployed notebook still has matching input names and block types.
+verify that the deployed notebook still matches the file the app was built from.
+It compares input names, block types, single or multiple selection, slider bounds
+and select options. Options that a select fills from a variable change between
+runs, so they are not compared. The API also rejects a value that does not fit its
+input block.

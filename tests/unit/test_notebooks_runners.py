@@ -575,6 +575,60 @@ def test_cloud_run_sends_the_requested_storage_mode() -> None:
     ]
 
 
+@pytest.mark.parametrize(
+    "changed",
+    [
+        InputBlock("region", "input-select", "EU", options=("EU", "US"), multiple=True),
+        InputBlock("region", "input-select", "EU", options=("EU", "APAC")),
+    ],
+    ids=["multiple", "options"],
+)
+def test_runner_info_rejects_a_select_that_takes_other_values(
+    changed: InputBlock,
+) -> None:
+    info = RunnerInfo(
+        notebook="Revenue",
+        inputs=(InputBlock("region", "input-select", "EU", options=("US", "EU")),),
+        run_target="cloud",
+    )
+
+    assert info.accepts_inputs(
+        [InputBlock("region", "input-select", "US", options=("EU", "US"))]
+    )
+    assert not info.accepts_inputs([changed])
+
+
+def test_runner_info_ignores_select_options_filled_from_a_variable() -> None:
+    info = RunnerInfo(
+        notebook="Revenue",
+        inputs=(InputBlock("region", "input-select", "EU", options=("EU", "US")),),
+        run_target="cloud",
+    )
+
+    assert info.accepts_inputs(
+        [
+            InputBlock(
+                "region",
+                "input-select",
+                "EU",
+                options=("EU",),
+                options_from_variable=True,
+            )
+        ]
+    )
+
+
+def test_runner_info_compares_slider_bounds_with_the_defaults_filled_in() -> None:
+    info = RunnerInfo(
+        notebook="Revenue",
+        inputs=(InputBlock("limit", "input-slider", "20", min=0, max=100, step=1),),
+        run_target="cloud",
+    )
+
+    assert info.accepts_inputs([InputBlock("limit", "input-slider", "20")])
+    assert not info.accepts_inputs([InputBlock("limit", "input-slider", "20", max=50)])
+
+
 class FakeTransport:
     def __init__(self, payload: Any):
         self.payload = payload

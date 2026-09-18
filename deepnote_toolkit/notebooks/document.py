@@ -102,6 +102,9 @@ def _read_input_block(block: Mapping[str, Any]) -> InputBlock | None:
         label=optional_string(metadata.get("deepnote_input_label")),
         value=metadata.get("deepnote_variable_value"),
         options=string_tuple(metadata.get("deepnote_variable_options")),
+        options_from_variable=(
+            metadata.get("deepnote_variable_select_type") == "from-variable"
+        ),
         multiple=metadata.get("deepnote_allow_multiple_values") is True,
         min=optional_number(metadata.get("deepnote_slider_min_value")),
         max=optional_number(metadata.get("deepnote_slider_max_value")),

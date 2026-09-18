@@ -35,6 +35,7 @@ class InputBlock:
     min: float | int | None = None
     max: float | int | None = None
     step: float | int | None = None
+    options_from_variable: bool = False
 
 
 @dataclass(frozen=True)
@@ -151,12 +152,49 @@ class RunnerInfo:
     run_target: str
 
     def accepts_inputs(self, inputs: Iterable[InputBlock]) -> bool:
-        """Return whether input variable names and block types match this runner."""
+        """Return whether values made for `inputs` fit this runner's notebook.
 
-        return _input_contract(inputs) == _input_contract(self.inputs)
+        Names, block types, single or multiple selection, slider bounds and select
+        options must match. Options filled from a variable change between runs, so
+        they are not compared.
+        """
+
+        expected = tuple(inputs)
+        dynamic = frozenset(
+            input_block.variable_name
+            for input_block in expected
+            if input_block.options_from_variable
+        )
+        return _input_contract(expected, dynamic) == _input_contract(
+            self.inputs, dynamic
+        )
 
 
-def _input_contract(inputs: Iterable[InputBlock]) -> frozenset[tuple[str, str]]:
+def _input_contract(
+    inputs: Iterable[InputBlock], dynamic_options: frozenset[str]
+) -> frozenset[tuple[Any, ...]]:
     return frozenset(
-        (input_block.variable_name, input_block.type) for input_block in inputs
+        (
+            input_block.variable_name,
+            input_block.type,
+            *_value_constraints(input_block, dynamic_options),
+        )
+        for input_block in inputs
     )
+
+
+def _value_constraints(
+    input_block: InputBlock, dynamic_options: frozenset[str]
+) -> tuple[Any, ...]:
+    if input_block.type == "input-slider":
+        return (
+            input_block.min if input_block.min is not None else 0,
+            input_block.max if input_block.max is not None else 100,
+        )
+    if input_block.type == "input-select":
+        is_dynamic = input_block.variable_name in dynamic_options
+        return (
+            input_block.multiple,
+            None if is_dynamic else frozenset(input_block.options),
+        )
+    return ()
