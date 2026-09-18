@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 from .auth import (
     CurrentUserApiTokenError,
     _has_hosted_streamlit_context,
+    _is_streamlit_thread_without_request,
     current_user_api_credentials,
 )
 from .document import InputBlock, RunResult
@@ -24,10 +25,16 @@ Sleep = Callable[[float], None]
 
 TERMINAL_RUN_STATUSES = frozenset({"success", "error", "internal_error", "stopped"})
 DEFAULT_API_ORIGIN = "https://api.deepnote.com"
+MAX_TRANSIENT_POLL_FAILURES = 5
+SNAPSHOT_SETTLE_ATTEMPTS = 3
 
 
 class RunnerError(RuntimeError):
     """The Deepnote runner was unavailable or rejected a request."""
+
+    def __init__(self, message: str, *, transient: bool = False):
+        super().__init__(message)
+        self.transient = transient
 
 
 @dataclass(frozen=True)
@@ -195,15 +202,34 @@ class DeepnoteCloudRunner:
         run_id = _required_run_id(started)
         deadline = time.monotonic() + self.timeout
         current = started
+        transient_failures = 0
         while str(current.get("status", "")) not in TERMINAL_RUN_STATUSES:
             if time.monotonic() >= deadline:
                 raise RunnerError(
                     f"Deepnote run {run_id} did not finish within {self.timeout:g} seconds"
                 )
             self._sleep(self.poll_interval)
-            current = self._run_payload(
-                self._request("GET", f"/v2/runs/{run_id}?snapshotDelivery=inline")
-            )
+            try:
+                current = self._get_run(run_id)
+                transient_failures = 0
+            except RunnerError as error:
+                transient_failures += 1
+                if (
+                    not error.transient
+                    or transient_failures > MAX_TRANSIENT_POLL_FAILURES
+                ):
+                    raise
+
+        # The snapshot can attach shortly after the status turns terminal.
+        for _ in range(SNAPSHOT_SETTLE_ATTEMPTS):
+            if _has_snapshot(current):
+                break
+            self._sleep(self.poll_interval)
+            try:
+                current = self._get_run(run_id)
+            except RunnerError as error:
+                if not error.transient:
+                    raise
 
         status = str(current.get("status", ""))
         snapshot = current.get("snapshot")
@@ -224,6 +250,11 @@ class DeepnoteCloudRunner:
                 "snapshotBlocks": current.get("snapshotBlocks"),
                 "viewUrl": current.get("viewUrl"),
             }
+        )
+
+    def _get_run(self, run_id: str) -> Mapping[str, Any]:
+        return self._run_payload(
+            self._request("GET", f"/v2/runs/{run_id}?snapshotDelivery=inline")
         )
 
     def _request(
@@ -256,14 +287,18 @@ class DeepnoteCloudRunner:
             except json.JSONDecodeError:
                 message = detail
             raise RunnerError(
-                f"Deepnote API returned HTTP {error.code}: {message}"
+                f"Deepnote API returned HTTP {error.code}: {message}",
+                transient=error.code == 429 or error.code >= 500,
             ) from error
         except URLError as error:
             raise RunnerError(
-                f"Could not reach the Deepnote API at {api_origin}: {error.reason}"
+                f"Could not reach the Deepnote API at {api_origin}: {error.reason}",
+                transient=True,
             ) from error
         except TimeoutError as error:
-            raise RunnerError("Deepnote API request timed out") from error
+            raise RunnerError(
+                "Deepnote API request timed out", transient=True
+            ) from error
         except (json.JSONDecodeError, UnicodeDecodeError) as error:
             raise RunnerError(
                 "Deepnote API returned an invalid JSON response"
@@ -297,6 +332,12 @@ class DeepnoteCloudRunner:
             )
             return credentials.token, api_origin
 
+        if _is_streamlit_thread_without_request():
+            raise RunnerError(
+                "No viewer request is available on this thread. Call the runner from "
+                "the Streamlit script thread, or pass token= or token_provider=."
+            )
+
         return self._required_token(os.environ.get("DEEPNOTE_TOKEN")), self.base_url
 
     @staticmethod
@@ -309,6 +350,15 @@ class DeepnoteCloudRunner:
     def _run_payload(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         run = payload.get("run")
         return run if isinstance(run, Mapping) else payload
+
+
+def _has_snapshot(run: Mapping[str, Any]) -> bool:
+    snapshot = run.get("snapshot")
+    return bool(
+        run.get("snapshotContent")
+        or isinstance(run.get("snapshotBlocks"), list)
+        or (isinstance(snapshot, Mapping) and snapshot.get("snapshotContent"))
+    )
 
 
 def _required_run_id(run: Mapping[str, Any]) -> str:

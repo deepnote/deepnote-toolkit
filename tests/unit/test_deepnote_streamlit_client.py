@@ -278,9 +278,9 @@ def test_cloud_run_surfaces_terminal_error() -> None:
             }
         )
 
-    result = DeepnoteCloudRunner("notebook-1", token="token", opener=open_request).run(
-        {}
-    )
+    result = DeepnoteCloudRunner(
+        "notebook-1", token="token", opener=open_request, sleep=lambda _delay: None
+    ).run({})
 
     assert result.success is False
     assert result.error == "bad input"
@@ -294,7 +294,7 @@ def test_hosted_cloud_runner_exchanges_per_request_and_uses_api_origin(
     responses = iter(
         [
             {"run": {"runId": "run-1", "status": "pending"}},
-            {"run": {"runId": "run-1", "status": "success"}},
+            {"run": {"runId": "run-1", "status": "success", "snapshotBlocks": []}},
         ]
     )
 
@@ -405,3 +405,118 @@ def test_cloud_runner_requires_one_token_source(
             token="",
             opener=lambda *_args, **_kwargs: FakeResponse({}),
         ).info()
+
+
+def test_cloud_run_retries_transient_poll_failures() -> None:
+    responses = iter(
+        [
+            {"run": {"runId": "run-1", "status": "pending"}},
+            HTTPError("http://api", 503, "Unavailable", {}, io.BytesIO(b"{}")),
+            URLError("connection reset"),
+            {"run": {"runId": "run-1", "status": "success", "snapshotBlocks": []}},
+        ]
+    )
+
+    def open_request(_request: Any, *, timeout: float) -> FakeResponse:
+        response = next(responses)
+        if isinstance(response, Exception):
+            raise response
+        return FakeResponse(response)
+
+    result = DeepnoteCloudRunner(
+        "notebook-1", token="token", opener=open_request, sleep=lambda _delay: None
+    ).run({})
+
+    assert result.success is True
+
+
+def test_cloud_run_raises_poll_failures_that_are_not_transient() -> None:
+    responses = iter(
+        [
+            {"run": {"runId": "run-1", "status": "pending"}},
+            HTTPError("http://api", 403, "Forbidden", {}, io.BytesIO(b"{}")),
+        ]
+    )
+
+    def open_request(_request: Any, *, timeout: float) -> FakeResponse:
+        response = next(responses)
+        if isinstance(response, Exception):
+            raise response
+        return FakeResponse(response)
+
+    with pytest.raises(RunnerError, match="HTTP 403"):
+        DeepnoteCloudRunner(
+            "notebook-1", token="token", opener=open_request, sleep=lambda _delay: None
+        ).run({})
+
+
+def test_cloud_run_stops_retrying_after_repeated_transient_failures() -> None:
+    calls = []
+
+    def open_request(request: Any, *, timeout: float) -> FakeResponse:
+        calls.append(request.method)
+        if request.method == "POST":
+            return FakeResponse({"run": {"runId": "run-1", "status": "pending"}})
+        raise URLError("connection reset")
+
+    with pytest.raises(RunnerError, match="connection reset"):
+        DeepnoteCloudRunner(
+            "notebook-1", token="token", opener=open_request, sleep=lambda _delay: None
+        ).run({})
+
+    assert calls == ["POST"] + ["GET"] * 6
+
+
+def test_cloud_run_waits_for_a_snapshot_that_lags_the_terminal_status() -> None:
+    responses = iter(
+        [
+            {"run": {"runId": "run-1", "status": "success"}},
+            {"run": {"runId": "run-1", "status": "success"}},
+            {
+                "run": {
+                    "runId": "run-1",
+                    "status": "success",
+                    "snapshotBlocks": [
+                        {
+                            "id": "code-1",
+                            "type": "code",
+                            "outputs": [{"output_type": "stream", "text": "done"}],
+                        }
+                    ],
+                }
+            },
+        ]
+    )
+    sleeps = []
+
+    result = DeepnoteCloudRunner(
+        "notebook-1",
+        token="token",
+        opener=lambda _request, *, timeout: FakeResponse(next(responses)),
+        sleep=sleeps.append,
+        poll_interval=0.5,
+    ).run({})
+
+    assert sleeps == [0.5, 0.5]
+    assert result.text() == "done"
+
+
+def test_worker_thread_never_falls_back_to_environment_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEEPNOTE_TOKEN", "shared-token")
+    opener = MagicMock()
+    with (
+        patch(
+            "deepnote_toolkit.streamlit.client._has_hosted_streamlit_context",
+            return_value=False,
+        ),
+        patch(
+            "deepnote_toolkit.streamlit.client._is_streamlit_thread_without_request",
+            return_value=True,
+        ),
+        pytest.raises(RunnerError, match="No viewer request"),
+    ):
+        DeepnoteCloudRunner("notebook-1", opener=opener).info()
+
+    opener.assert_not_called()

@@ -200,20 +200,35 @@ class OutputCollection:
 
 
 class DeepnoteDocument(OutputCollection):
-    """A parsed source or snapshot `.deepnote` file."""
+    """A parsed source or snapshot `.deepnote` file.
 
-    def __init__(self, raw: Mapping[str, Any]):
+    Pass `notebook_id` to read one notebook of a multi-notebook project, so the
+    inputs match what a runner for that notebook accepts.
+    """
+
+    def __init__(self, raw: Mapping[str, Any], *, notebook_id: str | None = None):
         project = raw.get("project")
         if not isinstance(project, Mapping) or not isinstance(
             project.get("notebooks"), list
         ):
             raise ValueError("Expected a .deepnote document with project.notebooks")
+        notebooks = project["notebooks"]
+        if notebook_id is not None:
+            notebooks = [
+                notebook
+                for notebook in notebooks
+                if isinstance(notebook, Mapping) and notebook.get("id") == notebook_id
+            ]
+            if not notebooks:
+                raise ValueError(f"Notebook {notebook_id} is not in this document")
         self.raw = raw
         self.project_name = str(project.get("name", "Untitled project"))
-        self.inputs, self.outputs = _read_blocks(project["notebooks"])
+        self.inputs, self.outputs = _read_blocks(notebooks)
 
     @classmethod
-    def load(cls, path: str | Path) -> DeepnoteDocument:
+    def load(
+        cls, path: str | Path, *, notebook_id: str | None = None
+    ) -> DeepnoteDocument:
         source = Path(path)
         try:
             raw = yaml.safe_load(source.read_text(encoding="utf-8"))
@@ -221,17 +236,17 @@ class DeepnoteDocument(OutputCollection):
             raise ValueError(f"Could not parse {source}: {error}") from error
         if not isinstance(raw, Mapping):
             raise ValueError(f"Expected {source} to contain a YAML object")
-        return cls(raw)
+        return cls(raw, notebook_id=notebook_id)
 
     @classmethod
-    def parse(cls, content: str) -> DeepnoteDocument:
+    def parse(cls, content: str, *, notebook_id: str | None = None) -> DeepnoteDocument:
         try:
             raw = yaml.safe_load(content)
         except yaml.YAMLError as error:
             raise ValueError(f"Could not parse .deepnote YAML: {error}") from error
         if not isinstance(raw, Mapping):
             raise ValueError("Expected .deepnote YAML to contain an object")
-        return cls(raw)
+        return cls(raw, notebook_id=notebook_id)
 
 
 class RunResult(OutputCollection):

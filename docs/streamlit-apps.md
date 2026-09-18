@@ -22,6 +22,8 @@ if st.button("Run"):
 ```
 
 `DeepnoteDocument` reads typed input definitions and structured notebook outputs.
+In a project with several notebooks, pass the notebook you run so the inputs match
+it: `DeepnoteDocument.load(path, notebook_id="your-notebook-id")`.
 `render_inputs` maps Deepnote input blocks to native Streamlit widgets.
 `DeepnoteCloudRunner` calls the same public notebooks and runs API used by the
 Deepnote CLI. `DeepnoteRunner` is available for the local-runner sidecar.
@@ -45,7 +47,9 @@ project snapshot. API-key clients remain compatible with inline
 The opaque cookie is never sent to the public API. The exchanged credentials are kept
 in the viewer's own Streamlit session state and reused until a minute before they
 expire. They are never kept in process globals or shared between sessions, and a
-hosted request never falls back to a shared environment token. Deepnote rechecks
+hosted request never falls back to a shared environment token. Call the runner
+from the Streamlit script thread: a worker thread has no viewer request, so the
+runner raises instead of using `DEEPNOTE_TOKEN`. Deepnote rechecks
 the viewer's access on every API request, so a reused bearer stops working as soon
 as access is revoked.
 
@@ -83,3 +87,7 @@ deepnote run report.deepnote --cloud --notebook-id "$DEEPNOTE_NOTEBOOK_ID" --pus
 
 Use `RunnerInfo.accepts_inputs(document.inputs)` before submitting values to
 verify that the deployed notebook still has matching input names and block types.
+
+The cloud runner retries a poll that fails with a timeout, a network error, HTTP
+429 or a 5xx, up to five times in a row. After the run finishes it waits briefly
+for the outputs, which can arrive after the final status.

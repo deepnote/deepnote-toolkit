@@ -2,11 +2,20 @@
 
 from __future__ import annotations
 
+import calendar
+import re
 from collections.abc import Iterable
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from .document import InputBlock
+
+_RELATIVE_RANGE_MONTHS = {
+    "pastMonth": 1,
+    "past3months": 3,
+    "past6months": 6,
+    "pastYear": 12,
+}
 
 
 def render_inputs(
@@ -25,6 +34,9 @@ def render_inputs(
 
     values: dict[str, Any] = {}
     for input_block in inputs:
+        # One submitted value applies to every block sharing a variable name.
+        if input_block.variable_name in values:
+            continue
         label = input_block.label or input_block.variable_name.replace("_", " ").title()
         key = f"{key_prefix}:{input_block.variable_name}"
         values[input_block.variable_name] = _render_one(
@@ -72,23 +84,23 @@ def _render_one(container: Any, input_block: InputBlock, label: str, key: str) -
         )
 
     if input_block.type == "input-date":
-        return _serialize_date(
+        selected = _serialize_date(
             container.date_input(label, value=_as_date(input_block.value), key=key)
         )
+        # Date blocks older than version 2 only parse a full timestamp.
+        is_timestamp = isinstance(input_block.value, str) and "T" in input_block.value
+        return f"{selected}T00:00:00.000Z" if selected and is_timestamp else selected
 
     if input_block.type == "input-date-range":
-        raw = input_block.value if isinstance(input_block.value, list) else []
-        defaults = tuple(_as_date(value) for value in raw[:2])
-        selected = container.date_input(label, value=defaults, key=key)
-        if isinstance(selected, (list, tuple)):
-            serialized = [_serialize_date(value) for value in selected]
-            if len(serialized) == 2:
-                return serialized
-            if len(serialized) == 1:
-                return [serialized[0], serialized[0]]
-            fallback = [_serialize_date(value) for value in defaults]
-            return fallback if len(fallback) == 2 else [date.today().isoformat()] * 2
-        return [_serialize_date(selected), _serialize_date(selected)]
+        selected = container.date_input(
+            label, value=_as_date_range(input_block.value), key=key
+        )
+        if not isinstance(selected, (list, tuple)):
+            selected = (selected, selected)
+        serialized = [_serialize_date(value) for value in selected]
+        if len(serialized) == 1:
+            return serialized * 2
+        return serialized if len(serialized) == 2 else ["", ""]
 
     if input_block.type == "input-textarea":
         return container.text_area(label, value=str(input_block.value or ""), key=key)
@@ -114,14 +126,33 @@ def _as_number(value: Any, fallback: float | int) -> float | int:
         return fallback
 
 
-def _as_date(value: Any) -> date:
+def _as_date(value: Any) -> date | None:
+    """Read a date or the date part of a timestamp; None leaves the widget empty."""
+
     if isinstance(value, date):
         return value
     try:
-        return date.fromisoformat(str(value))
+        return date.fromisoformat(str(value)[:10])
     except ValueError:
-        return date.today()
+        return None
+
+
+def _as_date_range(value: Any) -> tuple[date, ...]:
+    """Resolve an absolute or relative Deepnote range; () leaves the widget empty."""
+
+    if isinstance(value, list):
+        dates = tuple(_as_date(item) for item in value[:2])
+        return dates if len(dates) == 2 and None not in dates else ()
+
+    today = date.today()
+    if match := re.fullmatch(r"past(\d+)days|customDays(\d+)", str(value)):
+        return today - timedelta(days=int(match.group(1) or match.group(2))), today
+    if months := _RELATIVE_RANGE_MONTHS.get(str(value)):
+        year, month = divmod(today.year * 12 + today.month - 1 - months, 12)
+        last_day = calendar.monthrange(year, month + 1)[1]
+        return date(year, month + 1, min(today.day, last_day)), today
+    return ()
 
 
 def _serialize_date(value: Any) -> str:
-    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+    return value.isoformat() if isinstance(value, date) else ""

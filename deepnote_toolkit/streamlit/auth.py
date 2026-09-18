@@ -205,6 +205,23 @@ def _has_hosted_streamlit_context() -> bool:
     )
 
 
+def _is_streamlit_thread_without_request() -> bool:
+    """Return whether a Streamlit server is running but this thread has no viewer request.
+
+    Worker threads see no headers or cookies, so they look identical to a local script.
+    """
+
+    try:
+        from streamlit import runtime  # type: ignore[import-not-found]
+        from streamlit.runtime.scriptrunner import (  # type: ignore[import-not-found]
+            get_script_run_ctx,
+        )
+    except ImportError:
+        return False
+
+    return runtime.exists() and get_script_run_ctx(suppress_warning=True) is None
+
+
 def _validated_origin(value: str, *, name: str) -> str:
     parsed = urlparse(value)
     if (

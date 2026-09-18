@@ -207,3 +207,31 @@ def test_join_text(value: object, expected: str) -> None:
 def test_rejects_non_deepnote_yaml(content: str) -> None:
     with pytest.raises(ValueError):
         DeepnoteDocument.parse(content)
+
+
+MULTI_NOTEBOOK_YAML = """
+project:
+  name: Sales
+  notebooks:
+    - id: notebook-a
+      blocks:
+        - type: input-text
+          metadata: {deepnote_variable_name: region, deepnote_variable_value: EU}
+    - id: notebook-b
+      blocks:
+        - type: input-text
+          metadata: {deepnote_variable_name: region, deepnote_variable_value: US}
+"""
+
+
+def test_notebook_id_scopes_inputs_to_one_notebook() -> None:
+    everything = DeepnoteDocument.parse(MULTI_NOTEBOOK_YAML)
+    scoped = DeepnoteDocument.parse(MULTI_NOTEBOOK_YAML, notebook_id="notebook-b")
+
+    assert [input_block.value for input_block in everything.inputs] == ["EU", "US"]
+    assert scoped.inputs == (InputBlock("region", "input-text", "US"),)
+
+
+def test_unknown_notebook_id_is_rejected() -> None:
+    with pytest.raises(ValueError, match="notebook-c is not in this document"):
+        DeepnoteDocument.parse(MULTI_NOTEBOOK_YAML, notebook_id="notebook-c")
