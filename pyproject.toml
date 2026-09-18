@@ -49,7 +49,7 @@ dependencies = [
     "pandas>=1.2.5,<2.2; python_version < '3.12'",
     "pandas>=2.1.0,<2.3; python_version == '3.12'",
     "pandas>=2.2.3,<2.3; python_version == '3.13'",
-    "pandas>=2.3.3,<2.4; python_version >= '3.14'",
+    "pandas>=2.3.3,<3; python_version >= '3.14'",
     "numpy>=1.23,<2; python_version == '3.10'",
     "numpy>=1.24,<2; python_version == '3.11'",
     "numpy>=1.26.0,<2; python_version == '3.12'",
@@ -94,19 +94,18 @@ dependencies = [
     "dnspython>=2.7.0,<3.0; python_version>='3.13'",
     "paramiko>=5.0.0,<6",
     "sqlalchemy<2; python_version <= '3.11'",
-    "sqlalchemy>=2.0.48,<3; python_version >= '3.12'", # upstream Redshift reflection requires the newer PostgreSQL API
+    "sqlalchemy>=2.0.45,<3; python_version >= '3.12'", # upstream Redshift reflection requires the newer PostgreSQL API
     "snowflake-sqlalchemy>=1.11.0,<2",  # 1.11.0 fixes PYSEC-2026-3921 (SQL injection, local file read)
     "snowflake-connector-python>=4.7.2,<5",
     "sqlalchemy-spanner>=1.6.2,<2",
     "clickhouse-sqlalchemy>0,<0.4",
     "sqlalchemy-bigquery>1.6.1,<1.13; python_version < '3.13'",
-    "sqlalchemy-bigquery>=1.15.0,<1.20; python_version == '3.13'",
-    "sqlalchemy-bigquery>=1.16.0,<1.20; python_version >= '3.14'",
+    "sqlalchemy-bigquery>=1.15.0,<1.20; python_version >= '3.13'",
     "zstd>1.5.5.1; python_version == '3.10'",
     "zstd>1.5.7.0; python_version >= '3.11'",
     # These distributions share a module; install exactly one per interpreter.
     "deepnote-sqlalchemy-redshift==0.8.17; python_version < '3.12'",
-    "sqlalchemy-redshift==1.0.0; python_version >= '3.12'",
+    "sqlalchemy-redshift>=1.0.0; python_version >= '3.12'",
     "trino[sqlalchemy]>=0.327.0,<=0.330.0",
     "trino[sqlalchemy]>=0.329.0,<=0.336.0; python_version>='3.13'",
     "pyathena[sqlalchemy]==3.9.0",
@@ -123,13 +122,12 @@ dependencies = [
     "nbformat>=5.10.4,<6",
     "typing-extensions>=4.12.2,<5.0.0",
     "wrapt>=1.12.0",
-    "wrapt>=1.17.3,<2; python_version >= '3.14'",
+    "wrapt>=1.17.3; python_version >= '3.14'",
 
     # Jupyter & IPython dependencies
-    "ipykernel>=6.30.1,<7; python_version < '3.14'",
-    "ipykernel>=6.31.0,<7; python_version >= '3.14'",
-    "ipython>=9.5,<10; python_version >= '3.14'",
-    "debugpy>=1.8.20,<2; python_version >= '3.14'",
+    "ipykernel>=6.30.1,<7",
+    "ipython>=9.5; python_version >= '3.14'",
+    "debugpy>=1.8.20; python_version >= '3.14'",
     "jupyter-core>=5.8.1,<6",
 
     # Visualization
@@ -175,13 +173,11 @@ dependencies = [
     "grpcio>=1.66.2; python_version >= '3.13'",
     "greenlet>=3.1.0; python_version >= '3.13'",
     "parso>=0.8.5,<0.9; python_version >= '3.14'", # also used by IPython/Jedi without server extras
-    "pywin32>=311; python_version >= '3.14' and sys_platform == 'win32'",
     # CPython 3.14 binary/ABI support; keep older interpreter resolutions available.
     "arro3-core>=0.6.4; python_version >= '3.14'",
     "ciso8601>=2.3.3; python_version >= '3.14'",
     "clickhouse-driver>=0.2.10; python_version >= '3.14'",
     "google-crc32c>=1.8.0; python_version >= '3.14'",
-    "lz4>=4.4.5; python_version >= '3.14'",
     "MarkupSafe>=3.0.3; python_version >= '3.14'",
     "pyzmq>=27.0.0; python_version >= '3.14'",
     "rpds-py>=0.26.0; python_version >= '3.14'"
