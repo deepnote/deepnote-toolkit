@@ -1,7 +1,8 @@
 from datetime import date, timedelta
 from typing import Any
 
-from deepnote_toolkit.streamlit import InputBlock, render_inputs
+from deepnote_toolkit.notebooks import InputBlock
+from deepnote_toolkit.streamlit import render_inputs
 
 
 class FakeContainer:

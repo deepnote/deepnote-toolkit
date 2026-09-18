@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from deepnote_toolkit.streamlit import (
+from deepnote_toolkit.notebooks import (
     DATAFRAME_MIME,
     DeepnoteDocument,
     InputBlock,

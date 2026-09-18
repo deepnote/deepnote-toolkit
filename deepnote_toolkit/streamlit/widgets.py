@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from datetime import date, timedelta
 from typing import Any
 
-from .document import InputBlock
+from deepnote_toolkit.notebooks.models import InputBlock
 
 _RELATIVE_RANGE_MONTHS = {
     "pastMonth": 1,
