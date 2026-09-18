@@ -94,7 +94,7 @@ dependencies = [
     "dnspython>=2.7.0,<3.0; python_version>='3.13'",
     "paramiko>=5.0.0,<6",
     "sqlalchemy<2; python_version <= '3.11'",
-    "sqlalchemy>=2.0.45,<3; python_version >= '3.12'", # upstream Redshift reflection requires the newer PostgreSQL API
+    "sqlalchemy>=2.0.45,<3; python_version >= '3.12'",
     "snowflake-sqlalchemy>=1.11.0,<2",  # 1.11.0 fixes PYSEC-2026-3921 (SQL injection, local file read)
     "snowflake-connector-python>=4.7.2,<5",
     "sqlalchemy-spanner>=1.6.2,<2",
@@ -103,7 +103,7 @@ dependencies = [
     "sqlalchemy-bigquery>=1.15.0,<1.20; python_version >= '3.13'",
     "zstd>1.5.5.1; python_version == '3.10'",
     "zstd>1.5.7.0; python_version >= '3.11'",
-    # These distributions share a module; install exactly one per interpreter.
+    # Redshift's fork and upstream share sqlalchemy_redshift; install only one.
     "deepnote-sqlalchemy-redshift==0.8.17; python_version < '3.12'",
     "sqlalchemy-redshift>=1.0.0; python_version >= '3.12'",
     "trino[sqlalchemy]>=0.327.0,<=0.330.0",
@@ -189,7 +189,6 @@ server = [
     "jupyter-resource-usage>=1.1.0,<2.0.0",
     "streamlit>=1.40.0,<2.0.0",
     "deepnote-python-lsp-server==1.13.1rc2",
-    # Loads the 3.14 grammar; t-string editor support remains an upstream limitation.
     "parso>=0.8.5,<0.9; python_version >= '3.14'",
     "pywinpty>=3.0.1; python_version >= '3.14' and sys_platform == 'win32'",
 

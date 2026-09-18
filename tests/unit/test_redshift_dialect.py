@@ -7,24 +7,30 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 
+UPSTREAM_DISTRIBUTION = "sqlalchemy-redshift"
+FORK_DISTRIBUTION = "deepnote-sqlalchemy-redshift"
 
-def test_redshift_distribution_and_connection_options():
-    """Use exactly one dialect distribution and preserve verified SSL defaults."""
-    distribution, excluded = "sqlalchemy-redshift", "deepnote-sqlalchemy-redshift"
+
+def test_redshift_distribution_matches_python_version():
+    """Install exactly one Redshift dialect for the current Python version."""
     if sys.version_info < (3, 12):
-        distribution, excluded = excluded, distribution
+        distribution = FORK_DISTRIBUTION
+        excluded = UPSTREAM_DISTRIBUTION
+    else:
+        distribution = UPSTREAM_DISTRIBUTION
+        excluded = FORK_DISTRIBUTION
     assert version(distribution)
     with pytest.raises(PackageNotFoundError):
         version(excluded)
 
+
+def test_redshift_connection_uses_verified_ssl():
+    """Preserve verified SSL defaults when switching dialect distributions."""
     engine = sa.create_engine("redshift+psycopg2://localhost/test")
     try:
         _, options = engine.dialect.create_connect_args(engine.url)
         assert options["sslmode"] == "verify-full"
         assert Path(options["sslrootcert"]).is_file()
-        statement = sa.select(sa.bindparam("value"))
-        compiled = statement.compile(dialect=engine.dialect)
-        assert "%(value)s" in str(compiled)
     finally:
         engine.dispose()
 

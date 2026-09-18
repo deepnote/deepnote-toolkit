@@ -54,8 +54,8 @@ def test_download_and_extract_tar(tmp_path):
 
 def test_extract_bundle_preserves_executable_and_internal_symlink(tmp_path):
     """Python 3.14's data filter must preserve the layout of toolkit bundles."""
-    mem = io.BytesIO()
-    with tarfile.open(fileobj=mem, mode="w") as archive:
+    archive_path = tmp_path / "bundle.tar"
+    with tarfile.open(archive_path, mode="w") as archive:
         command = tarfile.TarInfo("kernel-libs/bin/toolkit-command")
         contents = b"#!/usr/bin/env python\nprint('ok')\n"
         command.size = len(contents)
@@ -69,18 +69,14 @@ def test_extract_bundle_preserves_executable_and_internal_symlink(tmp_path):
         link.linkname = "lib"
         archive.addfile(link)
 
-    response = Mock()
-    response.read.return_value = mem.getvalue()
-    response.__enter__ = Mock(return_value=response)
-    response.__exit__ = Mock(return_value=None)
-    with patch("installer.module.downloader.urlopen", return_value=response):
-        dl._download_and_extract_tar("https://example.com/bundle.tar", str(tmp_path))
+    extract_to = tmp_path / "extracted"
+    dl._download_and_extract_tar(archive_path.as_uri(), str(extract_to))
 
-    executable = tmp_path / "kernel-libs/bin/toolkit-command"
+    executable = extract_to / "kernel-libs/bin/toolkit-command"
     assert executable.stat().st_mode & 0o111 == 0o111
-    assert (tmp_path / "kernel-libs/lib64").is_symlink()
+    assert (extract_to / "kernel-libs/lib64").is_symlink()
     assert (
-        tmp_path / "kernel-libs/lib64/python3.14/site-packages/example.py"
+        extract_to / "kernel-libs/lib64/python3.14/site-packages/example.py"
     ).is_file()
 
 
