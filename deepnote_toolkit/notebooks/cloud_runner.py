@@ -6,7 +6,7 @@ import json
 import os
 import time
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import Any, Literal
 from urllib.request import Request, urlopen
 
 from .http import OpenUrl, request_json
@@ -15,6 +15,7 @@ from .run_result import RunResult
 from .runner import RunnerError
 
 TokenProvider = Callable[[], str]
+StorageMode = Literal["read_write", "readonly"]
 Sleep = Callable[[float], None]
 
 TERMINAL_RUN_STATUSES = frozenset({"success", "error", "internal_error", "stopped"})
@@ -29,6 +30,9 @@ class DeepnoteCloudRunner:
     The token comes from `token`, `token_provider` or the `DEEPNOTE_TOKEN`
     environment variable. A token provider is called for every request, which lets
     a long-lived process use short-lived credentials.
+
+    `storage_mode="readonly"` keeps the run from changing the project's stored
+    files. None leaves the choice to the API, which allows writes.
     """
 
     def __init__(
@@ -38,6 +42,7 @@ class DeepnoteCloudRunner:
         token: str | None = None,
         token_provider: TokenProvider | None = None,
         base_url: str = DEFAULT_API_ORIGIN,
+        storage_mode: StorageMode | None = None,
         timeout: float = 600,
         poll_interval: float = 2,
         opener: OpenUrl = urlopen,
@@ -49,6 +54,7 @@ class DeepnoteCloudRunner:
             raise ValueError("Pass token or token_provider, not both")
         self.notebook_id = notebook_id
         self.base_url = base_url.rstrip("/")
+        self.storage_mode = storage_mode
         self.timeout = timeout
         self.poll_interval = poll_interval
         self._static_token = token
@@ -80,17 +86,14 @@ class DeepnoteCloudRunner:
     def run(self, inputs: Mapping[str, Any]) -> RunResult:
         """Start a detached run with the given input values and wait for its result."""
 
-        started = self._run_payload(
-            self._request(
-                "POST",
-                "/v2/runs",
-                {
-                    "notebookId": self.notebook_id,
-                    "detached": True,
-                    "inputs": _normalize_cloud_inputs(inputs),
-                },
-            )
-        )
+        body: dict[str, Any] = {
+            "notebookId": self.notebook_id,
+            "detached": True,
+            "inputs": _normalize_cloud_inputs(inputs),
+        }
+        if self.storage_mode is not None:
+            body["detachedRunStorageMode"] = self.storage_mode
+        started = self._run_payload(self._request("POST", "/v2/runs", body))
         run_id = _required_run_id(started)
         deadline = time.monotonic() + self.timeout
         current = started

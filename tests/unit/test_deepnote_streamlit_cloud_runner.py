@@ -262,3 +262,69 @@ def test_runner_skips_streamlit_lookups_outside_a_script_run(
         StreamlitCloudRunner("notebook-1", opener=open_request).info()
 
     hosted_lookup.assert_not_called()
+
+
+def test_hosted_runner_ignores_an_explicit_token() -> None:
+    authorizations = []
+
+    def open_request(request: Any, *, timeout: float) -> FakeResponse:
+        authorizations.append(request.headers["Authorization"])
+        return FakeResponse({"notebook": {"name": "Revenue", "inputs": []}})
+
+    with (
+        patch(
+            "deepnote_toolkit.streamlit.cloud_runner._has_script_run_context",
+            return_value=True,
+        ),
+        patch(
+            "deepnote_toolkit.streamlit.cloud_runner._has_hosted_streamlit_context",
+            return_value=True,
+        ),
+        patch(
+            "deepnote_toolkit.streamlit.cloud_runner.current_user_api_credentials",
+            return_value=CurrentUserApiCredentials(
+                token="viewer-token",
+                api_origin="https://api.deepnote.com",
+                expires_at_seconds=1_800_000_000,
+            ),
+        ),
+    ):
+        StreamlitCloudRunner(
+            "notebook-1", token="owner-token", opener=open_request
+        ).info()
+
+    assert authorizations == ["Bearer viewer-token"]
+
+
+def test_streamlit_runs_are_readonly_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DEEPNOTE_TOKEN", "local-token")
+    bodies = []
+
+    def open_request(request: Any, *, timeout: float) -> FakeResponse:
+        bodies.append(json.loads(request.data))
+        return FakeResponse(
+            {"run": {"runId": "run-1", "status": "success", "snapshotBlocks": []}}
+        )
+
+    with (
+        patch(
+            "deepnote_toolkit.streamlit.cloud_runner._has_script_run_context",
+            return_value=False,
+        ),
+        patch(
+            "deepnote_toolkit.streamlit.cloud_runner._is_streamlit_thread_without_request",
+            return_value=False,
+        ),
+    ):
+        StreamlitCloudRunner("notebook-1", opener=open_request).run({})
+
+    assert bodies == [
+        {
+            "notebookId": "notebook-1",
+            "detached": True,
+            "inputs": {},
+            "detachedRunStorageMode": "readonly",
+        }
+    ]

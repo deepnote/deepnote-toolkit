@@ -59,9 +59,6 @@ A Streamlit app hosted by Deepnote needs no token configuration.
 access, and never as the app's owner. A viewer who loses access to the project
 can no longer run it.
 
-Call the runner from the Streamlit script thread. A worker thread has no viewer
-request, so the runner raises there instead of using `DEEPNOTE_TOKEN`.
-
 For local development, pass an API token explicitly or set `DEEPNOTE_TOKEN`:
 
 ```python
@@ -69,7 +66,13 @@ runner = StreamlitCloudRunner("your-notebook-id", token="your-api-token")
 ```
 
 A callable `token_provider=` can supply a renewable token. It is invoked for every
-request.
+request. A hosted app ignores both and still runs as the viewer, so the same
+script works locally and deployed. To run notebooks with one fixed token for every
+viewer, use `DeepnoteCloudRunner` with that token.
+
+Call the runner from the Streamlit script thread. A worker thread has no viewer
+request, so the runner raises there instead of using `DEEPNOTE_TOKEN`. With an
+explicit token it uses that token there, even in a hosted app.
 
 For another Deepnote API client inside a hosted app,
 `current_user_api_credentials()` returns a short-lived token for the current
@@ -78,7 +81,10 @@ viewer together with the API origin to send it to.
 ## Runs
 
 Cloud runs are detached, which keeps viewer-triggered work out of the shared
-project session.
+project session. `StreamlitCloudRunner` also starts them with
+`storage_mode="readonly"`, so a run can read the project's stored files but not
+change them. Pass `storage_mode="read_write"` for a notebook that must write them.
+`DeepnoteCloudRunner` leaves the mode to the API, which allows writes.
 
 The cloud runner retries a poll that fails with a timeout, a network error, HTTP
 429 or a 5xx, up to five times in a row. After the run finishes it waits briefly

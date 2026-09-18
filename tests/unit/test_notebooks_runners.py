@@ -519,3 +519,26 @@ def test_runner_info_ignores_repeated_input_names() -> None:
             InputBlock("region", "input-text", "US"),
         ]
     )
+
+
+def test_cloud_run_sends_the_requested_storage_mode() -> None:
+    bodies = []
+
+    def open_request(request: Any, *, timeout: float) -> FakeResponse:
+        bodies.append(json.loads(request.data))
+        return FakeResponse(
+            {"run": {"runId": "run-1", "status": "success", "snapshotBlocks": []}}
+        )
+
+    DeepnoteCloudRunner(
+        "notebook-1", token="token", storage_mode="readonly", opener=open_request
+    ).run({})
+
+    assert bodies == [
+        {
+            "notebookId": "notebook-1",
+            "detached": True,
+            "inputs": {},
+            "detachedRunStorageMode": "readonly",
+        }
+    ]
