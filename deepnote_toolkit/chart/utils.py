@@ -2,6 +2,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, List, Optional
 
 import pandas as pd
+import pyarrow as pa
 
 import deepnote_toolkit.ocelots as oc
 
@@ -18,6 +19,18 @@ def sanitize_dataframe_for_chart(pd_df: pd.DataFrame):
     _convert_column_names_to_string(sanitized_dataframe)
 
     return sanitized_dataframe
+
+
+def stringify_incompatible_arrow_columns(pd_df: pd.DataFrame) -> pd.DataFrame:
+    """Copy a frame and stringify object columns that Arrow cannot represent."""
+    result = pd_df.copy()
+    for name, column in pd_df.items():
+        if pd.api.types.is_object_dtype(column.dtype):
+            try:
+                pa.array(column, from_pandas=True)
+            except (pa.ArrowInvalid, pa.ArrowTypeError):
+                result[name] = column.astype("string[pyarrow]")
+    return result
 
 
 def sanitize_polars_dataframe_for_chart(pl_df: "pl.DataFrame") -> "pl.DataFrame":

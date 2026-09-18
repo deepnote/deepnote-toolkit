@@ -15,7 +15,7 @@ maintainers = [
 ]
 readme = "README.md"
 license = {text = "Apache-2.0"}
-requires-python = ">=3.10.0,<3.14"
+requires-python = ">=3.10.0,<3.15"
 keywords = [
     "deepnote",
     "jupyter",
@@ -39,6 +39,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Operating System :: OS Independent",
     "Environment :: Console",
     "Framework :: Jupyter"
@@ -46,12 +47,14 @@ classifiers = [
 dependencies = [
     # Core data libraries
     "pandas>=1.2.5,<2.2; python_version < '3.12'",
-    "pandas>=2.1.0,<2.3; python_version >= '3.12'",
-    "pandas>=2.2.3,<2.4; python_version >= '3.13'",
+    "pandas>=2.1.0,<2.3; python_version == '3.12'",
+    "pandas>=2.2.3,<2.3; python_version == '3.13'",
+    "pandas>=2.3.3,<3; python_version >= '3.14'",
     "numpy>=1.23,<2; python_version == '3.10'",
     "numpy>=1.24,<2; python_version == '3.11'",
     "numpy>=1.26.0,<2; python_version == '3.12'",
-    "numpy>=2.1.0,<3; python_version >= '3.13'",
+    "numpy>=2.1.0,<3; python_version == '3.13'",
+    "numpy>=2.3.3,<3; python_version >= '3.14'",
 
     # SQL and database dependencies
     # Keep DuckDB on the 1.4 LTS line until its EOL on 2026-09-16.
@@ -85,28 +88,32 @@ dependencies = [
     "sqlparse>=0.6.0,<0.7",
     "pymysql>=1.1.1,<1.2",
     "pymongo>=4.6.3,<4.10; python_version < '3.13'",
-    "pymongo>=4.9.0,<5; python_version>='3.13'",
+    "pymongo>=4.9.0,<5; python_version == '3.13'",
+    "pymongo>=4.15.2,<5; python_version >= '3.14'",
     "dnspython>=2.6.1,<2.7; python_version < '3.13'",
     "dnspython>=2.7.0,<3.0; python_version>='3.13'",
     "paramiko>=5.0.0,<6",
     "sqlalchemy<2; python_version <= '3.11'",
-    "sqlalchemy>=2.0.31,<3; python_version >= '3.12'",
+    "sqlalchemy>=2.0.45,<3; python_version >= '3.12'",
     "snowflake-sqlalchemy>=1.11.0,<2",  # 1.11.0 fixes PYSEC-2026-3921 (SQL injection, local file read)
     "snowflake-connector-python>=4.7.2,<5",
     "sqlalchemy-spanner>=1.6.2,<2",
     "clickhouse-sqlalchemy>0,<0.4",
     "sqlalchemy-bigquery>1.6.1,<1.13; python_version < '3.13'",
-    "sqlalchemy-bigquery>=1.15.0,<1.20; python_version>='3.13'",
+    "sqlalchemy-bigquery>=1.15.0,<1.20; python_version >= '3.13'",
     "zstd>1.5.5.1; python_version == '3.10'",
     "zstd>1.5.7.0; python_version >= '3.11'",
-    "deepnote-sqlalchemy-redshift==0.8.17",
+    # Redshift's fork and upstream share sqlalchemy_redshift; install only one.
+    "deepnote-sqlalchemy-redshift==0.8.17; python_version < '3.12'",
+    "sqlalchemy-redshift>=1.0.0; python_version >= '3.12'",
     "trino[sqlalchemy]>=0.327.0,<=0.330.0",
     "trino[sqlalchemy]>=0.329.0,<=0.336.0; python_version>='3.13'",
     "pyathena[sqlalchemy]==3.9.0",
     "pyathena[sqlalchemy]>=3.9.0,<4; python_version>='3.13'",
     "sqlalchemy-dremio>=3.0.3,<3.1",
     "dill>=0.3.8,<=0.4; python_version <= '3.12'",
-    "dill>=0.3.9,<=0.4; python_version >= '3.13'",
+    "dill>=0.3.9,<=0.4; python_version == '3.13'",
+    "dill>=0.4.1,<0.5; python_version >= '3.14'",
     "databricks-sqlalchemy>=2.0.0,<3.0.0; python_version >= '3.12'",
     "databricks-sqlalchemy>=1.0.5,<2.0.0; python_version < '3.12'", # SQLAlchemy 1.x compatibility
 
@@ -115,9 +122,12 @@ dependencies = [
     "nbformat>=5.10.4,<6",
     "typing-extensions>=4.12.2,<5.0.0",
     "wrapt>=1.12.0",
+    "wrapt>=1.17.3; python_version >= '3.14'",
 
     # Jupyter & IPython dependencies
     "ipykernel>=6.30.1,<7",
+    "ipython>=9.5; python_version >= '3.14'",
+    "debugpy>=1.8.20; python_version >= '3.14'",
     "jupyter-core>=5.8.1,<6",
 
     # Visualization
@@ -151,8 +161,9 @@ dependencies = [
     "soupsieve>=2.8.4,<3",
 
     # Config dependencies - they need to be declared both in main and server extras, keep them in sync
-    "pydantic>=1.10.0,<3",
-    "pydantic>=2.8.0,<3; python_version>='3.13'",
+    "pydantic>=1.10.0,<3; python_version < '3.13'",
+    "pydantic>=2.8.0,<3; python_version == '3.13'",
+    "pydantic>=2.12,<3; python_version >= '3.14'",
     "pyyaml>=6,<7",
     "tomli>=2,<3; python_version < '3.11'",
     "toml>=0.10.0,<1.0.0",
@@ -160,7 +171,9 @@ dependencies = [
     # Compatibility constraints for transitive dependencies
     "executing>=2.1.0,<3; python_version>='3.13'",  # Python 3.13 AST compatibility for IPython tracebacks
     "grpcio>=1.66.2; python_version >= '3.13'",
-    "greenlet>=3.1.0; python_version >= '3.13'"
+    "greenlet>=3.1.0; python_version >= '3.13'",
+    "parso>=0.8.5,<0.9; python_version >= '3.14'", # also used by IPython/Jedi without server extras
+    "rpds-py>=0.25.0; python_version >= '3.14'" # older PyO3 bindings can crash on Python 3.14
 ]
 
 [project.urls]
@@ -176,10 +189,13 @@ server = [
     "jupyter-resource-usage>=1.1.0,<2.0.0",
     "streamlit>=1.40.0,<2.0.0",
     "deepnote-python-lsp-server==1.13.1rc2",
+    "parso>=0.8.5,<0.9; python_version >= '3.14'",
+    "pywinpty>=3.0.1; python_version >= '3.14' and sys_platform == 'win32'",
 
     # Config dependencies - they need to be declared both in main and server extras, keep them in sync
-    "pydantic>=1.10.0,<3",
-    "pydantic>=2.8.0,<3; python_version>='3.13'",
+    "pydantic>=1.10.0,<3; python_version < '3.13'",
+    "pydantic>=2.8.0,<3; python_version == '3.13'",
+    "pydantic>=2.12,<3; python_version >= '3.14'",
     "pyyaml>=6,<7",
     "tomli>=2,<3; python_version < '3.11'",
     "toml>=0.10.0,<1.0.0"
@@ -198,7 +214,8 @@ deepnote-toolkit = "deepnote_toolkit.cli.main:main"
 
 [dependency-groups]
 dev = [
-    "pylint>=3.3.0,<4.0.0",
+    "pylint>=3.3.0,<4.0.0; python_version < '3.14'",
+    "pylint>=4.0.0,<5.0.0; python_version >= '3.14'",
     "flake8>=7.1.0,<8.0.0",
     "black>=26.3.1,<27.0.0",
     "isort>=5.13.2,<6.0.0",
@@ -215,7 +232,11 @@ dev = [
     # users need it. So in code we get pyspark from global module cache (since user already imported it at
     # that point). But we also have it as dev dependency to provide better autocompletion and for tests
     "pyspark>=3.5.5,<4.0.0; python_version < '3.13'",
-    "pyspark>=4.0.0,<5.0.0; python_version >= '3.13'",
+    "pyspark>=4.0.0,<5.0.0; python_version == '3.13'",
+    "pyspark>=4.1.0,<5.0.0; python_version >= '3.14'",
+    "pyogrio>=0.12.0; python_version >= '3.14'",
+    "pyproj>=3.7.2; python_version >= '3.14'",
+    "shapely>=2.1.2; python_version >= '3.14'",
     "nox>=2025.11.12,<2026.0.0",
     "virtualenv>=20.36.1",
     "poetry-dynamic-versioning>=1.4.0,<2.0.0",
@@ -230,7 +251,11 @@ license-check = [
     "geopandas>=1.1.2,<2; python_version < '3.12'",
     "geopandas>=1.1.2,<2; python_version >= '3.12'",
     "pyspark>=3.5.5,<4.0.0; python_version < '3.13'",
-    "pyspark>=4.0.0,<5.0.0; python_version >= '3.13'"
+    "pyspark>=4.0.0,<5.0.0; python_version == '3.13'",
+    "pyspark>=4.1.0,<5.0.0; python_version >= '3.14'",
+    "pyogrio>=0.12.0; python_version >= '3.14'",
+    "pyproj>=3.7.2; python_version >= '3.14'",
+    "shapely>=2.1.2; python_version >= '3.14'"
 ]
 
 [tool.poetry]

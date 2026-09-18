@@ -3,3 +3,4 @@ create = true
 
 [installer]
 modern-installation = true
+re-resolve = false

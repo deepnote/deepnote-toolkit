@@ -52,6 +52,34 @@ def test_download_and_extract_tar(tmp_path):
     assert (tmp_path / "a.txt").read_text() == "hello"
 
 
+def test_extract_bundle_preserves_executable_and_internal_symlink(tmp_path):
+    """Python 3.14's data filter must preserve the layout of toolkit bundles."""
+    archive_path = tmp_path / "bundle.tar"
+    with tarfile.open(archive_path, mode="w") as archive:
+        command = tarfile.TarInfo("kernel-libs/bin/toolkit-command")
+        contents = b"#!/usr/bin/env python\nprint('ok')\n"
+        command.size = len(contents)
+        command.mode = 0o755
+        archive.addfile(command, io.BytesIO(contents))
+
+        module = tarfile.TarInfo("kernel-libs/lib/python3.14/site-packages/example.py")
+        archive.addfile(module, io.BytesIO())
+        link = tarfile.TarInfo("kernel-libs/lib64")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "lib"
+        archive.addfile(link)
+
+    extract_to = tmp_path / "extracted"
+    dl._download_and_extract_tar(archive_path.as_uri(), str(extract_to))
+
+    executable = extract_to / "kernel-libs/bin/toolkit-command"
+    assert executable.stat().st_mode & 0o111 == 0o111
+    assert (extract_to / "kernel-libs/lib64").is_symlink()
+    assert (
+        extract_to / "kernel-libs/lib64/python3.14/site-packages/example.py"
+    ).is_file()
+
+
 def test_load_toolkit_bundle_fails_with_invalid_input():
     empty_bundle_config = BundleConfig()
 
