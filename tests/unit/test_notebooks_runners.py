@@ -405,3 +405,20 @@ def test_cloud_run_waits_for_a_snapshot_that_lags_the_terminal_status() -> None:
 
     assert sleeps == [0.5, 0.5]
     assert result.text() == "done"
+
+
+def test_info_skips_inputs_without_a_name_or_type() -> None:
+    def open_request(_request: Any, *, timeout: float) -> FakeResponse:
+        return FakeResponse(
+            {
+                "inputs": [
+                    {"type": "input-text"},
+                    {"variableName": "orphan"},
+                    {"variableName": "region", "type": "input-text"},
+                ]
+            }
+        )
+
+    info = DeepnoteRunner(opener=open_request).info()
+
+    assert info.inputs == (InputBlock("region", "input-text", None),)

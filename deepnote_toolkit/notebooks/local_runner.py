@@ -34,6 +34,8 @@ class DeepnoteRunner:
                 InputBlock.from_api(value)
                 for value in values
                 if isinstance(value, Mapping)
+                and isinstance(value.get("variableName"), str)
+                and isinstance(value.get("type"), str)
             )
             if isinstance(values, list)
             else ()

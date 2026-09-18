@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from deepnote_toolkit.notebooks.cloud_runner import (
-    DEFAULT_API_ORIGIN,
-    DeepnoteCloudRunner,
-)
+from deepnote_toolkit.notebooks.cloud_runner import DeepnoteCloudRunner
 from deepnote_toolkit.notebooks.runner import RunnerError
 
 from .auth import (
@@ -34,12 +31,7 @@ class StreamlitCloudRunner(DeepnoteCloudRunner):
                 )
             except CurrentUserApiTokenError as error:
                 raise RunnerError(str(error), transient=error.transient) from error
-            api_origin = (
-                credentials.api_origin
-                if self.base_url == DEFAULT_API_ORIGIN
-                else self.base_url
-            )
-            return credentials.token, api_origin
+            return credentials.token, credentials.api_origin
 
         if _is_streamlit_thread_without_request():
             raise RunnerError(

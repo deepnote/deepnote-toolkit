@@ -191,3 +191,31 @@ def test_local_streamlit_runner_uses_environment_token(
         info = StreamlitCloudRunner("notebook-1", opener=open_request).info()
 
     assert info.notebook == "Revenue"
+
+
+def test_hosted_runner_sends_the_viewer_token_only_to_the_returned_origin() -> None:
+    urls = []
+
+    def open_request(request: Any, *, timeout: float) -> FakeResponse:
+        urls.append(request.full_url)
+        return FakeResponse({"notebook": {"name": "Revenue", "inputs": []}})
+
+    with (
+        patch(
+            "deepnote_toolkit.streamlit.cloud_runner._has_hosted_streamlit_context",
+            return_value=True,
+        ),
+        patch(
+            "deepnote_toolkit.streamlit.cloud_runner.current_user_api_credentials",
+            return_value=CurrentUserApiCredentials(
+                token="viewer-token",
+                api_origin="https://api.deepnote.com",
+                expires_at_seconds=1_800_000_000,
+            ),
+        ),
+    ):
+        StreamlitCloudRunner(
+            "notebook-1", base_url="https://elsewhere.example", opener=open_request
+        ).info()
+
+    assert urls == ["https://api.deepnote.com/v2/notebooks/notebook-1"]
