@@ -93,6 +93,7 @@ def test_explicit_app_id_is_validated_before_network(http, state, value):
         {"expiresAtSeconds": "99999999999"},
         {"apiOrigin": "https://user:pass@example.com"},
         {"apiOrigin": "https://example.com/path"},
+        {"apiOrigin": "https://[::1"},
     ],
 )
 def test_malformed_credentials_are_not_cached(http, state, overrides):

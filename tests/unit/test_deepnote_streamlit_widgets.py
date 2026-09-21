@@ -1,39 +1,53 @@
 from datetime import date
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from deepnote_toolkit.notebooks import InputBlock
 from deepnote_toolkit.streamlit import render_inputs
 
+if TYPE_CHECKING:
+    from streamlit.testing.v1 import AppTest
+
 
 class FakeContainer:
-    def warning(self, message):
+    """Return widget defaults without starting Streamlit."""
+
+    def warning(self, message: str) -> None:
+        """Ignore warnings unless a test installs a recording callback."""
         pass
 
     def checkbox(self, _label: str, **kwargs: Any) -> Any:
+        """Return the configured checkbox value."""
         return kwargs["value"]
 
     def multiselect(self, _label: str, _options: list[str], **kwargs: Any) -> Any:
+        """Return the configured selection list."""
         return kwargs["default"]
 
     def selectbox(self, _label: str, options: list[str], **kwargs: Any) -> Any:
+        """Return the selected option, preserving an empty selection."""
         return options[kwargs["index"]] if kwargs["index"] is not None else None
 
     def slider(self, _label: str, **kwargs: Any) -> Any:
+        """Record or return the configured slider value."""
         return kwargs["value"]
 
     def date_input(self, _label: str, **kwargs: Any) -> Any:
+        """Return the dates supplied by the test container."""
         return kwargs["value"]
 
     def text_area(self, _label: str, **kwargs: Any) -> Any:
+        """Return the configured multiline text."""
         return kwargs["value"]
 
     def text_input(self, _label: str, **kwargs: Any) -> Any:
+        """Return the configured text."""
         return kwargs["value"]
 
 
 def test_render_inputs_maps_all_deepnote_input_types_to_api_values() -> None:
+    """Convert each supported widget value to its API representation."""
     inputs = [
         InputBlock("name", "input-text", "Ada"),
         InputBlock("notes", "input-textarea", "Hello"),
@@ -64,8 +78,13 @@ def test_render_inputs_maps_all_deepnote_input_types_to_api_values() -> None:
 
 
 def test_incomplete_date_range_is_still_valid_for_runner_contract() -> None:
+    """Omit incomplete ranges until the user chooses both dates."""
+
     class IncompleteDateContainer(FakeContainer):
+        """Simulate a user selecting only the start of a range."""
+
         def date_input(self, _label: str, **_kwargs: Any) -> Any:
+            """Return the dates supplied by the test container."""
             return (date(2026, 8, 17),)
 
     values = render_inputs(
@@ -81,10 +100,15 @@ def test_incomplete_date_range_is_still_valid_for_runner_contract() -> None:
 
 
 def test_slider_preserves_fractional_default_with_integer_bounds() -> None:
+    """Keep fractional slider defaults and consistent numeric argument types."""
+
     class SliderContainer(FakeContainer):
+        """Record slider arguments for numeric consistency checks."""
+
         slider_kwargs: dict[str, Any]
 
         def slider(self, _label: str, **kwargs: Any) -> Any:
+            """Record or return the configured slider value."""
             self.slider_kwargs = kwargs
             return kwargs["value"]
 
@@ -105,6 +129,7 @@ def test_slider_preserves_fractional_default_with_integer_bounds() -> None:
 
 
 def test_multiselect_normalizes_and_filters_stale_defaults() -> None:
+    """Normalize saved selections and filter unavailable options."""
     values = render_inputs(
         [
             InputBlock(
@@ -122,10 +147,14 @@ def test_multiselect_normalizes_and_filters_stale_defaults() -> None:
 
 
 def test_date_reads_timestamp_default_and_keeps_its_shape() -> None:
+    """Preserve timestamp compatibility for older date blocks."""
     defaults = []
 
     class RecordingContainer(FakeContainer):
+        """Record defaults and simulate a changed date."""
+
         def date_input(self, _label: str, **kwargs: Any) -> Any:
+            """Return the dates supplied by the test container."""
             defaults.append(kwargs["value"])
             return date(2026, 8, 20)
 
@@ -142,6 +171,7 @@ def test_date_reads_timestamp_default_and_keeps_its_shape() -> None:
 
 
 def test_empty_dates_stay_empty_instead_of_becoming_today() -> None:
+    """Leave unspecified dates empty."""
     values = render_inputs(
         [
             InputBlock("as_of", "input-date", ""),
@@ -154,14 +184,18 @@ def test_empty_dates_stay_empty_instead_of_becoming_today() -> None:
 
 
 class FrozenDate(date):
+    """Keep relative date calculations deterministic."""
+
     @classmethod
     def today(cls) -> "FrozenDate":
+        """Use a month end in a leap year."""
         return cls(2024, 3, 31)
 
 
 def test_relative_date_ranges_resolve_to_concrete_dates(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Resolve relative ranges and clamp dates at month boundaries."""
     monkeypatch.setattr("deepnote_toolkit.streamlit.widgets.date", FrozenDate)
 
     values = render_inputs(
@@ -183,9 +217,13 @@ def test_relative_date_ranges_resolve_to_concrete_dates(
     }
 
 
-def test_render_inputs_runs_on_real_streamlit_widgets(streamlit_app_test) -> None:
+def test_render_inputs_runs_on_real_streamlit_widgets(
+    streamlit_app_test: "type[AppTest]",
+) -> None:
+    """Exercise every widget family using Streamlit AppTest."""
 
     def app() -> None:
+        """Render the test inputs inside a real Streamlit script."""
         import streamlit as st
 
         from deepnote_toolkit.notebooks import InputBlock
@@ -228,6 +266,7 @@ def test_render_inputs_runs_on_real_streamlit_widgets(streamlit_app_test) -> Non
 
 
 def test_duplicate_variable_names_are_rejected() -> None:
+    """Reject duplicate variables before widgets overwrite their values."""
     with pytest.raises(ValueError, match="unique"):
         render_inputs(
             [
@@ -239,6 +278,7 @@ def test_duplicate_variable_names_are_rejected() -> None:
 
 
 def test_multiselect_treats_a_scalar_default_as_one_selection() -> None:
+    """Normalize scalar and absent multiselect defaults."""
     values = render_inputs(
         [
             InputBlock(
@@ -256,14 +296,20 @@ def test_multiselect_treats_a_scalar_default_as_one_selection() -> None:
 
 @pytest.mark.parametrize("kind", ["input-text", "input-textarea", "input-file"])
 @pytest.mark.parametrize("value,expected", [(0, "0"), (False, "False"), (None, "")])
-def test_falsey_text_defaults_are_preserved(kind, value, expected):
+def test_falsey_text_defaults_are_preserved(
+    kind: str, value: Any, expected: str
+) -> None:
+    """Keep zero and false defaults visible in text widgets."""
     assert render_inputs([InputBlock("x", kind, value)], FakeContainer()) == {
         "x": expected
     }
 
 
 @pytest.mark.parametrize("value", [None, "stale"])
-def test_unselected_single_select_does_not_submit_first_option(value):
+def test_unselected_single_select_does_not_submit_first_option(
+    value: str | None,
+) -> None:
+    """Do not submit an option that the user has not selected."""
     assert (
         render_inputs(
             [InputBlock("x", "input-select", value, options=("first", "second"))],
@@ -273,7 +319,8 @@ def test_unselected_single_select_does_not_submit_first_option(value):
     )
 
 
-def test_stale_multiselect_default_warns():
+def test_stale_multiselect_default_warns() -> None:
+    """Make unavailable saved selections visible to the user."""
     warnings = []
     container = FakeContainer()
     container.warning = warnings.append
@@ -306,7 +353,10 @@ def test_stale_multiselect_default_warns():
         (3, 0, float("inf"), 1),
     ],
 )
-def test_invalid_slider_configuration_is_reported(value, min_value, max_value, step):
+def test_invalid_slider_configuration_is_reported(
+    value: Any, min_value: float, max_value: float, step: float
+) -> None:
+    """Reject invalid bounds, steps, and defaults before rendering."""
     with pytest.raises(ValueError, match="[Ss]lider"):
         render_inputs(
             [
@@ -318,9 +368,13 @@ def test_invalid_slider_configuration_is_reported(value, min_value, max_value, s
         )
 
 
-def test_real_widgets_keep_falsey_defaults_and_require_selection(streamlit_app_test):
+def test_real_widgets_keep_falsey_defaults_and_require_selection(
+    streamlit_app_test: "type[AppTest]",
+) -> None:
+    """Verify user interactions preserve defaults and omit partial ranges."""
 
-    def app():
+    def app() -> None:
+        """Render the test inputs inside a real Streamlit script."""
         import streamlit as st
 
         from deepnote_toolkit.notebooks import InputBlock
@@ -346,7 +400,8 @@ def test_real_widgets_keep_falsey_defaults_and_require_selection(streamlit_app_t
     assert "period" not in at.session_state["values"]
 
 
-def test_missing_select_value_does_not_select_literal_none_option():
+def test_missing_select_value_does_not_select_literal_none_option() -> None:
+    """Distinguish a missing default from an option containing the word None."""
     assert (
         render_inputs(
             [InputBlock("x", "input-select", None, options=("None", "EU"))],

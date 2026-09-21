@@ -101,8 +101,9 @@ class TestImportPackageBundle:
 
 
 def test_server_environment_is_passed_as_data_and_inherits_parent(
-    tmp_path, monkeypatch
-):
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pass app IDs as environment data while retaining the parent environment."""
     import json
     import shlex
     import sys

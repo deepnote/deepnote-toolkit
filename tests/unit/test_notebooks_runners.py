@@ -231,14 +231,27 @@ def test_request_and_sleep_time_count_against_run_deadline(http, clock):
     assert clock.sleeps == [2, 1]
 
 
-def test_snapshot_deadline_counts_slow_requests_and_caps_timeout(http, clock):
+@pytest.mark.parametrize("available", [False, True])
+def test_snapshot_deadline_counts_slow_requests_and_caps_timeout(
+    http, clock, available
+):
+    """Keep received outputs at the deadline without starting another request."""
     add_run(http, run_response(snapshotStatus="pending"), create=True)
     timeouts = []
 
     def poll(request):
         timeouts.append(request.req_kwargs["timeout"].total)
         clock.now += 4
-        return 200, {}, json.dumps(run_response(snapshotStatus="pending"))
+        payload = run_response(snapshotStatus="available" if available else "pending")
+        if available:
+            payload["run"]["snapshotBlocks"] = [
+                {
+                    "id": "b",
+                    "type": "code",
+                    "outputs": [{"output_type": "stream", "text": "done"}],
+                }
+            ]
+        return 200, {}, json.dumps(payload)
 
     http.add_callback(
         responses.GET,
@@ -254,7 +267,10 @@ def test_snapshot_deadline_counts_slow_requests_and_caps_timeout(http, clock):
         clock=clock,
         sleep=clock.sleep,
     )
-    assert runner.run({}).snapshot_status == "pending"
+    result = runner.run({})
+    assert result.snapshot_status == ("available" if available else "pending")
+    assert result.text() == ("done" if available else "")
+    assert len(http.calls) == 2
     assert timeouts == [4]
     assert clock.now == 5
 

@@ -98,7 +98,7 @@ class TestStartStreamlitServers(unittest.TestCase):
         assert mock_logger.warning.call_count == 2
         assert mock_venv.start_server.call_count == 1
 
-    def test_passes_app_id_as_environment_data(self):
+    def test_passes_app_id_as_environment_data(self) -> None:
         """App IDs are data, never shell syntax; validation belongs to the SDK."""
         apps = [
             {
@@ -122,7 +122,8 @@ class TestStartStreamlitServers(unittest.TestCase):
         assert calls[0].kwargs["env"] == {"DEEPNOTE_STREAMLIT_APP_ID": apps[0]["id"]}
         assert calls[1].kwargs["env"] == {"DEEPNOTE_STREAMLIT_APP_ID": apps[1]["id"]}
 
-    def test_missing_app_id_warns_and_still_marks_process_as_hosted(self):
+    def test_missing_app_id_warns_and_still_marks_process_as_hosted(self) -> None:
+        """Missing app IDs warn without permitting local credential fallback."""
         app = {"entrypoint": "app.py", "port": "8501"}
         venv = MagicMock()
         logger = MagicMock(spec=logging.Logger)

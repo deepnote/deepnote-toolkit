@@ -49,6 +49,7 @@ def render_inputs(
 
 
 def _render_one(container: Any, input_block: InputBlock, label: str, key: str) -> Any:
+    """Render one input block using its saved default and constraints."""
     if input_block.type == "input-checkbox":
         return container.checkbox(label, value=_as_bool(input_block.value), key=key)
 
@@ -129,12 +130,14 @@ def _render_one(container: Any, input_block: InputBlock, label: str, key: str) -
 
 
 def _as_bool(value: Any) -> bool:
+    """Decode checkbox defaults without treating the text false as truthy."""
     if isinstance(value, bool):
         return value
     return str(value).lower() in {"true", "1"}
 
 
 def _as_number(value: Any, fallback: float | int) -> float | int:
+    """Decode numeric defaults while preserving fractional values."""
     if value is None:
         return fallback
     try:
@@ -177,4 +180,5 @@ def _as_date_range(value: Any) -> tuple[date, ...]:
 
 
 def _serialize_date(value: Any) -> str:
+    """Encode a chosen date, leaving an empty widget empty."""
     return value.isoformat() if isinstance(value, date) else ""

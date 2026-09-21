@@ -205,7 +205,10 @@ def test_run_result_falls_back_to_inline_outputs_without_snapshot() -> None:
     assert dataframe.records() == [{"value": 42}]
 
 
-def test_run_result_falls_back_to_inline_outputs_for_malformed_snapshot() -> None:
+def test_run_result_falls_back_to_inline_outputs_for_malformed_snapshot(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Keep inline outputs and report the snapshot fallback without its contents."""
     result = run_locally(
         {
             "target": "cloud",
@@ -227,6 +230,8 @@ def test_run_result_falls_back_to_inline_outputs_for_malformed_snapshot() -> Non
 
     assert result.snapshot is None
     assert result.text() == "fallback output"
+    assert "Could not parse the run snapshot; using inline outputs" in caplog.text
+    assert "not: a deepnote snapshot" not in caplog.text
 
 
 @pytest.mark.parametrize(

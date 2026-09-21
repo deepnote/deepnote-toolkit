@@ -3,9 +3,12 @@
 import os
 import sys
 import tempfile
-from typing import Generator
+from typing import TYPE_CHECKING, Generator
 
 import pytest
+
+if TYPE_CHECKING:
+    from streamlit.testing.v1 import AppTest
 
 
 @pytest.fixture(autouse=True, scope="session")
@@ -69,7 +72,7 @@ def test_log_directory() -> Generator[str, None, None]:
 
 
 @pytest.fixture
-def streamlit_app_test(monkeypatch):
+def streamlit_app_test(monkeypatch: pytest.MonkeyPatch) -> "type[AppTest]":
     """Restore the main module that Streamlit replaces while executing an app."""
     pytest.importorskip("streamlit")
     from streamlit.testing.v1 import AppTest

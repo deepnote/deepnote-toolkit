@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from typing import Any
 
@@ -12,6 +13,8 @@ from .models import RunnerInfo
 from .run_result import RunResult
 from .transport import request_json
 from .wire import decode_block_outputs, decode_inputs, optional_string
+
+logger = logging.getLogger(__name__)
 
 
 class DeepnoteLocalRunner:
@@ -65,7 +68,7 @@ def _decode_run_result(payload: Mapping[str, Any]) -> RunResult:
         try:
             snapshot = DeepnoteDocument.parse(snapshot_yaml)
         except ValueError:
-            pass
+            logger.warning("Could not parse the run snapshot; using inline outputs")
     return RunResult(
         target=str(payload.get("target", "")),
         success=payload.get("success") is True,

@@ -55,6 +55,8 @@ For Python code outside Streamlit, use `DeepnoteCloudRunner` from
 `deepnote_toolkit.notebooks`. It accepts `token=`, `token_provider=`, or
 `DEEPNOTE_TOKEN`. For a local `@deepnote/local-runner` sidecar, use
 `DeepnoteLocalRunner(base_url="http://127.0.0.1:8787")`.
+`StreamlitCloudRunner` requires explicit local mode and credentials even when
+called outside the Streamlit runtime.
 
 ## Inputs and outputs
 

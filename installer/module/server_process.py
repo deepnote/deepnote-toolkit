@@ -20,7 +20,7 @@ class ServerProcess:
         cwd: Optional[str] = None,
         *,
         env: Optional[dict[str, str]] = None,
-    ):
+    ) -> None:
         """
         Initialize the ServerProcess with the given command.
 

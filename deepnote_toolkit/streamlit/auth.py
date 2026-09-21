@@ -235,7 +235,13 @@ def _is_streamlit_thread_without_request() -> bool:
 
 
 def _validated_origin(value: str, *, name: str) -> str:
-    parsed = urlparse(value)
+    """Validate an origin and normalize URL parser failures to authentication errors."""
+    try:
+        parsed = urlparse(value)
+    except ValueError as error:
+        raise CurrentUserApiTokenError(
+            f"{name} must be a valid HTTP(S) origin."
+        ) from error
     if (
         parsed.scheme not in {"http", "https"}
         or not parsed.netloc

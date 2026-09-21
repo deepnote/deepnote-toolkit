@@ -109,7 +109,10 @@ def test_worker_thread_fails_closed(context, http, explicit):
     assert not http.calls
 
 
-def test_local_streamlit_requires_explicit_opt_in_and_token(context, http):
+@pytest.mark.parametrize("script", [False, True])
+def test_local_streamlit_requires_explicit_opt_in_and_token(context, http, script):
+    """Explicit local credentials work with or without an active Streamlit script."""
+    context["script"] = script
     http.get(
         "https://api.deepnote.com/v2/notebooks/n", json={"notebook": {"name": "N"}}
     )
@@ -120,12 +123,13 @@ def test_local_streamlit_requires_explicit_opt_in_and_token(context, http):
         StreamlitCloudRunner("n", local=True, session=session()).info()
 
 
-def test_bare_python_uses_local_token_without_streamlit_lookups(context, http):
+@pytest.mark.parametrize("explicit", [{}, {"token": "owner"}, {"local": True}])
+def test_bare_python_requires_explicit_local_credentials(context, http, explicit):
+    """The Streamlit adapter cannot use an ambient owner token outside the runtime."""
     context["script"] = False
-    http.get(
-        "https://api.deepnote.com/v2/notebooks/n", json={"notebook": {"name": "N"}}
-    )
-    assert StreamlitCloudRunner("n", session=session()).info().notebook == "N"
+    with pytest.raises(RunnerError, match="local=True.*explicitly"):
+        StreamlitCloudRunner("n", session=session(), **explicit).info()
+    assert not http.calls
 
 
 def test_transient_exchange_failure_during_poll_is_retried(context, http, monkeypatch):

@@ -76,9 +76,9 @@ class ViewerCredentials:
         if _is_streamlit_thread_without_request():
             raise RunnerError(_NO_REQUEST + ".")
 
-        if has_request and self._local_mode and not self._local_token_explicit:
+        if not self._local_mode or not self._local_token_explicit:
             raise RunnerError(
-                "Viewer identity is unavailable. For local development, "
+                "Viewer identity is unavailable. For local execution, set local=True and "
                 "pass token= or token_provider= explicitly."
             )
         return self._local(timeout=timeout)
