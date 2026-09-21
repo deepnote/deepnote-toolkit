@@ -83,7 +83,9 @@ def current_user_api_credentials(
             "Could not resolve a Deepnote Streamlit app ID from the request host."
         )
 
-    if not re.fullmatch(_APP_ID, resolved_app_id, re.IGNORECASE):
+    if not isinstance(resolved_app_id, str) or not re.fullmatch(
+        _APP_ID, resolved_app_id, re.IGNORECASE
+    ):
         raise CurrentUserApiTokenError("app_id must be a UUID.")
     resolved_app_id = resolved_app_id.lower()
 
@@ -132,10 +134,11 @@ def current_user_api_credentials(
             )
     except RunnerError as error:
         raise CurrentUserApiTokenError(str(error), transient=error.transient) from error
-    except ValidationError as error:
+    except ValidationError:
+        # Pydantic validation errors can contain the bearer token as input data.
         raise CurrentUserApiTokenError(
             "Viewer API-token response is missing or has invalid required fields."
-        ) from error
+        ) from None
     finally:
         if owned_session:
             http.close()

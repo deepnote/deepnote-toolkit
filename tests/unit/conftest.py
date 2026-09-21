@@ -1,6 +1,7 @@
 """Pytest configuration and fixtures for unit tests."""
 
 import os
+import sys
 import tempfile
 from typing import Generator
 
@@ -65,3 +66,13 @@ def test_log_directory() -> Generator[str, None, None]:
             os.environ.pop("DEEPNOTE_PATHS__LOG_DIR", None)
         else:
             os.environ["DEEPNOTE_PATHS__LOG_DIR"] = original_log_dir
+
+
+@pytest.fixture
+def streamlit_app_test(monkeypatch):
+    """Restore the main module that Streamlit replaces while executing an app."""
+    pytest.importorskip("streamlit")
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setitem(sys.modules, "__main__", sys.modules["__main__"])
+    return AppTest

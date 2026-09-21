@@ -149,9 +149,9 @@ def test_transient_exchange_failure_during_poll_is_retried(context, http, monkey
     assert len(http.calls) == 5
 
 
-def test_real_streamlit_script_and_worker_keep_viewer_identity(monkeypatch, http):
-    pytest.importorskip("streamlit")
-    from streamlit.testing.v1 import AppTest
+def test_real_streamlit_script_and_worker_keep_viewer_identity(
+    monkeypatch, http, streamlit_app_test
+):
 
     monkeypatch.setenv("DEEPNOTE_STREAMLIT_APP_ID", APP_ID)
     monkeypatch.setenv("DEEPNOTE_TOKEN", "owner-token")
@@ -189,7 +189,7 @@ def test_real_streamlit_script_and_worker_keep_viewer_identity(monkeypatch, http
         thread.join(timeout=5)
         st.session_state["worker_errors"] = errors
 
-    at = AppTest.from_function(app).run()
+    at = streamlit_app_test.from_function(app).run()
     assert not at.exception
     assert at.session_state["success"] is True
     assert "No viewer request" in at.session_state["worker_errors"][0]

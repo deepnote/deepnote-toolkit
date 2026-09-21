@@ -177,3 +177,12 @@ def test_session_state_lookup_suppresses_missing_context_warning(monkeypatch):
     )
     assert auth._read_streamlit_session_state() is None
     assert calls == [True]
+
+
+def test_credential_validation_traceback_does_not_expose_bearer(http, state):
+    import traceback
+
+    http.post(TOKEN_URL, json=payload(token={"secret": "private-token"}))
+    with pytest.raises(auth.CurrentUserApiTokenError) as exc:
+        credentials(session())
+    assert "private-token" not in "".join(traceback.format_exception(exc.value))

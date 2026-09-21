@@ -183,9 +183,7 @@ def test_relative_date_ranges_resolve_to_concrete_dates(
     }
 
 
-def test_render_inputs_runs_on_real_streamlit_widgets() -> None:
-    pytest.importorskip("streamlit")
-    from streamlit.testing.v1 import AppTest
+def test_render_inputs_runs_on_real_streamlit_widgets(streamlit_app_test) -> None:
 
     def app() -> None:
         import streamlit as st
@@ -213,7 +211,7 @@ def test_render_inputs_runs_on_real_streamlit_widgets() -> None:
             ]
         )
 
-    at = AppTest.from_function(app).run()
+    at = streamlit_app_test.from_function(app).run()
 
     assert not at.exception
     assert at.session_state["values"] == {
@@ -320,9 +318,7 @@ def test_invalid_slider_configuration_is_reported(value, min_value, max_value, s
         )
 
 
-def test_real_widgets_keep_falsey_defaults_and_require_selection():
-    pytest.importorskip("streamlit")
-    from streamlit.testing.v1 import AppTest
+def test_real_widgets_keep_falsey_defaults_and_require_selection(streamlit_app_test):
 
     def app():
         import streamlit as st
@@ -339,7 +335,7 @@ def test_real_widgets_keep_falsey_defaults_and_require_selection():
             ]
         )
 
-    at = AppTest.from_function(app).run()
+    at = streamlit_app_test.from_function(app).run()
     assert not at.exception
     assert at.text_input[0].value == "0" and at.text_area[0].value == "False"
     assert "choice" not in at.session_state["values"]
