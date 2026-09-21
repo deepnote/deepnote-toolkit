@@ -344,3 +344,13 @@ def test_real_widgets_keep_falsey_defaults_and_require_selection(streamlit_app_t
     at.date_input[0].set_value((date(2026, 8, 17),)).run()
     assert not at.exception
     assert "period" not in at.session_state["values"]
+
+
+def test_missing_select_value_does_not_select_literal_none_option():
+    assert (
+        render_inputs(
+            [InputBlock("x", "input-select", None, options=("None", "EU"))],
+            FakeContainer(),
+        )
+        == {}
+    )

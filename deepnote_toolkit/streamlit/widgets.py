@@ -68,7 +68,7 @@ def _render_one(container: Any, input_block: InputBlock, label: str, key: str) -
             return container.multiselect(label, options, default=defaults, key=key)
         index = (
             options.index(str(input_block.value))
-            if str(input_block.value) in options
+            if input_block.value is not None and str(input_block.value) in options
             else None
         )
         return container.selectbox(label, options, index=index, key=key)
