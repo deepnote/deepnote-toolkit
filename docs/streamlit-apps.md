@@ -22,7 +22,7 @@ if st.button("Run"):
         elif result.snapshot_status == "pending":
             st.info("The run finished, but its outputs are not available yet.")
         elif (table := result.first_dataframe()) is not None:
-            st.dataframe(table.records())
+            st.dataframe(table.records(include_index=False))
         else:
             st.write(result.text())
     except RunnerError as error:
@@ -63,7 +63,8 @@ without a valid saved choice starts empty. Unselected single selects and partial
 selected date ranges are omitted from the returned dictionary; disable your Run
 button until required fields are present. An omitted input uses the notebook's
 value according to the API. Stale multi-select choices produce a warning. Invalid
-slider bounds/defaults and duplicate variable names raise `ValueError`.
+slider bounds/defaults and duplicate variable names raise `ValueError`. File inputs
+render as text paths; this helper does not upload files.
 
 `runner.info().matches_inputs(document.inputs)` compares static input definitions:
 unique names, types, single/multiple selection, options, and slider bounds/steps.

@@ -534,3 +534,37 @@ def test_expired_credential_budget_does_not_send_request(http, clock):
             session=session(),
         ).run({})
     assert not http.calls
+
+
+@pytest.mark.parametrize("status", [403, 503])
+def test_snapshot_poll_error_policy(http, runner, status):
+    add_run(http, run_response(snapshotStatus="pending"), create=True)
+    http.get(
+        "https://api.deepnote.com/v2/runs/run-1?snapshotDelivery=blocks", status=status
+    )
+    if status == 403:
+        with pytest.raises(RunnerError, match="403"):
+            runner.run({})
+        assert len(http.calls) == 2
+    else:
+        add_run(http, run_response(snapshotStatus="available", snapshotBlocks=[]))
+        assert runner.run({}).snapshot_status == "available"
+        assert len(http.calls) == 3
+
+
+@pytest.mark.parametrize("body", ["not-json", "[]", "null"])
+def test_invalid_json_response_is_a_runner_error(http, body):
+    http.get("http://127.0.0.1:8787/api/info", body=body)
+    with pytest.raises(RunnerError, match="invalid JSON|non-object"):
+        DeepnoteLocalRunner(session=session()).info()
+
+
+def test_same_origin_redirect_is_also_refused(http, runner):
+    http.post(
+        "https://api.deepnote.com/v2/runs",
+        status=307,
+        headers={"Location": "https://api.deepnote.com/other"},
+    )
+    with pytest.raises(RunnerError, match="Refused a redirect"):
+        runner.run({})
+    assert len(http.calls) == 1

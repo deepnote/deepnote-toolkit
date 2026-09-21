@@ -11,11 +11,12 @@ _BaseLoader: type = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
 class _CoreSchemaLoader(_BaseLoader):  # type: ignore[misc,valid-type]
-    """A safe loader that resolves plain scalars by the YAML 1.2 core schema.
+    """A safe loader for the scalar conventions used by `.deepnote` files.
 
     `.deepnote` files are written as YAML 1.2, where `No`, `on`, `12:30` and
     `2026-08-17` are strings. PyYAML's YAML 1.1 rules read them as booleans,
-    numbers and dates.
+    numbers and dates. Leading-zero scalars intentionally remain strings, unlike
+    the core schema. Merge keys are treated as literal keys, not YAML 1.1 merges.
     """
 
     yaml_implicit_resolvers: dict[str, Any] = {}
