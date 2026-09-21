@@ -129,6 +129,8 @@ class DeepnoteApiClient:
             if timeout is None
             else min(timeout, self._request_timeout)
         )
+        if budget <= 0:
+            raise RunnerError("API request deadline expired", transient=True)
         deadline = self._clock() + budget
         credentials = self._credentials(timeout=budget)
         remaining = deadline - self._clock()

@@ -568,3 +568,15 @@ def test_same_origin_redirect_is_also_refused(http, runner):
     with pytest.raises(RunnerError, match="Refused a redirect"):
         runner.run({})
     assert len(http.calls) == 1
+
+
+def test_exhausted_poll_budget_does_not_even_fetch_credentials(http):
+    from deepnote_toolkit.notebooks.api_client import DeepnoteApiClient
+
+    def credentials(*, timeout):
+        pytest.fail("Expired requests must not fetch credentials")
+
+    client = DeepnoteApiClient(credentials, session=session())
+    with pytest.raises(RunnerError, match="deadline expired"):
+        client.get_run("r", timeout=0)
+    assert not http.calls
