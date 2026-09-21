@@ -2,6 +2,7 @@ import copy
 import json
 import uuid
 import warnings
+from functools import partial
 from typing import Any, Dict, List, Optional, Union
 
 import pyarrow as pa
@@ -19,6 +20,7 @@ from deepnote_toolkit.chart.utils import (
     sanitize_dataframe_for_chart,
     sanitize_polars_dataframe_for_chart,
     serialize_values_list_for_json,
+    stringify_incompatible_arrow_columns,
 )
 from deepnote_toolkit.logging import LoggerManager
 from deepnote_toolkit.ocelots.constants import DEEPNOTE_INDEX_COLUMN
@@ -174,18 +176,30 @@ class DeepnoteChart:
                 oc_sanitized_df, dataframe_name
             )
             inline_dataset = _create_vf_inline_dataset_from_dataframe(oc_sanitized_df)
+            transform_spec = partial(
+                vf_runtime.pre_transform_spec,
+                self.source_vega_spec_dict,
+                local_tz="UTC",
+                default_input_tz="UTC",
+                preserve_interactivity=False,
+                row_limit=CHART_ROW_LIMIT,
+            )
 
             try:
-                transformed_spec, orig_transformation_warnings = (
-                    vf_runtime.pre_transform_spec(
-                        self.source_vega_spec_dict,
-                        inline_datasets={dataframe_name: inline_dataset},
-                        local_tz="UTC",
-                        default_input_tz="UTC",
-                        preserve_interactivity=False,
-                        row_limit=CHART_ROW_LIMIT,
+                try:
+                    transformed_spec, orig_transformation_warnings = transform_spec(
+                        inline_datasets={dataframe_name: inline_dataset}
                     )
-                )
+                except pa.ArrowInvalid:
+                    if oc_sanitized_df.native_type != "pandas":
+                        raise
+                    # Pandas 2.3 exposes ArrowInvalid instead of the TypeError
+                    # handled by VegaFusion. Preserve its string fallback without
+                    # changing the source dataframe or output column metadata.
+                    converted = stringify_incompatible_arrow_columns(inline_dataset)
+                    transformed_spec, orig_transformation_warnings = transform_spec(
+                        inline_datasets={dataframe_name: converted}
+                    )
             except pa.ArrowNotImplementedError as err:
                 error_msg = (
                     f"DataFrame contains data types that cannot be serialized into Arrow format for charting: {err}. "
