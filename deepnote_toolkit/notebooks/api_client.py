@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 from .api_types import (
+    RUN_STATUSES,
     SNAPSHOT_STATUSES,
     TERMINAL_RUN_STATUSES,
     InputValue,
@@ -114,6 +115,8 @@ class DeepnoteApiClient:
 
 
 def _encode_input(name: str, value: Any) -> InputValue:
+    """Convert a value to the form the runs API accepts, or raise `ValueError`."""
+
     if isinstance(value, bool):
         return value
     if isinstance(value, (list, tuple)):
@@ -132,6 +135,9 @@ def _decode_run(payload: Mapping[str, Any], *, run_id: str | None = None) -> Clo
     run_id = run.get("runId") or run.get("id") or run_id
     if not isinstance(run_id, str) or not run_id:
         raise RunnerError("Deepnote API response did not include a run id")
+    status = run.get("status")
+    if not isinstance(status, str) or status not in RUN_STATUSES:
+        raise RunnerError(f"Deepnote run {run_id} has an unknown status: {status!r}")
     snapshot_status = run.get("snapshotStatus")
     blocks = run.get("snapshotBlocks")
     error = run.get("error")
@@ -139,7 +145,7 @@ def _decode_run(payload: Mapping[str, Any], *, run_id: str | None = None) -> Clo
         error = error.get("message") or json.dumps(error)
     return CloudRun(
         run_id=run_id,
-        status=cast(RunStatus, str(run.get("status", ""))),
+        status=cast(RunStatus, status),
         snapshot_status=(
             snapshot_status if snapshot_status in SNAPSHOT_STATUSES else None
         ),

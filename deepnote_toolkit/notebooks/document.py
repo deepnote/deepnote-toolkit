@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import yaml
 
-from .api_types import InputBlockType
+from .api_types import INPUT_BLOCK_TYPES, InputBlockType
 from .models import InputBlock, NotebookOutput
 from .outputs import OutputCollection
 from .wire import decode_block_outputs, optional_number, optional_string, string_tuple
@@ -91,7 +91,7 @@ def _read_blocks(
 def _read_input_block(block: Mapping[str, Any]) -> InputBlock | None:
     block_type = str(block.get("type", ""))
     metadata = block.get("metadata")
-    if not block_type.startswith("input-") or not isinstance(metadata, Mapping):
+    if block_type not in INPUT_BLOCK_TYPES or not isinstance(metadata, Mapping):
         return None
     variable_name = metadata.get("deepnote_variable_name")
     if not isinstance(variable_name, str) or not variable_name:

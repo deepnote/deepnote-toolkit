@@ -434,13 +434,14 @@ def test_cloud_run_waits_for_a_snapshot_that_lags_the_terminal_status() -> None:
     assert result.text() == "done"
 
 
-def test_info_skips_inputs_without_a_name_or_type() -> None:
+def test_info_skips_inputs_without_a_name_or_a_known_type() -> None:
     def open_request(_request: Any, *, timeout: float) -> FakeResponse:
         return FakeResponse(
             {
                 "inputs": [
                     {"type": "input-text"},
                     {"variableName": "orphan"},
+                    {"variableName": "mystery", "type": "input-unknown"},
                     {"variableName": "region", "type": "input-text"},
                 ]
             }
@@ -747,6 +748,43 @@ def test_cloud_run_stops_waiting_for_a_snapshot_after_the_snapshot_timeout() -> 
     assert result.success is True
     assert result.snapshot_status == "pending"
     assert result.outputs == ()
+
+
+def test_cloud_run_honors_a_snapshot_timeout_shorter_than_the_poll_interval() -> None:
+    transport = FakeTransport(
+        {"run": {"runId": "run-1", "status": "success", "snapshotStatus": "pending"}}
+    )
+    sleeps: list[float] = []
+
+    DeepnoteCloudRunner(
+        "notebook-1",
+        token="token",
+        snapshot_timeout=1,
+        poll_interval=2,
+        transport=transport,
+        sleep=sleeps.append,
+    ).run({})
+
+    assert sleeps == [1]
+
+
+@pytest.mark.parametrize(
+    "run",
+    [{"runId": "run-1"}, {"runId": "run-1", "status": "cancelled"}],
+    ids=["missing", "unknown"],
+)
+def test_cloud_run_rejects_a_run_without_a_known_status(run: dict[str, str]) -> None:
+    sleeps: list[float] = []
+
+    with pytest.raises(RunnerError, match="run-1 has an unknown status"):
+        DeepnoteCloudRunner(
+            "notebook-1",
+            token="token",
+            transport=FakeTransport({"run": run}),
+            sleep=sleeps.append,
+        ).run({})
+
+    assert sleeps == []
 
 
 def test_cloud_run_sends_a_tuple_as_a_list_and_rejects_a_missing_value() -> None:

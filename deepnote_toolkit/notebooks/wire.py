@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, cast
 
-from .api_types import InputBlockType
+from .api_types import INPUT_BLOCK_TYPES, InputBlockType
 from .models import InputBlock, NotebookOutput
 
 
@@ -32,7 +32,7 @@ def string_tuple(value: Any) -> tuple[str, ...]:
 
 
 def decode_inputs(values: Any, *, name_key: str) -> tuple[InputBlock, ...]:
-    """Read an API's camelCase input list, skipping entries without a name or type."""
+    """Read an API's camelCase inputs, skipping any without a name or a known type."""
 
     if not isinstance(values, list):
         return ()
@@ -52,6 +52,7 @@ def decode_inputs(values: Any, *, name_key: str) -> tuple[InputBlock, ...]:
         if isinstance(value, Mapping)
         and isinstance(value.get(name_key), str)
         and isinstance(value.get("type"), str)
+        and value["type"] in INPUT_BLOCK_TYPES
     )
 
 

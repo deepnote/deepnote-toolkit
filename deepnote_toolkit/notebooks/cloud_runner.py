@@ -130,8 +130,9 @@ class DeepnoteCloudRunner:
             and run.snapshot_status in (None, "pending")
             and waited < self.snapshot_timeout
         ):
-            self._sleep(self.poll_interval)
-            waited += self.poll_interval
+            delay = min(self.poll_interval, self.snapshot_timeout - waited)
+            self._sleep(delay)
+            waited += delay
             try:
                 run = self._client.get_run(run.run_id)
             except RunnerError as error:

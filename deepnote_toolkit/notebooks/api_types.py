@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, Union
+from typing import Literal, Union, get_args
 
 InputBlockType = Literal[
     "input-checkbox",
@@ -21,9 +21,9 @@ SnapshotStatus = Literal["pending", "available", "unavailable"]
 StorageMode = Literal["read_write", "readonly"]
 InputValue = Union[str, bool, list[str]]
 
+INPUT_BLOCK_TYPES: frozenset[InputBlockType] = frozenset(get_args(InputBlockType))
+RUN_STATUSES: frozenset[RunStatus] = frozenset(get_args(RunStatus))
 TERMINAL_RUN_STATUSES: frozenset[RunStatus] = frozenset(
     {"success", "error", "internal_error", "stopped"}
 )
-SNAPSHOT_STATUSES: frozenset[SnapshotStatus] = frozenset(
-    {"pending", "available", "unavailable"}
-)
+SNAPSHOT_STATUSES: frozenset[SnapshotStatus] = frozenset(get_args(SnapshotStatus))

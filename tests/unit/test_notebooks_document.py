@@ -272,6 +272,20 @@ def test_unknown_notebook_id_is_rejected() -> None:
         DeepnoteDocument.parse(MULTI_NOTEBOOK_YAML, notebook_id="notebook-c")
 
 
+def test_skips_input_blocks_of_an_unknown_type() -> None:
+    document = DeepnoteDocument.parse("""
+project:
+  notebooks:
+    - blocks:
+        - type: input-unknown
+          metadata: {deepnote_variable_name: mystery}
+        - type: input-text
+          metadata: {deepnote_variable_name: region}
+""")
+
+    assert document.inputs == (InputBlock("region", "input-text", None),)
+
+
 WRITER_STYLE_YAML = """
 project:
   name: Survey

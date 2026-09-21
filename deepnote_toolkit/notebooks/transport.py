@@ -107,6 +107,8 @@ class UrllibTransport:
 
 
 def _origin(url: str) -> str:
+    """Return a URL's origin: its scheme, host and port."""
+
     parts = urlsplit(url)
     return f"{parts.scheme}://{parts.netloc}"
 
