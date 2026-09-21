@@ -1,4 +1,5 @@
 import time
+from typing import Any
 
 import pytest
 import responses
@@ -110,7 +111,9 @@ def test_worker_thread_fails_closed(context, http, explicit):
 
 
 @pytest.mark.parametrize("script", [False, True])
-def test_local_streamlit_requires_explicit_opt_in_and_token(context, http, script):
+def test_local_streamlit_requires_explicit_opt_in_and_token(
+    context: dict[str, bool], http: responses.RequestsMock, script: bool
+) -> None:
     """Explicit local credentials work with or without an active Streamlit script."""
     context["script"] = script
     http.get(
@@ -124,10 +127,12 @@ def test_local_streamlit_requires_explicit_opt_in_and_token(context, http, scrip
 
 
 @pytest.mark.parametrize("explicit", [{}, {"token": "owner"}, {"local": True}])
-def test_bare_python_requires_explicit_local_credentials(context, http, explicit):
+def test_bare_python_requires_explicit_local_credentials(
+    context: dict[str, bool], http: responses.RequestsMock, explicit: dict[str, Any]
+) -> None:
     """The Streamlit adapter cannot use an ambient owner token outside the runtime."""
     context["script"] = False
-    with pytest.raises(RunnerError, match="local=True.*explicitly"):
+    with pytest.raises(RunnerError, match=r"local=True.*explicitly"):
         StreamlitCloudRunner("n", session=session(), **explicit).info()
     assert not http.calls
 

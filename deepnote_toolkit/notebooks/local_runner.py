@@ -68,7 +68,11 @@ def _decode_run_result(payload: Mapping[str, Any]) -> RunResult:
         try:
             snapshot = DeepnoteDocument.parse(snapshot_yaml)
         except ValueError:
-            logger.warning("Could not parse the run snapshot; using inline outputs")
+            logger.warning(
+                "Could not parse the run snapshot; using inline outputs (runId=%r, target=%r)",
+                optional_string(payload.get("runId")),
+                optional_string(payload.get("target")),
+            )
     return RunResult(
         target=str(payload.get("target", "")),
         success=payload.get("success") is True,

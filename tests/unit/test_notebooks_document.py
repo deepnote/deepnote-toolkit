@@ -212,6 +212,7 @@ def test_run_result_falls_back_to_inline_outputs_for_malformed_snapshot(
     result = run_locally(
         {
             "target": "cloud",
+            "runId": "run-fallback",
             "success": True,
             "snapshotYaml": "not: a deepnote snapshot",
             "outputs": [
@@ -231,6 +232,7 @@ def test_run_result_falls_back_to_inline_outputs_for_malformed_snapshot(
     assert result.snapshot is None
     assert result.text() == "fallback output"
     assert "Could not parse the run snapshot; using inline outputs" in caplog.text
+    assert "run-fallback" in caplog.text and "cloud" in caplog.text
     assert "not: a deepnote snapshot" not in caplog.text
 
 

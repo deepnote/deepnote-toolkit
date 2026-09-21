@@ -1,6 +1,7 @@
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from typing import Any
 
 import pytest
 import requests
@@ -233,13 +234,14 @@ def test_request_and_sleep_time_count_against_run_deadline(http, clock):
 
 @pytest.mark.parametrize("available", [False, True])
 def test_snapshot_deadline_counts_slow_requests_and_caps_timeout(
-    http, clock, available
-):
+    http: responses.RequestsMock, clock: Clock, available: bool
+) -> None:
     """Keep received outputs at the deadline without starting another request."""
     add_run(http, run_response(snapshotStatus="pending"), create=True)
     timeouts = []
 
-    def poll(request):
+    def poll(request: Any) -> tuple[int, dict[str, str], str]:
+        """Return a snapshot as the monotonic request budget expires."""
         timeouts.append(request.req_kwargs["timeout"].total)
         clock.now += 4
         payload = run_response(snapshotStatus="available" if available else "pending")
