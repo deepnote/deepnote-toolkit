@@ -1,113 +1,103 @@
-# Build Streamlit apps from Deepnote notebooks
+# Build a Streamlit app from a Deepnote notebook
 
-Deepnote Toolkit provides a small typed layer for custom Streamlit apps backed by
-`.deepnote` source files and snapshots.
+Install `deepnote-toolkit` and `streamlit`, export your notebook as a `.deepnote`
+file, and put it next to your app. Use the same notebook ID when reading inputs
+and running the notebook, especially in projects with several notebooks.
 
 ```python
-from pathlib import Path
-
 import streamlit as st
-from deepnote_toolkit.notebooks import DeepnoteDocument
+from deepnote_toolkit.notebooks import DeepnoteDocument, RunnerError
 from deepnote_toolkit.streamlit import StreamlitCloudRunner, render_inputs
 
-document = DeepnoteDocument.load(Path("report.deepnote"))
+notebook_id = "your-notebook-id"
+document = DeepnoteDocument.load("report.deepnote", notebook_id=notebook_id)
+runner = StreamlitCloudRunner(notebook_id)
 values = render_inputs(document.inputs, st.sidebar)
 
 if st.button("Run"):
-    result = StreamlitCloudRunner("your-notebook-id").run(values)
-    dataframe = result.first_dataframe()
-    if not result.success:
-        st.error(result.error or "The run failed.")
-    elif dataframe is None:
-        st.info("The run produced no table.")
-    else:
-        st.dataframe(dataframe.records())
+    try:
+        result = runner.run(values)
+        if not result.success:
+            st.error(result.error or "The run failed.")
+        elif result.snapshot_status == "pending":
+            st.info("The run finished, but its outputs are not available yet.")
+        elif (table := result.first_dataframe()) is not None:
+            st.dataframe(table.records())
+        else:
+            st.write(result.text())
+    except RunnerError as error:
+        st.error(str(error))
 ```
 
-## Two packages
+## Authentication and local development
 
-`deepnote_toolkit.notebooks` has no Streamlit dependency and works in any Python
-program:
+On Deepnote, `StreamlitCloudRunner` uses the current viewer's permissions.
+The hosting environment must support viewer-token exchange. If the app ID,
+viewer cookie, or exchange is unavailable, the call fails; it does not fall back
+to an owner token. Call it on the Streamlit script thread, not a worker thread.
 
-- `DeepnoteDocument` reads typed input definitions and structured outputs from a
-  `.deepnote` source or snapshot file. In a project with several notebooks, pass
-  the notebook you run so the inputs match it:
-  `DeepnoteDocument.load(path, notebook_id="your-notebook-id")`.
-- `DeepnoteCloudRunner` runs an existing notebook in Deepnote Cloud and returns
-  its outputs as a `RunResult`, which holds the outputs of that notebook alone. A
-  dataframe output holds the first page of rows. `row_count` is the full size and
-  `is_truncated` tells whether rows are missing. Deepnote sends every non-numeric
-  cell as text, so a boolean column arrives as `"True"` and `"False"`.
-- `DeepnoteRunner` does the same through a local `@deepnote/local-runner` sidecar
-  at `http://127.0.0.1:8787`. The sidecar does not say which notebook it ran, so
-  for a file with several notebooks the result holds the outputs of all of them.
-- `Runner` is the interface both runners implement, for code that accepts either.
-
-The cloud runner only starts a run and waits for it. The parts under it can be
-used or replaced on their own:
-
-- `DeepnoteApiClient` sends the API requests and validates the responses.
-- A `CredentialsProvider` is any callable that returns `ApiCredentials`, a token
-  with the API origin it is valid at. It is called before every request. Pass one
-  as `credentials=` in place of `token`, `token_provider` and `base_url`.
-- A `Transport` sends one JSON request. `UrllibTransport` is the default. Pass
-  your own as `transport=` to use another HTTP library.
-
-`deepnote_toolkit.streamlit` holds the Streamlit-specific parts:
-
-- `render_inputs` maps Deepnote input blocks to native Streamlit widgets and
-  returns values ready to submit to a runner.
-- `StreamlitCloudRunner` is a `DeepnoteCloudRunner` that runs notebooks as the
-  person viewing the app when Deepnote hosts it.
-- `ViewerCredentials` is the `CredentialsProvider` behind it, for use with
-  `DeepnoteCloudRunner` or `DeepnoteApiClient` directly.
-
-A static app only loads a committed snapshot with `DeepnoteDocument`. It requires
-no token or network access.
-
-## Authentication
-
-A Streamlit app hosted by Deepnote needs no token configuration.
-`StreamlitCloudRunner` runs the notebook as the current viewer, with that viewer's
-access, and never as the app's owner. A viewer who loses access to the project
-can no longer run it.
-
-For local development, pass an API token explicitly or set `DEEPNOTE_TOKEN`:
+For a locally hosted Streamlit app, opt into local credentials explicitly:
 
 ```python
-runner = StreamlitCloudRunner("your-notebook-id", token="your-api-token")
+import os
+
+runner = StreamlitCloudRunner(
+    notebook_id, local=True, token=os.environ["DEEPNOTE_TOKEN"]
+)
 ```
 
-A callable `token_provider=` can supply a renewable token. It is invoked for every
-request. A hosted app ignores both and still runs as the viewer, so the same
-script works locally and deployed. To run notebooks with one fixed token for every
-viewer, use `DeepnoteCloudRunner` with that token.
+`token_provider=` can supply a renewable token instead. A Deepnote app or project
+marker overrides `local=True` and explicit tokens. Older launchers can also be
+recognized by the request host or viewer cookie. Do not set `local=True` in an
+unmarked hosting environment: that is an explicit choice to use local credentials.
 
-Call the runner from the Streamlit script thread. A worker thread has no viewer
-request. In a hosted app the runner raises there, whatever token it was given.
-Elsewhere it raises instead of using `DEEPNOTE_TOKEN`, and uses an explicit token.
+For Python code outside Streamlit, use `DeepnoteCloudRunner` from
+`deepnote_toolkit.notebooks`. It accepts `token=`, `token_provider=`, or
+`DEEPNOTE_TOKEN`. For a local `@deepnote/local-runner` sidecar, use
+`DeepnoteLocalRunner(base_url="http://127.0.0.1:8787")`.
 
-For another Deepnote API client inside a hosted app,
-`current_user_api_credentials()` returns a short-lived token for the current
-viewer together with the API origin to send it to.
+## Inputs and outputs
 
-## Runs
+`render_inputs()` preserves saved defaults, including `0` and `False`. A select
+without a valid saved choice starts empty. Unselected single selects and partially
+selected date ranges are omitted from the returned dictionary; disable your Run
+button until required fields are present. An omitted input uses the notebook's
+value according to the API. Stale multi-select choices produce a warning. Invalid
+slider bounds/defaults and duplicate variable names raise `ValueError`.
 
-Cloud runs are detached, which keeps viewer-triggered work out of the shared
-project session. `StreamlitCloudRunner` also starts them with
-`storage_mode="readonly"`, so a run can read the project's stored files but not
-change them. Pass `storage_mode="read_write"` for a notebook that must write them.
-`DeepnoteCloudRunner` leaves the mode to the API, which allows writes.
+`runner.info().matches_inputs(document.inputs)` compares static input definitions:
+unique names, types, single/multiple selection, options, and slider bounds/steps.
+It is a drift check, not a guarantee that every submitted value will be accepted.
+Options populated from a variable cannot be checked against the saved file.
 
-The cloud runner retries a poll that fails with a timeout, a network error, HTTP
-429 or a 5xx, up to five times in a row. After the run finishes it waits up to
-`snapshot_timeout` seconds, 10 by default, for the outputs, which can arrive after
-the final status. When `result.snapshot_status` is still `pending`, the outputs
-had not arrived by the end of that wait, so a successful run can have none.
+Cloud results contain outputs from the executed notebook. `result.text()` returns
+text and `result.first_dataframe()` returns the first table, if present. Tables
+contain a preview page; check `row_count` and `is_truncated` before treating them as
+complete data. Non-numeric cells, including booleans, can arrive as strings.
+`DeepnoteDocument.load("report.snapshot.deepnote")` can display saved outputs
+without network access.
 
-Use `runner.info().accepts_inputs(document.inputs)` before submitting values to
-verify that the deployed notebook still matches the file the app was built from.
-It compares input names, block types, single or multiple selection, slider bounds
-and select options. Options that a select fills from a variable change between
-runs, so they are not compared. The API also rejects a value that does not fit its
-input block.
+## Execution settings
+
+Streamlit runs are detached and use `storage_mode="readonly"`: they can read
+persistent project files but cannot modify them. Use `storage_mode="read_write"`
+only when the app intentionally needs to change those files. The general cloud
+runner leaves storage mode to the API.
+
+`timeout` (600 seconds by default) is the elapsed-time budget for creation,
+authentication, polling, and output retrieval. Each HTTP request and sleep is
+limited to the remaining budget. Output retrieval also has its own
+`snapshot_timeout` (10 seconds); only an explicitly pending snapshot is polled.
+Requests uses socket timeouts, so OS DNS resolution or a server streaming bytes
+can exceed a request budget; this is not hard cancellation of a running notebook.
+Only GET polls are retried after transient failures, up to five consecutive
+retries. Creating a run is never automatically retried.
+
+Pass `session=requests.Session()` to configure proxies or HTTP adapters. A custom
+`credentials=` provider on `DeepnoteCloudRunner` receives a `timeout` keyword and
+returns `ApiCredentials(token=..., api_origin=...)`. Providers should honor that
+budget. API clients, HTTP helpers, and wire schemas are internal; supported names
+are listed in each package's `__all__`.
+
+The existing `streamlit_data_apps` module handles database federation. Notebook
+execution uses its viewer-cookie reader and does not replace its database APIs.

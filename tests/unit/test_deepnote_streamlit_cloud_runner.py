@@ -1,373 +1,197 @@
-import json
-from typing import Any
-from unittest.mock import MagicMock, patch
+import time
 
 import pytest
+import responses
 
-from deepnote_toolkit.notebooks import ApiCredentials, RunnerError, UrllibTransport
-from deepnote_toolkit.streamlit import (
-    CurrentUserApiCredentials,
-    CurrentUserApiTokenError,
-    StreamlitCloudRunner,
-    ViewerCredentials,
+from deepnote_toolkit.notebooks import RunnerError
+from deepnote_toolkit.streamlit import StreamlitCloudRunner, auth
+from deepnote_toolkit.streamlit import viewer_credentials as viewer
+from tests.unit.helpers.notebook_api import Clock, add_run, body, run_response, session
+
+APP_ID = "11111111-2222-3333-4444-555555555555"
+TOKEN_URL = f"http://localhost:19456/userpod-api/streamlit-apps/{APP_ID}/api-token"
+
+
+@pytest.fixture
+def context(monkeypatch):
+    monkeypatch.delenv("DEEPNOTE_STREAMLIT_APP_ID", raising=False)
+    monkeypatch.delenv("DEEPNOTE_PROJECT_ID", raising=False)
+    monkeypatch.setenv("DEEPNOTE_TOKEN", "owner-token")
+    state = {"script": True, "hosted": False, "worker": False}
+    monkeypatch.setattr(viewer, "_has_script_run_context", lambda: state["script"])
+    monkeypatch.setattr(
+        viewer, "_has_hosted_streamlit_context", lambda: state["hosted"]
+    )
+    monkeypatch.setattr(
+        viewer, "_is_streamlit_thread_without_request", lambda: state["worker"]
+    )
+    monkeypatch.setattr(auth, "_read_streamlit_app_id_from_context", lambda: None)
+    monkeypatch.setattr(
+        auth, "read_streamlit_token_from_context", lambda: "viewer-cookie"
+    )
+    monkeypatch.setattr(auth, "_read_streamlit_session_state", lambda: {})
+    return state
+
+
+@pytest.fixture
+def http():
+    with responses.RequestsMock() as mock:
+        yield mock
+
+
+@pytest.mark.parametrize(
+    "explicit", [{}, {"token": "owner"}, {"token_provider": lambda: "owner"}]
 )
+def test_missing_hosted_signals_fail_closed(context, http, explicit):
+    with pytest.raises(RunnerError, match="app ID"):
+        StreamlitCloudRunner("n", session=session(), **explicit).run({})
+    assert len(http.calls) == 0
 
 
-class FakeResponse:
-    def __init__(self, payload: Any):
-        self.payload = payload
-
-    def __enter__(self) -> "FakeResponse":
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        return None
-
-    def read(self) -> bytes:
-        return json.dumps(self.payload).encode()
-
-
-def test_hosted_cloud_runner_exchanges_per_request_and_uses_api_origin(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("DEEPNOTE_TOKEN", "must-not-be-used")
-    api_calls = []
-    responses = iter(
-        [
-            {"run": {"runId": "run-1", "status": "pending"}},
-            {"run": {"runId": "run-1", "status": "success", "snapshotBlocks": []}},
-        ]
+@pytest.mark.parametrize("marker", ["DEEPNOTE_STREAMLIT_APP_ID", "DEEPNOTE_PROJECT_ID"])
+@pytest.mark.parametrize("local", [False, True])
+def test_hosted_run_uses_viewer_and_readonly_even_with_explicit_owner_token(
+    context, http, monkeypatch, marker, local
+):
+    monkeypatch.setenv(marker, APP_ID)
+    monkeypatch.setattr(auth, "_read_streamlit_app_id_from_context", lambda: APP_ID)
+    http.post(
+        TOKEN_URL,
+        json={
+            "token": "viewer",
+            "apiOrigin": "https://api.deepnote-staging.com",
+            "expiresAtSeconds": time.time() + 900,
+        },
     )
+    add_run(
+        http,
+        run_response(snapshotBlocks=[]),
+        create=True,
+        origin="https://api.deepnote-staging.com",
+    )
+    runner = StreamlitCloudRunner(
+        "n",
+        token="owner",
+        base_url="https://wrong.example",
+        local=local,
+        session=session(),
+    )
+    assert runner.run({}).success
+    assert http.calls[0].request.headers["StreamlitToken"] == "viewer-cookie"
+    assert http.calls[1].request.headers["Authorization"] == "Bearer viewer"
+    assert body(http.calls[1])["detachedRunStorageMode"] == "readonly"
 
-    def open_request(request: Any, *, timeout: float) -> FakeResponse:
-        api_calls.append(
-            (
-                request.full_url,
-                request.headers["Authorization"],
-                timeout,
-            )
+
+@pytest.mark.parametrize("marker", ["", "invalid", APP_ID])
+def test_malformed_app_marker_never_falls_back(context, http, monkeypatch, marker):
+    monkeypatch.setenv("DEEPNOTE_STREAMLIT_APP_ID", marker)
+    (
+        http.post(
+            TOKEN_URL,
+            status=403,
+            json={"message": "API access is not available for this app"},
         )
-        return FakeResponse(next(responses))
-
-    credentials = [
-        CurrentUserApiCredentials(
-            token="viewer-token-1",
-            api_origin="https://api.deepnote-staging.com",
-            expires_at_seconds=1_800_000_000,
-        ),
-        CurrentUserApiCredentials(
-            token="viewer-token-2",
-            api_origin="https://api.deepnote-staging.com",
-            expires_at_seconds=1_800_000_001,
-        ),
-    ]
-    with (
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._has_script_run_context",
-            return_value=True,
-        ),
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._has_hosted_streamlit_context",
-            return_value=True,
-        ),
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials.current_user_api_credentials",
-            side_effect=credentials,
-        ) as exchange,
-    ):
-        result = StreamlitCloudRunner(
-            "notebook-1",
-            transport=UrllibTransport(open_request),
-            sleep=lambda _delay: None,
-        ).run({})
-
-    assert result.success is True
-    assert exchange.call_count == 2
-    assert api_calls == [
-        (
-            "https://api.deepnote-staging.com/v2/runs",
-            "Bearer viewer-token-1",
-            30,
-        ),
-        (
-            "https://api.deepnote-staging.com/v2/runs/run-1" "?snapshotDelivery=blocks",
-            "Bearer viewer-token-2",
-            30,
-        ),
-    ]
-
-
-def test_hosted_runner_never_falls_back_to_environment_token(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("DEEPNOTE_TOKEN", "shared-token")
-    opener = MagicMock()
-    with (
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._has_script_run_context",
-            return_value=True,
-        ),
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._has_hosted_streamlit_context",
-            return_value=True,
-        ),
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials.current_user_api_credentials",
-            side_effect=CurrentUserApiTokenError("viewer token unavailable"),
-        ),
-        pytest.raises(RunnerError, match="viewer token unavailable"),
-    ):
-        StreamlitCloudRunner("notebook-1", transport=UrllibTransport(opener)).info()
-
-    opener.assert_not_called()
-
-
-def test_worker_thread_never_falls_back_to_environment_token(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("DEEPNOTE_TOKEN", "shared-token")
-    opener = MagicMock()
-    with (
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._has_hosted_streamlit_context",
-            return_value=False,
-        ),
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._is_streamlit_thread_without_request",
-            return_value=True,
-        ),
-        pytest.raises(RunnerError, match="No viewer request"),
-    ):
-        StreamlitCloudRunner("notebook-1", transport=UrllibTransport(opener)).info()
-
-    opener.assert_not_called()
-
-
-def test_cloud_run_retries_a_transient_token_exchange_failure() -> None:
-    responses = iter(
-        [
-            {"run": {"runId": "run-1", "status": "pending"}},
-            {"run": {"runId": "run-1", "status": "success", "snapshotBlocks": []}},
-        ]
+        if marker == APP_ID
+        else None
     )
-    credentials = CurrentUserApiCredentials(
-        token="viewer-token",
-        api_origin="https://api.deepnote.com",
-        expires_at_seconds=1_800_000_000,
+    with pytest.raises(RunnerError):
+        StreamlitCloudRunner("n", token="owner", local=True, session=session()).info()
+    assert all(c.request.url == TOKEN_URL for c in http.calls)
+
+
+@pytest.mark.parametrize(
+    "explicit", [{}, {"token": "owner"}, {"token_provider": lambda: "owner"}]
+)
+def test_worker_thread_fails_closed(context, http, explicit):
+    context.update(script=False, worker=True)
+    with pytest.raises(RunnerError, match="No viewer request"):
+        StreamlitCloudRunner("n", session=session(), **explicit).info()
+    assert not http.calls
+
+
+def test_local_streamlit_requires_explicit_opt_in_and_token(context, http):
+    http.get(
+        "https://api.deepnote.com/v2/notebooks/n", json={"notebook": {"name": "N"}}
     )
-    with (
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._has_script_run_context",
-            return_value=True,
-        ),
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._has_hosted_streamlit_context",
-            return_value=True,
-        ),
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials.current_user_api_credentials",
-            side_effect=[
-                credentials,
-                CurrentUserApiTokenError("exchange timed out", transient=True),
-                credentials,
-            ],
-        ),
-    ):
-        result = StreamlitCloudRunner(
-            "notebook-1",
-            transport=UrllibTransport(
-                lambda _request, *, timeout: FakeResponse(next(responses))
-            ),
-            sleep=lambda _delay: None,
-        ).run({})
-
-    assert result.success is True
+    runner = StreamlitCloudRunner("n", local=True, token="local", session=session())
+    assert runner.info().notebook == "N"
+    assert http.calls[0].request.headers["Authorization"] == "Bearer local"
+    with pytest.raises(RunnerError, match="explicitly"):
+        StreamlitCloudRunner("n", local=True, session=session()).info()
 
 
-def test_local_streamlit_runner_uses_environment_token(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("DEEPNOTE_TOKEN", "local-token")
-
-    def open_request(request: Any, *, timeout: float) -> FakeResponse:
-        assert request.headers["Authorization"] == "Bearer local-token"
-        return FakeResponse({"notebook": {"name": "Revenue", "inputs": []}})
-
-    with (
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._has_hosted_streamlit_context",
-            return_value=False,
-        ),
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._is_streamlit_thread_without_request",
-            return_value=False,
-        ),
-    ):
-        info = StreamlitCloudRunner(
-            "notebook-1", transport=UrllibTransport(open_request)
-        ).info()
-
-    assert info.notebook == "Revenue"
-
-
-def test_hosted_runner_sends_the_viewer_token_only_to_the_returned_origin() -> None:
-    urls = []
-
-    def open_request(request: Any, *, timeout: float) -> FakeResponse:
-        urls.append(request.full_url)
-        return FakeResponse({"notebook": {"name": "Revenue", "inputs": []}})
-
-    with (
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._has_script_run_context",
-            return_value=True,
-        ),
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._has_hosted_streamlit_context",
-            return_value=True,
-        ),
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials.current_user_api_credentials",
-            return_value=CurrentUserApiCredentials(
-                token="viewer-token",
-                api_origin="https://api.deepnote.com",
-                expires_at_seconds=1_800_000_000,
-            ),
-        ),
-    ):
-        StreamlitCloudRunner(
-            "notebook-1",
-            base_url="https://elsewhere.example",
-            transport=UrllibTransport(open_request),
-        ).info()
-
-    assert urls == ["https://api.deepnote.com/v2/notebooks/notebook-1"]
-
-
-def test_runner_skips_streamlit_lookups_outside_a_script_run(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("DEEPNOTE_TOKEN", "local-token")
-
-    def open_request(request: Any, *, timeout: float) -> FakeResponse:
-        assert request.headers["Authorization"] == "Bearer local-token"
-        return FakeResponse({"notebook": {"name": "Revenue", "inputs": []}})
-
-    with (
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._has_script_run_context",
-            return_value=False,
-        ),
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._has_hosted_streamlit_context"
-        ) as hosted_lookup,
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._is_streamlit_thread_without_request",
-            return_value=False,
-        ),
-    ):
-        StreamlitCloudRunner(
-            "notebook-1", transport=UrllibTransport(open_request)
-        ).info()
-
-    hosted_lookup.assert_not_called()
-
-
-def test_hosted_runner_ignores_an_explicit_token() -> None:
-    authorizations = []
-
-    def open_request(request: Any, *, timeout: float) -> FakeResponse:
-        authorizations.append(request.headers["Authorization"])
-        return FakeResponse({"notebook": {"name": "Revenue", "inputs": []}})
-
-    with (
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._has_script_run_context",
-            return_value=True,
-        ),
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._has_hosted_streamlit_context",
-            return_value=True,
-        ),
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials.current_user_api_credentials",
-            return_value=CurrentUserApiCredentials(
-                token="viewer-token",
-                api_origin="https://api.deepnote.com",
-                expires_at_seconds=1_800_000_000,
-            ),
-        ),
-    ):
-        StreamlitCloudRunner(
-            "notebook-1", token="owner-token", transport=UrllibTransport(open_request)
-        ).info()
-
-    assert authorizations == ["Bearer viewer-token"]
-
-
-def test_streamlit_runs_are_readonly_by_default(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("DEEPNOTE_TOKEN", "local-token")
-    bodies = []
-
-    def open_request(request: Any, *, timeout: float) -> FakeResponse:
-        bodies.append(json.loads(request.data))
-        return FakeResponse(
-            {"run": {"runId": "run-1", "status": "success", "snapshotBlocks": []}}
-        )
-
-    with (
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._has_script_run_context",
-            return_value=False,
-        ),
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._is_streamlit_thread_without_request",
-            return_value=False,
-        ),
-    ):
-        StreamlitCloudRunner("notebook-1", transport=UrllibTransport(open_request)).run(
-            {}
-        )
-
-    assert bodies == [
-        {
-            "notebookId": "notebook-1",
-            "detached": True,
-            "inputs": {},
-            "detachedRunStorageMode": "readonly",
-        }
-    ]
-
-
-def test_viewer_credentials_use_an_explicit_token_on_a_worker_thread() -> None:
-    with (
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._has_script_run_context",
-            return_value=False,
-        ),
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._is_streamlit_thread_without_request",
-            return_value=True,
-        ),
-    ):
-        credentials = ViewerCredentials(token="local-token")()
-
-    assert credentials == ApiCredentials("local-token", "https://api.deepnote.com")
-
-
-def test_hosted_process_raises_off_the_script_thread_even_with_a_token(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv(
-        "DEEPNOTE_STREAMLIT_APP_ID", "11111111-2222-3333-4444-555555555555"
+def test_bare_python_uses_local_token_without_streamlit_lookups(context, http):
+    context["script"] = False
+    http.get(
+        "https://api.deepnote.com/v2/notebooks/n", json={"notebook": {"name": "N"}}
     )
-    with (
-        patch(
-            "deepnote_toolkit.streamlit.viewer_credentials._has_script_run_context",
-            return_value=False,
-        ),
-        pytest.raises(RunnerError, match="No viewer request"),
-    ):
-        ViewerCredentials(token="owner-token")()
+    assert StreamlitCloudRunner("n", session=session()).info().notebook == "N"
+
+
+def test_transient_exchange_failure_during_poll_is_retried(context, http, monkeypatch):
+    monkeypatch.setenv("DEEPNOTE_STREAMLIT_APP_ID", APP_ID)
+    payload = {
+        "token": "viewer",
+        "apiOrigin": "https://api.deepnote.com",
+        "expiresAtSeconds": time.time() + 900,
+    }
+    http.post(TOKEN_URL, json=payload)
+    http.post(TOKEN_URL, status=503)
+    http.post(TOKEN_URL, json=payload)
+    add_run(http, run_response("running"), create=True)
+    add_run(http, run_response(snapshotBlocks=[]))
+    clock = Clock()
+    assert (
+        StreamlitCloudRunner("n", session=session(), clock=clock, sleep=clock.sleep)
+        .run({})
+        .success
+    )
+    assert len(http.calls) == 5
+
+
+def test_real_streamlit_script_and_worker_keep_viewer_identity(monkeypatch, http):
+    pytest.importorskip("streamlit")
+    from streamlit.testing.v1 import AppTest
+
+    monkeypatch.setenv("DEEPNOTE_STREAMLIT_APP_ID", APP_ID)
+    monkeypatch.setenv("DEEPNOTE_TOKEN", "owner-token")
+    monkeypatch.setattr(auth, "read_streamlit_token_from_context", lambda: "cookie")
+    http.post(
+        TOKEN_URL,
+        json={
+            "token": "viewer",
+            "apiOrigin": "https://api.deepnote.com",
+            "expiresAtSeconds": time.time() + 900,
+        },
+    )
+    add_run(http, run_response(snapshotBlocks=[]), create=True)
+
+    def app():
+        import threading
+
+        import streamlit as st
+
+        from deepnote_toolkit.notebooks import RunnerError
+        from deepnote_toolkit.streamlit import StreamlitCloudRunner
+
+        runner = StreamlitCloudRunner("n", token="owner", local=True)
+        st.session_state["success"] = runner.run({}).success
+        errors = []
+
+        def worker():
+            try:
+                runner.run({})
+            except RunnerError as error:
+                errors.append(str(error))
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join(timeout=5)
+        st.session_state["worker_errors"] = errors
+
+    at = AppTest.from_function(app).run()
+    assert not at.exception
+    assert at.session_state["success"] is True
+    assert "No viewer request" in at.session_state["worker_errors"][0]
+    assert len(http.calls) == 2
+    assert http.calls[1].request.headers["Authorization"] == "Bearer viewer"

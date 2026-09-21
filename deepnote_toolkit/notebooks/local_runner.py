@@ -5,26 +5,28 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+import requests
+
 from .document import DeepnoteDocument
 from .models import RunnerInfo
 from .run_result import RunResult
-from .transport import Transport, UrllibTransport
+from .transport import request_json
 from .wire import decode_block_outputs, decode_inputs, optional_string
 
 
-class DeepnoteRunner:
-    """One client for a runner configured for Deepnote Cloud or a local kernel."""
+class DeepnoteLocalRunner:
+    """Run a notebook through a local sidecar, configured for a local or cloud kernel."""
 
     def __init__(
         self,
         base_url: str = "http://127.0.0.1:8787",
         *,
         timeout: float = 600,
-        transport: Transport | None = None,
+        session: requests.Session | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
-        self._transport = transport or UrllibTransport()
+        self._session = session if session is not None else requests.Session()
 
     def info(self) -> RunnerInfo:
         """Read the notebook's name and input blocks from the sidecar."""
@@ -46,7 +48,8 @@ class DeepnoteRunner:
     def _request(
         self, method: str, path: str, body: Mapping[str, Any] | None = None
     ) -> Mapping[str, Any]:
-        return self._transport.request_json(
+        return request_json(
+            self._session,
             method,
             f"{self.base_url}{path}",
             headers={},

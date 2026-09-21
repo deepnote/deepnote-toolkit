@@ -1,61 +1,407 @@
-import io
 import json
 import threading
-from http.client import RemoteDisconnected
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any
-from urllib.error import HTTPError, URLError
 
 import pytest
+import requests
+import responses
 
 from deepnote_toolkit.notebooks import (
     ApiCredentials,
     DeepnoteCloudRunner,
-    DeepnoteRunner,
+    DeepnoteLocalRunner,
     InputBlock,
     RunnerError,
     RunnerInfo,
-    UrllibTransport,
 )
+from tests.unit.helpers.notebook_api import Clock, add_run, body, run_response, session
 
 
-class FakeResponse:
-    def __init__(self, payload: Any):
-        self.payload = payload
-
-    def __enter__(self) -> "FakeResponse":
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        return None
-
-    def read(self) -> bytes:
-        return json.dumps(self.payload).encode()
+@pytest.fixture
+def http():
+    with responses.RequestsMock() as mock:
+        yield mock
 
 
-def test_info_parses_runner_contract() -> None:
-    calls = []
+@pytest.fixture
+def clock():
+    return Clock()
 
-    def open_request(request: Any, *, timeout: float) -> FakeResponse:
-        calls.append((request.full_url, request.method, timeout))
-        return FakeResponse(
-            {
-                "notebook": "Revenue",
-                "runTarget": "cloud",
+
+@pytest.fixture
+def runner(clock):
+    return DeepnoteCloudRunner(
+        "notebook-1",
+        token="token",
+        session=session(),
+        clock=clock,
+        sleep=clock.sleep,
+        poll_interval=0.5,
+    )
+
+
+def test_cloud_info_preserves_input_contract_and_quotes_notebook_id(http):
+    http.get(
+        "https://api.deepnote.com/v2/notebooks/a%2Fb%3Fadmin%3Dtrue",
+        json={
+            "notebook": {
+                "name": "Revenue",
                 "inputs": [
-                    {"variableName": "region", "type": "input-select", "value": "All"}
+                    {
+                        "name": "region",
+                        "type": "input-select",
+                        "value": "EU",
+                        "options": ["EU", "US"],
+                        "multiple": True,
+                    },
+                    {
+                        "name": "limit",
+                        "type": "input-slider",
+                        "value": "5",
+                        "min": 1,
+                        "max": 9,
+                        "step": 2,
+                    },
+                    {"name": "future", "type": "input-unknown"},
                 ],
             }
-        )
-
-    info = DeepnoteRunner(
-        "http://runner/", timeout=12, transport=UrllibTransport(open_request)
+        },
+    )
+    info = DeepnoteCloudRunner(
+        "a/b?admin=true", token="token", session=session()
     ).info()
-
-    assert calls == [("http://runner/api/info", "GET", 12)]
     assert info.notebook == "Revenue"
-    assert info.run_target == "cloud"
-    assert info.inputs[0].variable_name == "region"
+    assert info.inputs == (
+        InputBlock("region", "input-select", "EU", options=("EU", "US"), multiple=True),
+        InputBlock("limit", "input-slider", "5", min=1, max=9, step=2),
+    )
+    assert http.calls[0].request.headers["Authorization"] == "Bearer token"
+
+
+def test_run_refreshes_credentials_normalizes_inputs_and_reads_only_run_blocks(
+    http, clock
+):
+    add_run(http, run_response("pending"), create=True)
+    add_run(http, run_response("future-state"))
+    add_run(http, run_response(snapshotStatus="pending"))
+    add_run(
+        http,
+        run_response(
+            snapshotStatus="available",
+            snapshotBlocks=[
+                {
+                    "id": "b",
+                    "type": "code",
+                    "outputs": [{"output_type": "stream", "text": "done"}],
+                }
+            ],
+            snapshotContent="must not be used",
+        ),
+    )
+    tokens = iter(["one", "two", "three", "four"])
+    result = DeepnoteCloudRunner(
+        "notebook-1",
+        token_provider=lambda: next(tokens),
+        session=session(),
+        clock=clock,
+        sleep=clock.sleep,
+        poll_interval=0.5,
+        storage_mode="readonly",
+    ).run({"limit": 20, "enabled": False, "regions": ("EU",)})
+    assert result.success and result.text() == "done" and result.snapshot is None
+    assert body(http.calls[0]) == {
+        "notebookId": "notebook-1",
+        "detached": True,
+        "inputs": {"limit": "20", "enabled": False, "regions": ["EU"]},
+        "detachedRunStorageMode": "readonly",
+    }
+    assert [c.request.headers["Authorization"] for c in http.calls] == [
+        f"Bearer {token}" for token in ("one", "two", "three", "four")
+    ]
+    assert clock.sleeps == [0.5, 0.5, 0.5]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"run": {"runId": "r"}},
+        {"run": {"runId": "r", "status": None}},
+        {"run": {"runId": "r", "status": []}},
+        {"run": {"runId": "r", "status": ""}},
+        {"run": {"status": "success"}},
+    ],
+)
+def test_malformed_run_fails_without_polling(http, runner, payload):
+    add_run(http, payload, create=True)
+    with pytest.raises(RunnerError, match="run (response|id)"):
+        runner.run({})
+    assert len(http.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "snapshot_status", [None, "unavailable", "available", "future"]
+)
+def test_only_pending_snapshots_are_polled(http, runner, snapshot_status):
+    add_run(
+        http,
+        run_response("error", snapshotStatus=snapshot_status, error="bad input"),
+        create=True,
+    )
+    result = runner.run({})
+    assert not result.success and result.error == "bad input"
+    assert len(http.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "failure", [429, 503, requests.ConnectionError("reset"), requests.Timeout()]
+)
+def test_transient_get_failure_is_retried(http, runner, failure):
+    add_run(http, run_response("running"), create=True)
+    kwargs = {"status": failure} if isinstance(failure, int) else {"body": failure}
+    http.get("https://api.deepnote.com/v2/runs/run-1?snapshotDelivery=blocks", **kwargs)
+    add_run(http, run_response(snapshotBlocks=[]))
+    assert runner.run({}).success
+    assert len(http.calls) == 3
+
+
+@pytest.mark.parametrize("status", [400, 401, 403, 404])
+def test_non_transient_poll_failure_is_not_retried(http, runner, status):
+    add_run(http, run_response("running"), create=True)
+    http.get(
+        "https://api.deepnote.com/v2/runs/run-1?snapshotDelivery=blocks",
+        status=status,
+        json={"message": "reason"},
+    )
+    with pytest.raises(RunnerError, match=f"HTTP {status}: reason"):
+        runner.run({})
+    assert len(http.calls) == 2
+
+
+def test_post_is_never_replayed(http, runner):
+    http.post("https://api.deepnote.com/v2/runs", body=requests.Timeout())
+    with pytest.raises(RunnerError):
+        runner.run({})
+    assert len(http.calls) == 1
+
+
+def test_poll_retries_have_a_limit(http, runner):
+    add_run(http, run_response("running"), create=True)
+    http.get(
+        "https://api.deepnote.com/v2/runs/run-1?snapshotDelivery=blocks", status=503
+    )
+    with pytest.raises(RunnerError, match="503"):
+        runner.run({})
+    assert len(http.calls) == 7
+
+
+def test_request_and_sleep_time_count_against_run_deadline(http, clock):
+    observed = []
+
+    def create(request):
+        observed.append(request.req_kwargs["timeout"].total)
+        clock.now += 3
+        return 200, {}, json.dumps(run_response("running"))
+
+    def poll(request):
+        observed.append(request.req_kwargs["timeout"].total)
+        clock.now += 4
+        return 200, {}, json.dumps(run_response("running"))
+
+    http.add_callback(
+        responses.POST, "https://api.deepnote.com/v2/runs", callback=create
+    )
+    http.add_callback(
+        responses.GET,
+        "https://api.deepnote.com/v2/runs/run-1?snapshotDelivery=blocks",
+        callback=poll,
+    )
+    runner = DeepnoteCloudRunner(
+        "n",
+        token="t",
+        session=session(),
+        timeout=10,
+        poll_interval=2,
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    with pytest.raises(RunnerError, match="10 seconds"):
+        runner.run({})
+    assert observed == [10, 5]
+    assert clock.now == 10
+    assert clock.sleeps == [2, 1]
+
+
+def test_snapshot_deadline_counts_slow_requests_and_caps_timeout(http, clock):
+    add_run(http, run_response(snapshotStatus="pending"), create=True)
+    timeouts = []
+
+    def poll(request):
+        timeouts.append(request.req_kwargs["timeout"].total)
+        clock.now += 4
+        return 200, {}, json.dumps(run_response(snapshotStatus="pending"))
+
+    http.add_callback(
+        responses.GET,
+        "https://api.deepnote.com/v2/runs/run-1?snapshotDelivery=blocks",
+        callback=poll,
+    )
+    runner = DeepnoteCloudRunner(
+        "n",
+        token="t",
+        session=session(),
+        snapshot_timeout=5,
+        poll_interval=1,
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    assert runner.run({}).snapshot_status == "pending"
+    assert timeouts == [4]
+    assert clock.now == 5
+
+
+def test_no_request_starts_after_snapshot_deadline(http, clock):
+    add_run(http, run_response(snapshotStatus="pending"), create=True)
+    runner = DeepnoteCloudRunner(
+        "n",
+        token="t",
+        session=session(),
+        snapshot_timeout=0.1,
+        poll_interval=2,
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    assert runner.run({}).outputs == ()
+    assert clock.sleeps == [0.1]
+    assert len(http.calls) == 1
+
+
+def test_unknown_status_is_bounded_by_deadline(http, clock):
+    add_run(http, run_response("future"), create=True)
+    add_run(http, run_response("future"))
+    runner = DeepnoteCloudRunner(
+        "n",
+        token="t",
+        session=session(),
+        timeout=2,
+        poll_interval=1,
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    with pytest.raises(RunnerError, match="2 seconds"):
+        runner.run({})
+    assert len(http.calls) == 2
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"timeout": 0},
+        {"timeout": float("inf")},
+        {"snapshot_timeout": -1},
+        {"poll_interval": 0},
+    ],
+)
+def test_invalid_timeouts_rejected(kwargs):
+    with pytest.raises(ValueError):
+        DeepnoteCloudRunner("n", **kwargs)
+
+
+def test_run_id_is_quoted(http, runner):
+    add_run(http, run_response("running", runId="a/b?x"), create=True)
+    http.get(
+        "https://api.deepnote.com/v2/runs/a%2Fb%3Fx?snapshotDelivery=blocks",
+        json=run_response(),
+    )
+    assert runner.run({}).success
+
+
+def test_custom_credentials_supply_origin_and_receive_budget(http):
+    budgets = []
+
+    def credentials(*, timeout):
+        budgets.append(timeout)
+        return ApiCredentials("token", "https://api.example")
+
+    http.get("https://api.example/v2/notebooks/n", json={"notebook": {"name": "N"}})
+    assert (
+        DeepnoteCloudRunner("n", credentials=credentials, session=session())
+        .info()
+        .notebook
+        == "N"
+    )
+    assert budgets == [30]
+
+
+def test_credentials_and_token_are_mutually_exclusive():
+    with pytest.raises(ValueError):
+        DeepnoteCloudRunner("n", token="t", credentials=lambda **_: ApiCredentials("t"))
+
+
+def test_local_runner_contract(http):
+    http.get(
+        "http://127.0.0.1:8787/api/info",
+        json={"notebook": "N", "runTarget": "local", "inputs": []},
+    )
+    http.post(
+        "http://127.0.0.1:8787/api/run",
+        json={"target": "local", "success": True, "outputs": []},
+    )
+    runner = DeepnoteLocalRunner(session=session())
+    assert runner.info().notebook == "N"
+    assert runner.run({"n": 3}).success
+    assert body(http.calls[1]) == {"inputs": {"n": 3}}
+
+
+@pytest.mark.parametrize("value", [None, {}, set(), b"x"])
+def test_invalid_input_is_rejected_before_sending(http, runner, value):
+    with pytest.raises(ValueError):
+        runner.run({"n": value})
+    assert len(http.calls) == 0
+
+
+def test_error_page_does_not_leak_into_exception(http):
+    http.get(
+        "http://127.0.0.1:8787/api/info",
+        body="<html>proxy internals</html>",
+        status=502,
+    )
+    with pytest.raises(RunnerError) as exc:
+        DeepnoteLocalRunner(session=session()).info()
+    assert "proxy internals" not in str(exc.value)
+
+
+def test_real_http_redirect_never_receives_credentials():
+    received = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            received.append(
+                (self.server.server_port, self.headers.get("Authorization"))
+            )
+            self.send_response(302)
+            self.send_header("Location", f"http://127.0.0.1:{other.server_port}/")
+            self.end_headers()
+
+        def log_message(self, *_args):
+            pass
+
+    api = HTTPServer(("127.0.0.1", 0), Handler)
+    other = HTTPServer(("127.0.0.1", 0), Handler)
+    for server in (api, other):
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        with pytest.raises(RunnerError, match="Refused a redirect"):
+            DeepnoteCloudRunner(
+                "n",
+                token="t",
+                session=session(),
+                base_url=f"http://127.0.0.1:{api.server_port}",
+            ).info()
+    finally:
+        for server in (api, other):
+            server.shutdown()
+            server.server_close()
+    assert received == [(api.server_port, "Bearer t")]
 
 
 def test_runner_info_requires_matching_input_names_and_types() -> None:
@@ -65,517 +411,24 @@ def test_runner_info_requires_matching_input_names_and_types() -> None:
         run_target="cloud",
     )
 
-    assert info.accepts_inputs([InputBlock("region", "input-select", "Europe")])
-    assert not info.accepts_inputs([InputBlock("market", "input-select", "Europe")])
-    assert not info.accepts_inputs([InputBlock("region", "input-text", "Europe")])
+    assert info.matches_inputs([InputBlock("region", "input-select", "Europe")])
+    assert not info.matches_inputs([InputBlock("market", "input-select", "Europe")])
+    assert not info.matches_inputs([InputBlock("region", "input-text", "Europe")])
 
 
-def test_run_posts_inputs_and_parses_one_result_shape() -> None:
-    def open_request(request: Any, *, timeout: float) -> FakeResponse:
-        assert timeout == 600
-        assert request.method == "POST"
-        assert json.loads(request.data) == {"inputs": {"limit": 20}}
-        return FakeResponse({"target": "local", "success": True, "outputs": []})
-
-    result = DeepnoteRunner(transport=UrllibTransport(open_request)).run({"limit": 20})
-
-    assert result.target == "local"
-    assert result.success is True
-
-
-def test_http_error_surfaces_runner_message() -> None:
-    def open_request(*_: Any, **__: Any) -> FakeResponse:
-        raise HTTPError(
-            "http://runner/api/run",
-            500,
-            "Server error",
-            {},
-            io.BytesIO(b'{"error":"DEEPNOTE_TOKEN is required"}'),
-        )
-
-    with pytest.raises(RunnerError, match="DEEPNOTE_TOKEN is required"):
-        DeepnoteRunner("http://runner", transport=UrllibTransport(open_request)).run({})
-
-
-def test_connection_error_names_runner_url() -> None:
-    def open_request(*_: Any, **__: Any) -> FakeResponse:
-        raise URLError("connection refused")
-
-    with pytest.raises(RunnerError, match="http://runner"):
-        DeepnoteRunner("http://runner", transport=UrllibTransport(open_request)).info()
-
-
-def test_timeout_names_runner_url_and_duration() -> None:
-    def open_request(*_: Any, **__: Any) -> FakeResponse:
-        raise TimeoutError
-
-    with pytest.raises(RunnerError, match="http://runner.*12 seconds"):
-        DeepnoteRunner(
-            "http://runner", timeout=12, transport=UrllibTransport(open_request)
-        ).info()
-
-
-def test_cloud_info_reads_public_notebook_contract() -> None:
-    def open_request(request: Any, *, timeout: float) -> FakeResponse:
-        assert request.full_url == "https://api.deepnote.com/v2/notebooks/notebook-1"
-        assert request.headers["Authorization"] == "Bearer token-1"
-        assert timeout == 30
-        return FakeResponse(
-            {
-                "notebook": {
-                    "name": "Revenue",
-                    "inputs": [
-                        {
-                            "name": "region",
-                            "type": "input-select",
-                            "value": "All",
-                            "label": "Region",
-                        }
-                    ],
-                }
-            }
-        )
-
-    info = DeepnoteCloudRunner(
-        "notebook-1", token="token-1", transport=UrllibTransport(open_request)
-    ).info()
-
-    assert info.notebook == "Revenue"
-    assert info.run_target == "cloud"
-    assert info.inputs[0].variable_name == "region"
-
-
-def test_cloud_run_posts_inputs_polls_and_reads_the_executed_blocks() -> None:
-    calls = []
-    responses = iter(
-        [
-            {"run": {"runId": "run-1", "status": "pending"}},
-            {"run": {"runId": "run-1", "status": "running"}},
-            {
-                "run": {
-                    "runId": "run-1",
-                    "status": "success",
-                    "snapshotBlocks": [
-                        {
-                            "id": "code-1",
-                            "type": "code",
-                            "outputs": [{"output_type": "stream", "text": "done"}],
-                        }
-                    ],
-                }
-            },
-        ]
-    )
-
-    def open_request(request: Any, *, timeout: float) -> FakeResponse:
-        calls.append(
-            (
-                request.full_url,
-                request.method,
-                request.headers["Authorization"],
-                request.data,
-                timeout,
-            )
-        )
-        return FakeResponse(next(responses))
-
-    tokens = iter(["token-1", "token-2", "token-3"])
-    sleeps = []
-    result = DeepnoteCloudRunner(
-        "notebook-1",
-        token_provider=lambda: next(tokens),
-        transport=UrllibTransport(open_request),
-        sleep=sleeps.append,
-        poll_interval=0.25,
-    ).run({"limit": 20, "enabled": True, "regions": ["EU"]})
-
-    assert json.loads(calls[0][3]) == {
-        "notebookId": "notebook-1",
-        "detached": True,
-        "inputs": {"limit": "20", "enabled": True, "regions": ["EU"]},
-    }
-    assert calls[1][0].endswith("/v2/runs/run-1?snapshotDelivery=blocks")
-    assert [call[2] for call in calls] == [
-        "Bearer token-1",
-        "Bearer token-2",
-        "Bearer token-3",
-    ]
-    assert sleeps == [0.25, 0.25]
-    assert result.success is True
-    assert result.text() == "done"
-
-
-def test_cloud_run_reads_sanitized_snapshot_blocks_without_raw_snapshot() -> None:
-    responses = iter(
-        [
-            {"run": {"runId": "run-1", "status": "pending"}},
-            {
-                "run": {
-                    "runId": "run-1",
-                    "status": "success",
-                    "snapshotBlocks": [
-                        {
-                            "id": "code-1",
-                            "type": "code",
-                            "outputs": [
-                                {
-                                    "output_type": "execute_result",
-                                    "data": {
-                                        "application/vnd.deepnote.dataframe.v3+json": {
-                                            "columns": [{"name": "revenue"}],
-                                            "rows": [{"revenue": 42}],
-                                        }
-                                    },
-                                }
-                            ],
-                            "metadata": {"deepnote_table_state": {}},
-                        },
-                        {
-                            "id": "agent-1",
-                            "type": "agent",
-                            "outputs": [
-                                {
-                                    "output_type": "display_data",
-                                    "data": {"text/markdown": "**Done**"},
-                                }
-                            ],
-                            "metadata": {},
-                        },
-                    ],
-                }
-            },
-        ]
-    )
-
-    def open_request(request: Any, *, timeout: float) -> FakeResponse:
-        assert timeout == 30
-        if request.method == "POST":
-            assert json.loads(request.data) == {
-                "notebookId": "notebook-1",
-                "detached": True,
-                "inputs": {"region": "EU"},
-            }
-        return FakeResponse(next(responses))
-
-    result = DeepnoteCloudRunner(
-        "notebook-1",
-        token="token",
-        transport=UrllibTransport(open_request),
-        sleep=lambda _delay: None,
-    ).run({"region": "EU"})
-
-    assert result.snapshot is None
-    assert [output.block_id for output in result.outputs] == ["code-1", "agent-1"]
-    assert [output.block_type for output in result.outputs] == ["code", "agent"]
-    dataframe = result.first_dataframe()
-    assert dataframe is not None
-    assert dataframe.records() == [{"revenue": 42}]
-    assert result.agent_text() == "**Done**"
-
-
-def test_cloud_run_surfaces_terminal_error() -> None:
-    def open_request(_request: Any, *, timeout: float) -> FakeResponse:
-        assert timeout == 30
-        return FakeResponse(
-            {
-                "run": {
-                    "id": "run-1",
-                    "status": "error",
-                    "error": {"message": "bad input"},
-                }
-            }
-        )
-
-    result = DeepnoteCloudRunner(
-        "notebook-1",
-        token="token",
-        transport=UrllibTransport(open_request),
-        sleep=lambda _delay: None,
-    ).run({})
-
-    assert result.success is False
-    assert result.error == "bad input"
-
-
-def test_cloud_runner_uses_environment_token(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("DEEPNOTE_TOKEN", "local-token")
-
-    def open_request(request: Any, *, timeout: float) -> FakeResponse:
-        assert request.headers["Authorization"] == "Bearer local-token"
-        assert timeout == 30
-        return FakeResponse({"notebook": {"name": "Revenue", "inputs": []}})
-
-    info = DeepnoteCloudRunner(
-        "notebook-1", transport=UrllibTransport(open_request)
-    ).info()
-
-    assert info.notebook == "Revenue"
-
-
-def test_cloud_runner_requires_one_token_source(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    with pytest.raises(ValueError, match="not both"):
-        DeepnoteCloudRunner("notebook-1", token="token", token_provider=lambda: "other")
-
-    monkeypatch.delenv("DEEPNOTE_TOKEN", raising=False)
-    with pytest.raises(RunnerError, match="token is required"):
-        DeepnoteCloudRunner(
-            "notebook-1",
-            token="",
-            transport=UrllibTransport(lambda *_args, **_kwargs: FakeResponse({})),
-        ).info()
-
-
-def test_cloud_run_retries_transient_poll_failures() -> None:
-    responses = iter(
-        [
-            {"run": {"runId": "run-1", "status": "pending"}},
-            HTTPError("http://api", 503, "Unavailable", {}, io.BytesIO(b"{}")),
-            URLError("connection reset"),
-            {"run": {"runId": "run-1", "status": "success", "snapshotBlocks": []}},
-        ]
-    )
-
-    def open_request(_request: Any, *, timeout: float) -> FakeResponse:
-        response = next(responses)
-        if isinstance(response, Exception):
-            raise response
-        return FakeResponse(response)
-
-    result = DeepnoteCloudRunner(
-        "notebook-1",
-        token="token",
-        transport=UrllibTransport(open_request),
-        sleep=lambda _delay: None,
-    ).run({})
-
-    assert result.success is True
-
-
-def test_cloud_run_raises_poll_failures_that_are_not_transient() -> None:
-    responses = iter(
-        [
-            {"run": {"runId": "run-1", "status": "pending"}},
-            HTTPError("http://api", 403, "Forbidden", {}, io.BytesIO(b"{}")),
-        ]
-    )
-
-    def open_request(_request: Any, *, timeout: float) -> FakeResponse:
-        response = next(responses)
-        if isinstance(response, Exception):
-            raise response
-        return FakeResponse(response)
-
-    with pytest.raises(RunnerError, match="HTTP 403"):
-        DeepnoteCloudRunner(
-            "notebook-1",
-            token="token",
-            transport=UrllibTransport(open_request),
-            sleep=lambda _delay: None,
-        ).run({})
-
-
-def test_cloud_run_stops_retrying_after_repeated_transient_failures() -> None:
-    calls = []
-
-    def open_request(request: Any, *, timeout: float) -> FakeResponse:
-        calls.append(request.method)
-        if request.method == "POST":
-            return FakeResponse({"run": {"runId": "run-1", "status": "pending"}})
-        raise URLError("connection reset")
-
-    with pytest.raises(RunnerError, match="connection reset"):
-        DeepnoteCloudRunner(
-            "notebook-1",
-            token="token",
-            transport=UrllibTransport(open_request),
-            sleep=lambda _delay: None,
-        ).run({})
-
-    assert calls == ["POST"] + ["GET"] * 6
-
-
-def test_cloud_run_waits_for_a_snapshot_that_lags_the_terminal_status() -> None:
-    responses = iter(
-        [
-            {"run": {"runId": "run-1", "status": "success"}},
-            {"run": {"runId": "run-1", "status": "success"}},
-            {
-                "run": {
-                    "runId": "run-1",
-                    "status": "success",
-                    "snapshotBlocks": [
-                        {
-                            "id": "code-1",
-                            "type": "code",
-                            "outputs": [{"output_type": "stream", "text": "done"}],
-                        }
-                    ],
-                }
-            },
-        ]
-    )
-    sleeps = []
-
-    result = DeepnoteCloudRunner(
-        "notebook-1",
-        token="token",
-        transport=UrllibTransport(
-            lambda _request, *, timeout: FakeResponse(next(responses))
-        ),
-        sleep=sleeps.append,
-        poll_interval=0.5,
-    ).run({})
-
-    assert sleeps == [0.5, 0.5]
-    assert result.text() == "done"
-
-
-def test_info_skips_inputs_without_a_name_or_a_known_type() -> None:
-    def open_request(_request: Any, *, timeout: float) -> FakeResponse:
-        return FakeResponse(
-            {
-                "inputs": [
-                    {"type": "input-text"},
-                    {"variableName": "orphan"},
-                    {"variableName": "mystery", "type": "input-unknown"},
-                    {"variableName": "region", "type": "input-text"},
-                ]
-            }
-        )
-
-    info = DeepnoteRunner(transport=UrllibTransport(open_request)).info()
-
-    assert info.inputs == (InputBlock("region", "input-text", None),)
-
-
-def test_cloud_run_retries_a_dropped_connection() -> None:
-    responses = iter(
-        [
-            {"run": {"runId": "run-1", "status": "pending"}},
-            RemoteDisconnected("Remote end closed connection without response"),
-            {"run": {"runId": "run-1", "status": "success", "snapshotBlocks": []}},
-        ]
-    )
-
-    def open_request(_request: Any, *, timeout: float) -> FakeResponse:
-        response = next(responses)
-        if isinstance(response, Exception):
-            raise response
-        return FakeResponse(response)
-
-    result = DeepnoteCloudRunner(
-        "notebook-1",
-        token="token",
-        transport=UrllibTransport(open_request),
-        sleep=lambda _delay: None,
-    ).run({})
-
-    assert result.success is True
-
-
-def test_cloud_run_does_not_wait_for_a_snapshot_that_will_not_come() -> None:
-    sleeps = []
-    result = DeepnoteCloudRunner(
-        "notebook-1",
-        token="token",
-        transport=UrllibTransport(
-            lambda _request, *, timeout: FakeResponse(
-                {
-                    "run": {
-                        "runId": "run-1",
-                        "status": "error",
-                        "snapshotStatus": "unavailable",
-                    }
-                }
-            )
-        ),
-        sleep=sleeps.append,
-    ).run({})
-
-    assert sleeps == []
-    assert result.snapshot_status == "unavailable"
-
-
-def test_cloud_info_keeps_select_options_and_slider_bounds() -> None:
-    def open_request(_request: Any, *, timeout: float) -> FakeResponse:
-        return FakeResponse(
-            {
-                "notebook": {
-                    "name": "Revenue",
-                    "inputs": [
-                        {
-                            "name": "region",
-                            "type": "input-select",
-                            "value": "EU",
-                            "options": ["EU", "US"],
-                            "multiple": True,
-                        },
-                        {
-                            "name": "limit",
-                            "type": "input-slider",
-                            "value": "5",
-                            "min": 1,
-                            "max": 9,
-                            "step": 2,
-                        },
-                    ],
-                }
-            }
-        )
-
-    info = DeepnoteCloudRunner(
-        "notebook-1", token="token", transport=UrllibTransport(open_request)
-    ).info()
-
-    assert info.inputs == (
-        InputBlock("region", "input-select", "EU", options=("EU", "US"), multiple=True),
-        InputBlock("limit", "input-slider", "5", min=1, max=9, step=2),
-    )
-
-
-def test_runner_info_ignores_repeated_input_names() -> None:
+def test_runner_info_rejects_repeated_input_names() -> None:
     info = RunnerInfo(
         notebook="Revenue",
         inputs=(InputBlock("region", "input-text", "EU"),),
         run_target="cloud",
     )
 
-    assert info.accepts_inputs(
+    assert not info.matches_inputs(
         [
             InputBlock("region", "input-text", "EU"),
             InputBlock("region", "input-text", "US"),
         ]
     )
-
-
-def test_cloud_run_sends_the_requested_storage_mode() -> None:
-    bodies = []
-
-    def open_request(request: Any, *, timeout: float) -> FakeResponse:
-        bodies.append(json.loads(request.data))
-        return FakeResponse(
-            {"run": {"runId": "run-1", "status": "success", "snapshotBlocks": []}}
-        )
-
-    DeepnoteCloudRunner(
-        "notebook-1",
-        token="token",
-        storage_mode="readonly",
-        transport=UrllibTransport(open_request),
-    ).run({})
-
-    assert bodies == [
-        {
-            "notebookId": "notebook-1",
-            "detached": True,
-            "inputs": {},
-            "detachedRunStorageMode": "readonly",
-        }
-    ]
 
 
 @pytest.mark.parametrize(
@@ -595,10 +448,10 @@ def test_runner_info_rejects_a_select_that_takes_other_values(
         run_target="cloud",
     )
 
-    assert info.accepts_inputs(
+    assert info.matches_inputs(
         [InputBlock("region", "input-select", "US", options=("EU", "US"))]
     )
-    assert not info.accepts_inputs([changed])
+    assert not info.matches_inputs([changed])
 
 
 def test_runner_info_ignores_select_options_filled_from_a_variable() -> None:
@@ -608,7 +461,7 @@ def test_runner_info_ignores_select_options_filled_from_a_variable() -> None:
         run_target="cloud",
     )
 
-    assert info.accepts_inputs(
+    assert info.matches_inputs(
         [
             InputBlock(
                 "region",
@@ -628,182 +481,56 @@ def test_runner_info_compares_slider_bounds_with_the_defaults_filled_in() -> Non
         run_target="cloud",
     )
 
-    assert info.accepts_inputs([InputBlock("limit", "input-slider", "20")])
-    assert not info.accepts_inputs([InputBlock("limit", "input-slider", "20", max=50)])
-
-
-class FakeTransport:
-    def __init__(self, payload: Any):
-        self.payload = payload
-        self.calls: list[tuple[str, str, Any]] = []
-
-    def request_json(
-        self, method: str, url: str, *, headers: Any, body: Any, timeout: float
-    ) -> Any:
-        self.calls.append((method, url, headers))
-        return self.payload
-
-
-def test_cloud_runner_uses_injected_credentials_and_transport() -> None:
-    transport = FakeTransport({"notebook": {"name": "Revenue", "inputs": []}})
-
-    info = DeepnoteCloudRunner(
-        "notebook-1",
-        credentials=lambda: ApiCredentials("token", "https://api.example"),
-        transport=transport,
-    ).info()
-
-    assert info.notebook == "Revenue"
-    assert transport.calls == [
-        (
-            "GET",
-            "https://api.example/v2/notebooks/notebook-1",
-            {"Authorization": "Bearer token"},
-        )
-    ]
-
-
-def test_cloud_runner_rejects_credentials_together_with_a_token() -> None:
-    with pytest.raises(ValueError, match="not both"):
-        DeepnoteCloudRunner(
-            "notebook-1",
-            token="token",
-            credentials=lambda: ApiCredentials("other-token"),
-        )
-
-
-def test_default_transport_refuses_a_redirect_to_another_origin() -> None:
-    received = []
-
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self) -> None:
-            received.append((self.server.server_port, self.headers["Authorization"]))
-            self.send_response(302)
-            self.send_header("Location", f"http://127.0.0.1:{other.server_port}/")
-            self.end_headers()
-
-        def log_message(self, *_args: Any) -> None:
-            return None
-
-    api = HTTPServer(("127.0.0.1", 0), Handler)
-    other = HTTPServer(("127.0.0.1", 0), Handler)
-    for server in (api, other):
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-    try:
-        with pytest.raises(RunnerError, match="HTTP 302: Refused a redirect"):
-            DeepnoteCloudRunner(
-                "notebook-1",
-                token="token",
-                base_url=f"http://127.0.0.1:{api.server_port}",
-            ).info()
-    finally:
-        for server in (api, other):
-            server.shutdown()
-            server.server_close()
-
-    assert received == [(api.server_port, "Bearer token")]
-
-
-def test_http_error_keeps_a_body_that_is_not_json_out_of_the_message() -> None:
-    def open_request(*_: Any, **__: Any) -> FakeResponse:
-        raise HTTPError(
-            "http://runner/api/run",
-            502,
-            "Bad Gateway",
-            {},
-            io.BytesIO(b"<html>proxy internals</html>"),
-        )
-
-    with pytest.raises(RunnerError) as raised:
-        DeepnoteRunner("http://runner", transport=UrllibTransport(open_request)).run({})
-
-    assert str(raised.value) == "http://runner returned HTTP 502: Bad Gateway"
-
-
-def test_cloud_run_raises_when_the_run_outlasts_the_timeout() -> None:
-    transport = FakeTransport({"run": {"runId": "run-1", "status": "running"}})
-
-    with pytest.raises(RunnerError, match="run-1 did not finish in 0 seconds"):
-        DeepnoteCloudRunner(
-            "notebook-1", token="token", timeout=0, transport=transport
-        ).run({})
-
-
-def test_cloud_run_stops_waiting_for_a_snapshot_after_the_snapshot_timeout() -> None:
-    transport = FakeTransport(
-        {"run": {"runId": "run-1", "status": "success", "snapshotStatus": "pending"}}
-    )
-    sleeps: list[float] = []
-
-    result = DeepnoteCloudRunner(
-        "notebook-1",
-        token="token",
-        snapshot_timeout=1,
-        poll_interval=0.5,
-        transport=transport,
-        sleep=sleeps.append,
-    ).run({})
-
-    assert sleeps == [0.5, 0.5]
-    assert result.success is True
-    assert result.snapshot_status == "pending"
-    assert result.outputs == ()
-
-
-def test_cloud_run_honors_a_snapshot_timeout_shorter_than_the_poll_interval() -> None:
-    transport = FakeTransport(
-        {"run": {"runId": "run-1", "status": "success", "snapshotStatus": "pending"}}
-    )
-    sleeps: list[float] = []
-
-    DeepnoteCloudRunner(
-        "notebook-1",
-        token="token",
-        snapshot_timeout=1,
-        poll_interval=2,
-        transport=transport,
-        sleep=sleeps.append,
-    ).run({})
-
-    assert sleeps == [1]
+    assert info.matches_inputs([InputBlock("limit", "input-slider", "20")])
+    assert not info.matches_inputs([InputBlock("limit", "input-slider", "20", max=50)])
 
 
 @pytest.mark.parametrize(
-    "run",
-    [{"runId": "run-1"}, {"runId": "run-1", "status": "cancelled"}],
-    ids=["missing", "unknown"],
+    "changed",
+    [
+        InputBlock("n", "input-slider", "5", min=1, max=10, step=1),
+        InputBlock("n", "input-slider", "5", min=0, max=9, step=1),
+        InputBlock("n", "input-slider", "5", min=0, max=10, step=2),
+    ],
 )
-def test_cloud_run_rejects_a_run_without_a_known_status(run: dict[str, str]) -> None:
-    sleeps: list[float] = []
-
-    with pytest.raises(RunnerError, match="run-1 has an unknown status"):
-        DeepnoteCloudRunner(
-            "notebook-1",
-            token="token",
-            transport=FakeTransport({"run": run}),
-            sleep=sleeps.append,
-        ).run({})
-
-    assert sleeps == []
-
-
-def test_cloud_run_sends_a_tuple_as_a_list_and_rejects_a_missing_value() -> None:
-    bodies = []
-
-    class RecordingTransport(FakeTransport):
-        def request_json(self, method: str, url: str, **kwargs: Any) -> Any:
-            bodies.append(kwargs["body"])
-            return self.payload
-
-    runner = DeepnoteCloudRunner(
-        "notebook-1",
-        token="token",
-        transport=RecordingTransport(
-            {"run": {"runId": "run-1", "status": "success", "snapshotBlocks": []}}
-        ),
+def test_input_match_detects_slider_constraints(changed):
+    info = RunnerInfo(
+        "N", (InputBlock("n", "input-slider", "5", min=0, max=10, step=1),), "cloud"
     )
-    runner.run({"regions": ("EU", "US")})
+    assert not info.matches_inputs([changed])
 
-    assert bodies[0]["inputs"] == {"regions": ["EU", "US"]}
-    with pytest.raises(ValueError, match='Input "region" has a NoneType value'):
-        runner.run({"region": None})
+
+def test_credential_exchange_time_reduces_http_budget(http, clock):
+    def credentials(*, timeout):
+        assert timeout == 4
+        clock.now += 3
+        return ApiCredentials("token")
+
+    http.post("https://api.deepnote.com/v2/runs", json=run_response(snapshotBlocks=[]))
+    runner = DeepnoteCloudRunner(
+        "n",
+        credentials=credentials,
+        timeout=4,
+        clock=clock,
+        sleep=clock.sleep,
+        session=session(),
+    )
+    assert runner.run({}).success
+    assert http.calls[0].request.req_kwargs["timeout"].total == 1
+
+
+def test_expired_credential_budget_does_not_send_request(http, clock):
+    def credentials(*, timeout):
+        clock.now += timeout
+        return ApiCredentials("token")
+
+    with pytest.raises(RunnerError, match="exhausted"):
+        DeepnoteCloudRunner(
+            "n",
+            credentials=credentials,
+            timeout=4,
+            clock=clock,
+            sleep=clock.sleep,
+            session=session(),
+        ).run({})
+    assert not http.calls

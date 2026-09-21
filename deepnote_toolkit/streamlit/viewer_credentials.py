@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+
+import requests
+
 from deepnote_toolkit.notebooks.credentials import (
     DEFAULT_API_ORIGIN,
     ApiCredentials,
@@ -28,9 +32,9 @@ _NO_REQUEST = (
 class ViewerCredentials:
     """Credentials of the current viewer when Deepnote hosts the app.
 
-    `token`, `token_provider`, `base_url` and the `DEEPNOTE_TOKEN` environment
-    variable apply only outside Deepnote hosting. A hosted app has a viewer only on
-    the Streamlit script thread, and the call raises on any other thread.
+    Local Streamlit development requires `local=True` and explicit credentials.
+    Hosted processes and requests always use the viewer. Worker threads cannot
+    resolve a viewer and raise instead of using a shared token.
     """
 
     def __init__(
@@ -40,28 +44,41 @@ class ViewerCredentials:
         *,
         base_url: str = DEFAULT_API_ORIGIN,
         timeout: float = 10,
+        session: requests.Session | None = None,
+        local: bool = False,
     ):
-        self._is_token_explicit = token is not None or token_provider is not None
+        self._local_mode = local
+        self._local_token_explicit = token is not None or token_provider is not None
         self._local = token_credentials(token, token_provider, base_url=base_url)
         self._timeout = timeout
+        self._session = session
 
-    def __call__(self) -> ApiCredentials:
+    def __call__(self, *, timeout: float = 30) -> ApiCredentials:
         """Return the viewer's credentials, or the local ones outside hosting."""
 
         has_request = _has_script_run_context()
-        is_hosted = _read_hosted_app_id() is not None or (
-            has_request and _has_hosted_streamlit_context()
+        is_hosted = (
+            _read_hosted_app_id() is not None
+            or bool(os.environ.get("DEEPNOTE_PROJECT_ID"))
+            or (has_request and _has_hosted_streamlit_context())
         )
-        if is_hosted:
+        if is_hosted or (has_request and not self._local_mode):
             if not has_request:
                 raise RunnerError(_NO_REQUEST + ".")
             try:
-                viewer = current_user_api_credentials(timeout=self._timeout)
+                viewer = current_user_api_credentials(
+                    timeout=min(timeout, self._timeout), session=self._session
+                )
             except CurrentUserApiTokenError as error:
                 raise RunnerError(str(error), transient=error.transient) from error
             return ApiCredentials(token=viewer.token, api_origin=viewer.api_origin)
 
-        if not self._is_token_explicit and _is_streamlit_thread_without_request():
-            raise RunnerError(_NO_REQUEST + ", or pass token= or token_provider=.")
+        if _is_streamlit_thread_without_request():
+            raise RunnerError(_NO_REQUEST + ".")
 
-        return self._local()
+        if has_request and self._local_mode and not self._local_token_explicit:
+            raise RunnerError(
+                "Viewer identity is unavailable. For local development, "
+                "pass token= or token_provider= explicitly."
+            )
+        return self._local(timeout=timeout)

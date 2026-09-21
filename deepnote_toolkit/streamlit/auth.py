@@ -3,28 +3,26 @@
 from __future__ import annotations
 
 import hashlib
-import json
+import math
 import os
 import re
 import time
-from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from http.client import HTTPException
 from typing import Any
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
-from urllib.request import Request
+
+import requests
+from pydantic import ValidationError
 
 from deepnote_toolkit.get_webapp_url import (
     get_absolute_userpod_api_url,
     get_project_auth_headers,
 )
-from deepnote_toolkit.notebooks.transport import open_url
-from deepnote_toolkit.streamlit_data_apps import (
-    read_streamlit_token_from_context,
-)
+from deepnote_toolkit.notebooks._schemas import ViewerTokenResponse
+from deepnote_toolkit.notebooks.runner import RunnerError
+from deepnote_toolkit.notebooks.transport import request_json
+from deepnote_toolkit.streamlit_data_apps import read_streamlit_token_from_context
 
-OpenUrl = Callable[..., Any]
 _APP_ID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 STREAMLIT_APP_HOST_PATTERN = re.compile(rf"^streamlit-({_APP_ID})\.", re.IGNORECASE)
 STREAMLIT_APP_ID_ENV = "DEEPNOTE_STREAMLIT_APP_ID"
@@ -66,7 +64,7 @@ def current_user_api_credentials(
     app_id: str | None = None,
     streamlit_token: str | None = None,
     timeout: float = 10,
-    opener: OpenUrl = open_url,
+    session: requests.Session | None = None,
 ) -> CurrentUserApiCredentials:
     """Exchange the active viewer cookie for public API credentials.
 
@@ -76,12 +74,18 @@ def current_user_api_credentials(
     """
 
     resolved_app_id = (
-        app_id or _read_hosted_app_id() or _read_streamlit_app_id_from_context()
+        app_id
+        if app_id is not None
+        else (_read_hosted_app_id() or _read_streamlit_app_id_from_context())
     )
     if not resolved_app_id:
         raise CurrentUserApiTokenError(
             "Could not resolve a Deepnote Streamlit app ID from the request host."
         )
+
+    if not re.fullmatch(_APP_ID, resolved_app_id, re.IGNORECASE):
+        raise CurrentUserApiTokenError("app_id must be a UUID.")
+    resolved_app_id = resolved_app_id.lower()
 
     viewer_token = streamlit_token or read_streamlit_token_from_context()
     if not viewer_token:
@@ -103,70 +107,38 @@ def current_user_api_credentials(
         ):
             return cached[1]
 
-    request = Request(
-        get_absolute_userpod_api_url(f"streamlit-apps/{resolved_app_id}/api-token"),
-        data=b"",
-        method="POST",
-        headers={
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "StreamlitToken": viewer_token,
-            **get_project_auth_headers(),
-        },
-    )
+    owned_session = session is None
+    http = session if session is not None else requests.Session()
     try:
-        with opener(request, timeout=timeout) as response:
-            payload = json.loads(response.read())
-    except HTTPError as error:
-        message = _server_message(error)
-        raise CurrentUserApiTokenError(
-            f"Current viewer API-token exchange returned HTTP {error.code}"
-            + (f": {message}" if message else "."),
-            transient=error.code == 429 or error.code >= 500,
-        ) from error
-    except URLError as error:
-        raise CurrentUserApiTokenError(
-            "Could not reach Deepnote to exchange the current viewer's API token.",
-            transient=True,
-        ) from error
-    except TimeoutError as error:
-        raise CurrentUserApiTokenError(
-            "Current viewer API-token exchange timed out.", transient=True
-        ) from error
-    except (OSError, HTTPException) as error:
-        raise CurrentUserApiTokenError(
-            "The connection dropped during the current viewer API-token exchange.",
-            transient=True,
-        ) from error
-    except (json.JSONDecodeError, UnicodeDecodeError) as error:
-        raise CurrentUserApiTokenError(
-            "Current viewer API-token exchange returned invalid JSON."
-        ) from error
-
-    if not isinstance(payload, Mapping):
-        raise CurrentUserApiTokenError(
-            "Current viewer API-token exchange returned a non-object response."
+        payload = request_json(
+            http,
+            "POST",
+            get_absolute_userpod_api_url(f"streamlit-apps/{resolved_app_id}/api-token"),
+            headers={"StreamlitToken": viewer_token, **get_project_auth_headers()},
+            timeout=timeout,
         )
-
-    token = payload.get("token")
-    api_origin = payload.get("apiOrigin")
-    expires_at_seconds = payload.get("expiresAtSeconds")
-    if (
-        not isinstance(token, str)
-        or not token
-        or not isinstance(api_origin, str)
-        or not isinstance(expires_at_seconds, (int, float))
-        or isinstance(expires_at_seconds, bool)
-    ):
-        raise CurrentUserApiTokenError(
-            "Current viewer API-token exchange response is missing required fields."
+        parsed = ViewerTokenResponse(**payload)
+        credentials = CurrentUserApiCredentials(
+            token=parsed.token,
+            api_origin=_validated_origin(parsed.api_origin, name="apiOrigin"),
+            expires_at_seconds=float(parsed.expires_at_seconds),
         )
-
-    credentials = CurrentUserApiCredentials(
-        token=token,
-        api_origin=_validated_origin(api_origin, name="apiOrigin"),
-        expires_at_seconds=float(expires_at_seconds),
-    )
+        if (
+            not math.isfinite(credentials.expires_at_seconds)
+            or credentials.expires_at_seconds <= time.time()
+        ):
+            raise CurrentUserApiTokenError(
+                "Viewer API credentials have already expired."
+            )
+    except RunnerError as error:
+        raise CurrentUserApiTokenError(str(error), transient=error.transient) from error
+    except ValidationError as error:
+        raise CurrentUserApiTokenError(
+            "Viewer API-token response is missing or has invalid required fields."
+        ) from error
+    finally:
+        if owned_session:
+            http.close()
     if session_state is not None:
         session_state[_SESSION_STATE_KEY] = (cache_key, credentials)
     return credentials
@@ -183,7 +155,7 @@ def _read_streamlit_session_state() -> Any | None:
     except ImportError:
         return None
 
-    if get_script_run_ctx() is None:
+    if get_script_run_ctx(suppress_warning=True) is None:
         return None
     return st.session_state
 
@@ -191,8 +163,7 @@ def _read_streamlit_session_state() -> Any | None:
 def _read_hosted_app_id() -> str | None:
     """Return the app ID that Deepnote's launcher exports to a hosted app's process."""
 
-    app_id = os.environ.get(STREAMLIT_APP_ID_ENV, "")
-    return app_id.lower() if re.fullmatch(_APP_ID, app_id, re.IGNORECASE) else None
+    return os.environ.get(STREAMLIT_APP_ID_ENV)
 
 
 def _read_streamlit_app_id_from_context() -> str | None:
@@ -258,19 +229,6 @@ def _is_streamlit_thread_without_request() -> bool:
         return False
 
     return runtime.exists() and not _has_script_run_context()
-
-
-def _server_message(error: HTTPError) -> str | None:
-    """Return the message of a JSON error response, or None for any other body."""
-
-    try:
-        payload = json.loads(error.read())
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return None
-    if not isinstance(payload, Mapping):
-        return None
-    message = payload.get("error") or payload.get("message")
-    return message if isinstance(message, str) else None
 
 
 def _validated_origin(value: str, *, name: str) -> str:

@@ -8,6 +8,9 @@ from deepnote_toolkit.streamlit import render_inputs
 
 
 class FakeContainer:
+    def warning(self, message):
+        pass
+
     def checkbox(self, _label: str, **kwargs: Any) -> Any:
         return kwargs["value"]
 
@@ -15,7 +18,7 @@ class FakeContainer:
         return kwargs["default"]
 
     def selectbox(self, _label: str, options: list[str], **kwargs: Any) -> Any:
-        return options[kwargs["index"]]
+        return options[kwargs["index"]] if kwargs["index"] is not None else None
 
     def slider(self, _label: str, **kwargs: Any) -> Any:
         return kwargs["value"]
@@ -74,7 +77,7 @@ def test_incomplete_date_range_is_still_valid_for_runner_contract() -> None:
         IncompleteDateContainer(),
     )
 
-    assert values == {"period": ["2026-08-17", "2026-08-17"]}
+    assert values == {}
 
 
 def test_slider_preserves_fractional_default_with_integer_bounds() -> None:
@@ -226,16 +229,15 @@ def test_render_inputs_runs_on_real_streamlit_widgets() -> None:
     }
 
 
-def test_inputs_sharing_a_variable_name_render_once() -> None:
-    values = render_inputs(
-        [
-            InputBlock("region", "input-text", "EU"),
-            InputBlock("region", "input-text", "US"),
-        ],
-        FakeContainer(),
-    )
-
-    assert values == {"region": "EU"}
+def test_duplicate_variable_names_are_rejected() -> None:
+    with pytest.raises(ValueError, match="unique"):
+        render_inputs(
+            [
+                InputBlock("region", "input-text", "EU"),
+                InputBlock("region", "input-text", "US"),
+            ],
+            FakeContainer(),
+        )
 
 
 def test_multiselect_treats_a_scalar_default_as_one_selection() -> None:
@@ -252,3 +254,97 @@ def test_multiselect_treats_a_scalar_default_as_one_selection() -> None:
     )
 
     assert values == {"regions": ["EU"], "empty": []}
+
+
+@pytest.mark.parametrize("kind", ["input-text", "input-textarea", "input-file"])
+@pytest.mark.parametrize("value,expected", [(0, "0"), (False, "False"), (None, "")])
+def test_falsey_text_defaults_are_preserved(kind, value, expected):
+    assert render_inputs([InputBlock("x", kind, value)], FakeContainer()) == {
+        "x": expected
+    }
+
+
+@pytest.mark.parametrize("value", [None, "stale"])
+def test_unselected_single_select_does_not_submit_first_option(value):
+    assert (
+        render_inputs(
+            [InputBlock("x", "input-select", value, options=("first", "second"))],
+            FakeContainer(),
+        )
+        == {}
+    )
+
+
+def test_stale_multiselect_default_warns():
+    warnings = []
+    container = FakeContainer()
+    container.warning = warnings.append
+    values = render_inputs(
+        [
+            InputBlock(
+                "x",
+                "input-select",
+                ["old", "current"],
+                options=("current",),
+                multiple=True,
+            )
+        ],
+        container,
+    )
+    assert values == {"x": ["current"]}
+    assert len(warnings) == 1
+
+
+@pytest.mark.parametrize(
+    "value,min_value,max_value,step",
+    [
+        (11, 0, 10, 1),
+        (-1, 0, 10, 1),
+        (3, 10, 0, 1),
+        (3, 0, 10, 0),
+        (3, 0, 10, -1),
+        ("bad", 0, 10, 1),
+        (float("nan"), 0, 10, 1),
+        (3, 0, float("inf"), 1),
+    ],
+)
+def test_invalid_slider_configuration_is_reported(value, min_value, max_value, step):
+    with pytest.raises(ValueError, match="[Ss]lider"):
+        render_inputs(
+            [
+                InputBlock(
+                    "x", "input-slider", value, min=min_value, max=max_value, step=step
+                )
+            ],
+            FakeContainer(),
+        )
+
+
+def test_real_widgets_keep_falsey_defaults_and_require_selection():
+    pytest.importorskip("streamlit")
+    from streamlit.testing.v1 import AppTest
+
+    def app():
+        import streamlit as st
+
+        from deepnote_toolkit.notebooks import InputBlock
+        from deepnote_toolkit.streamlit import render_inputs
+
+        st.session_state["values"] = render_inputs(
+            [
+                InputBlock("zero", "input-text", 0),
+                InputBlock("false", "input-textarea", False),
+                InputBlock("choice", "input-select", "stale", options=("A", "B")),
+                InputBlock("period", "input-date-range", ["", ""]),
+            ]
+        )
+
+    at = AppTest.from_function(app).run()
+    assert not at.exception
+    assert at.text_input[0].value == "0" and at.text_area[0].value == "False"
+    assert "choice" not in at.session_state["values"]
+    at.selectbox[0].select("B").run()
+    assert at.session_state["values"]["choice"] == "B"
+    at.date_input[0].set_value((date(2026, 8, 17),)).run()
+    assert not at.exception
+    assert "period" not in at.session_state["values"]

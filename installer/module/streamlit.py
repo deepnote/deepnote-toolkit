@@ -3,16 +3,12 @@
 import json
 import logging
 import os
-import re
+import shlex
 import urllib.request
 from typing import List
 
 from .helper import request_with_retries
 from .virtual_environment import VirtualEnvironment
-
-_APP_ID_PATTERN = re.compile(
-    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.IGNORECASE
-)
 
 
 def get_webapp_url() -> str:
@@ -125,15 +121,21 @@ def start_streamlit_servers(
 
             # The toolkit reads the app ID to run notebooks as the app's viewer.
             app_id = app.get("id")
-            is_app_id_valid = isinstance(app_id, str) and _APP_ID_PATTERN.fullmatch(
-                app_id
-            )
-            env = f"DEEPNOTE_STREAMLIT_APP_ID={app_id} " if is_app_id_valid else ""
+            if not isinstance(app_id, str) or not app_id:
+                logger.warning(
+                    "Streamlit app %r has no app ID; viewer authentication will fail",
+                    entrypoint_path,
+                )
+            # Always mark the process as hosted; the SDK validates the app ID.
+            env = {
+                "DEEPNOTE_STREAMLIT_APP_ID": app_id if isinstance(app_id, str) else ""
+            }
 
             processes.append(
                 venv.start_server(
-                    f"{env}streamlit run '{entrypoint_path}' {arg_str}",
+                    f"streamlit run {shlex.quote(entrypoint_path)} {arg_str}",
                     cwd=directory_path,
+                    env=env,
                 )
             )
     except Exception as e:

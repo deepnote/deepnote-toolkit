@@ -1,356 +1,179 @@
-from __future__ import annotations
-
-import io
-import json
 import sys
 import time
-from http.client import RemoteDisconnected
 from types import SimpleNamespace
-from typing import Any
-from unittest.mock import patch
-from urllib.error import HTTPError
 
 import pytest
+import requests
+import responses
 
-from deepnote_toolkit.streamlit import (
-    CurrentUserApiCredentials,
-    CurrentUserApiTokenError,
-    current_user_api_credentials,
-    current_user_api_token,
-)
-from deepnote_toolkit.streamlit.auth import _read_streamlit_app_id_from_context
+from deepnote_toolkit.streamlit import auth
+from tests.unit.helpers.notebook_api import session
 
 APP_ID = "3853c7f5-2048-4b57-946d-6c5592c3317e"
+TOKEN_URL = f"http://localhost:19456/userpod-api/streamlit-apps/{APP_ID}/api-token"
 
 
-class FakeResponse:
-    def __init__(self, payload: Any):
-        self.payload = payload
-
-    def __enter__(self) -> "FakeResponse":
-        return self
-
-    def __exit__(self, *_args: object) -> None:
-        return None
-
-    def read(self) -> bytes:
-        return json.dumps(self.payload).encode()
+@pytest.fixture
+def state(monkeypatch):
+    state = {}
+    monkeypatch.delenv("DEEPNOTE_STREAMLIT_APP_ID", raising=False)
+    monkeypatch.setattr(auth, "_read_streamlit_session_state", lambda: state)
+    return state
 
 
-def test_reads_app_id_from_original_host_before_host() -> None:
-    streamlit = SimpleNamespace(
-        context=SimpleNamespace(
-            headers={
-                "Host": "streamlit-00000000-0000-0000-0000-000000000000.example",
-                "X-Original-Host": f"streamlit-{APP_ID}.deepnote.com",
-            }
-        )
+@pytest.fixture
+def http():
+    with responses.RequestsMock() as mock:
+        yield mock
+
+
+def credentials(http_session, **kwargs):
+    return auth.current_user_api_credentials(
+        app_id=APP_ID, streamlit_token="cookie", session=http_session, **kwargs
     )
 
-    with patch.dict(sys.modules, {"streamlit": streamlit}):
-        assert _read_streamlit_app_id_from_context() == APP_ID
 
-
-def test_reads_app_id_from_host_fallback() -> None:
-    streamlit = SimpleNamespace(
-        context=SimpleNamespace(
-            headers={"host": f"streamlit-{APP_ID}.deepnote.com:443"}
-        )
-    )
-
-    with patch.dict(sys.modules, {"streamlit": streamlit}):
-        assert _read_streamlit_app_id_from_context() == APP_ID
-
-
-@pytest.mark.parametrize(
-    "streamlit",
-    [
-        SimpleNamespace(context=SimpleNamespace(headers={})),
-        SimpleNamespace(context=SimpleNamespace(headers={"host": "localhost:8501"})),
-    ],
-)
-def test_app_id_is_unavailable_outside_hosted_app(streamlit: object) -> None:
-    with patch.dict(sys.modules, {"streamlit": streamlit}):
-        assert _read_streamlit_app_id_from_context() is None
-
-
-def test_exchanges_opaque_cookie_for_public_api_credentials() -> None:
-    captured = {}
-
-    def open_request(request: Any, *, timeout: float) -> FakeResponse:
-        captured["url"] = request.full_url
-        captured["method"] = request.method
-        captured["headers"] = dict(request.header_items())
-        captured["body"] = request.data
-        captured["timeout"] = timeout
-        return FakeResponse(
-            {
-                "token": "viewer-api-token",
-                "apiOrigin": "https://api.deepnote-staging.com/",
-                "expiresAtSeconds": 1_800_000_000,
-            }
-        )
-
-    credentials = current_user_api_credentials(
-        app_id=APP_ID,
-        streamlit_token="opaque-cookie",
-        timeout=7,
-        opener=open_request,
-    )
-
-    assert captured["url"] == (
-        f"http://localhost:19456/userpod-api/streamlit-apps/{APP_ID}/api-token"
-    )
-    assert captured["method"] == "POST"
-    assert captured["body"] == b""
-    assert captured["timeout"] == 7
-    headers = {key.lower(): value for key, value in captured["headers"].items()}
-    assert headers["streamlittoken"] == "opaque-cookie"
-    assert "authorization" not in headers
-    assert credentials.token == "viewer-api-token"
-    assert credentials.api_origin == "https://api.deepnote-staging.com"
-    assert credentials.expires_at_seconds == 1_800_000_000
-
-
-def _hosted_session_modules(session_state: dict[str, Any]) -> dict[str, Any]:
-    scriptrunner = SimpleNamespace(get_script_run_ctx=lambda: object())
+def payload(**overrides):
     return {
-        "streamlit": SimpleNamespace(session_state=session_state),
-        "streamlit.runtime": SimpleNamespace(scriptrunner=scriptrunner),
-        "streamlit.runtime.scriptrunner": scriptrunner,
+        "token": "viewer",
+        "apiOrigin": "https://api.deepnote-staging.com/",
+        "expiresAtSeconds": time.time() + 900,
+        **overrides,
     }
 
 
-def _counting_opener(expires_at_seconds: float) -> tuple[list[Any], Any]:
-    requests: list[Any] = []
+def test_exchange_uses_cookie_and_reuses_credentials_only_in_same_session(http, state):
+    http.post(TOKEN_URL, json=payload())
+    transport = session()
+    first = credentials(transport)
+    assert credentials(transport) is first
+    assert (
+        first.token == "viewer"
+        and first.api_origin == "https://api.deepnote-staging.com"
+    )
+    assert len(http.calls) == 1
+    assert http.calls[0].request.headers["StreamlitToken"] == "cookie"
+    assert "Authorization" not in http.calls[0].request.headers
+    state.clear()
+    assert credentials(transport) is not first
+    assert len(http.calls) == 2
 
-    def open_request(request: Any, *, timeout: float) -> FakeResponse:
-        requests.append(request)
-        return FakeResponse(
-            {
-                "token": f"viewer-api-token-{len(requests)}",
-                "apiOrigin": "https://api.deepnote.com",
-                "expiresAtSeconds": expires_at_seconds,
-            }
+
+def test_changed_cookie_or_expiry_refreshes_credentials(http, state):
+    http.post(TOKEN_URL, json=payload(expiresAtSeconds=time.time() + 30))
+    http.post(TOKEN_URL, json=payload(token="second"))
+    http.post(TOKEN_URL, json=payload(token="third"))
+    transport = session()
+    assert credentials(transport).token == "viewer"
+    assert credentials(transport).token == "second"
+    assert (
+        auth.current_user_api_credentials(
+            app_id=APP_ID, streamlit_token="changed", session=transport
+        ).token
+        == "third"
+    )
+
+
+@pytest.mark.parametrize("value", ["bad/path", "../apps", "", "x?query", "x#fragment"])
+def test_explicit_app_id_is_validated_before_network(http, state, value):
+    with pytest.raises(auth.CurrentUserApiTokenError):
+        auth.current_user_api_credentials(
+            app_id=value, streamlit_token="cookie", session=session()
         )
-
-    return requests, open_request
-
-
-def test_reuses_credentials_within_a_streamlit_session() -> None:
-    requests, open_request = _counting_opener(time.time() + 15 * 60)
-
-    with patch.dict(sys.modules, _hosted_session_modules({})):
-        first = current_user_api_credentials(
-            app_id=APP_ID, streamlit_token="opaque-cookie", opener=open_request
-        )
-        second = current_user_api_credentials(
-            app_id=APP_ID, streamlit_token="opaque-cookie", opener=open_request
-        )
-
-    assert len(requests) == 1
-    assert second == first
-
-
-def test_does_not_share_credentials_between_sessions() -> None:
-    requests, open_request = _counting_opener(time.time() + 15 * 60)
-
-    for _session in range(2):
-        with patch.dict(sys.modules, _hosted_session_modules({})):
-            current_user_api_credentials(
-                app_id=APP_ID, streamlit_token="opaque-cookie", opener=open_request
-            )
-
-    assert len(requests) == 2
+    assert not http.calls
 
 
 @pytest.mark.parametrize(
-    ("expires_in_seconds", "second_cookie"),
-    [(30, "opaque-cookie"), (15 * 60, "another-cookie")],
-)
-def test_exchanges_again_near_expiry_or_for_another_cookie(
-    expires_in_seconds: int, second_cookie: str
-) -> None:
-    requests, open_request = _counting_opener(time.time() + expires_in_seconds)
-
-    with patch.dict(sys.modules, _hosted_session_modules({})):
-        current_user_api_credentials(
-            app_id=APP_ID, streamlit_token="opaque-cookie", opener=open_request
-        )
-        current_user_api_credentials(
-            app_id=APP_ID, streamlit_token=second_cookie, opener=open_request
-        )
-
-    assert len(requests) == 2
-
-
-def test_public_token_provider_returns_the_current_credentials_token() -> None:
-    with patch(
-        "deepnote_toolkit.streamlit.auth.current_user_api_credentials"
-    ) as exchange:
-        exchange.side_effect = [
-            SimpleNamespace(token="first"),
-            SimpleNamespace(token="second"),
-        ]
-
-        assert current_user_api_token() == "first"
-        assert current_user_api_token() == "second"
-
-    assert exchange.call_count == 2
-
-
-def test_exchange_requires_hosted_streamlit_context() -> None:
-    with (
-        patch(
-            "deepnote_toolkit.streamlit.auth._read_streamlit_app_id_from_context",
-            return_value=None,
-        ),
-        pytest.raises(CurrentUserApiTokenError, match="app ID"),
-    ):
-        current_user_api_token()
-
-
-def test_exchange_requires_viewer_cookie() -> None:
-    with (
-        patch(
-            "deepnote_toolkit.streamlit.auth._read_streamlit_app_id_from_context",
-            return_value=APP_ID,
-        ),
-        patch(
-            "deepnote_toolkit.streamlit.auth.read_streamlit_token_from_context",
-            return_value=None,
-        ),
-        pytest.raises(CurrentUserApiTokenError, match="streamlit-token"),
-    ):
-        current_user_api_token()
-
-
-@pytest.mark.parametrize(
-    "payload",
+    "overrides",
     [
-        {},
-        {"token": "token"},
-        {
-            "token": "token",
-            "apiOrigin": "javascript:alert(1)",
-            "expiresAtSeconds": 123,
-        },
-        {
-            "token": "token",
-            "apiOrigin": "https://api.deepnote.com/unexpected",
-            "expiresAtSeconds": 123,
-        },
-        {
-            "token": "token",
-            "apiOrigin": "https://api.deepnote.com?secret=value",
-            "expiresAtSeconds": 123,
-        },
+        {"token": ""},
+        {"token": 1},
+        {"expiresAtSeconds": True},
+        {"expiresAtSeconds": 0},
+        {"expiresAtSeconds": "99999999999"},
+        {"apiOrigin": "https://user:pass@example.com"},
+        {"apiOrigin": "https://example.com/path"},
     ],
 )
-def test_exchange_rejects_invalid_response(payload: dict[str, Any]) -> None:
-    with pytest.raises(CurrentUserApiTokenError):
-        current_user_api_credentials(
-            app_id=APP_ID,
-            streamlit_token="opaque-cookie",
-            opener=lambda *_args, **_kwargs: FakeResponse(payload),
-        )
+def test_malformed_credentials_are_not_cached(http, state, overrides):
+    http.post(TOKEN_URL, json=payload(**overrides))
+    with pytest.raises(auth.CurrentUserApiTokenError):
+        credentials(session())
+    assert state == {}
 
 
-def test_exchange_error_includes_the_server_message() -> None:
-    def open_request(*_args: Any, **_kwargs: Any) -> FakeResponse:
-        raise HTTPError(
-            "http://localhost:19456/userpod-api/streamlit-apps/id/api-token",
-            403,
-            "Forbidden",
-            {},
-            io.BytesIO(
-                json.dumps(
-                    {"error": "API access is not available for this app"}
-                ).encode()
-            ),
-        )
-
-    with pytest.raises(CurrentUserApiTokenError) as exc_info:
-        current_user_api_credentials(
-            app_id=APP_ID,
-            streamlit_token="opaque-cookie",
-            opener=open_request,
-        )
-
-    assert str(exc_info.value) == (
-        "Current viewer API-token exchange returned HTTP 403: "
-        "API access is not available for this app"
+@pytest.mark.parametrize(
+    "status,transient", [(401, False), (403, False), (429, True), (503, True)]
+)
+def test_exchange_preserves_server_reason_and_retry_classification(
+    http, state, status, transient
+):
+    http.post(
+        TOKEN_URL,
+        status=status,
+        json={"message": "API access is not available for this app"},
     )
+    with pytest.raises(
+        auth.CurrentUserApiTokenError, match="API access is not available"
+    ) as exc:
+        credentials(session())
+    assert exc.value.transient is transient
+    assert len(http.calls) == 1
 
 
-def test_exchange_error_does_not_expose_a_raw_response_body() -> None:
-    def open_request(*_args: Any, **_kwargs: Any) -> FakeResponse:
-        raise HTTPError(
-            "http://localhost:19456/userpod-api/streamlit-apps/id/api-token",
-            502,
-            "Bad Gateway",
-            {},
-            io.BytesIO(b"<html>must-not-leak</html>"),
-        )
-
-    with pytest.raises(CurrentUserApiTokenError) as exc_info:
-        current_user_api_credentials(
-            app_id=APP_ID,
-            streamlit_token="opaque-cookie",
-            opener=open_request,
-        )
-
-    assert str(exc_info.value) == "Current viewer API-token exchange returned HTTP 502."
+@pytest.mark.parametrize(
+    "failure", [requests.Timeout(), requests.ConnectionError("closed")]
+)
+def test_exchange_network_failures_are_transient(http, state, failure):
+    http.post(TOKEN_URL, body=failure)
+    with pytest.raises(auth.CurrentUserApiTokenError) as exc:
+        credentials(session())
+    assert exc.value.transient
 
 
-def test_credentials_repr_hides_the_token() -> None:
-    credentials = CurrentUserApiCredentials(
-        token="secret-token",
-        api_origin="https://api.deepnote.com",
-        expires_at_seconds=1_800_000_000,
+def test_exchange_never_follows_redirects_or_exposes_html(http, state):
+    http.post(TOKEN_URL, status=302, headers={"Location": "https://other.example"})
+    with pytest.raises(auth.CurrentUserApiTokenError, match="Refused a redirect"):
+        credentials(session())
+    http.replace(responses.POST, TOKEN_URL, status=502, body="<html>private</html>")
+    with pytest.raises(auth.CurrentUserApiTokenError) as exc:
+        credentials(session())
+    assert "private" not in str(exc.value)
+
+
+@pytest.mark.parametrize(
+    "headers,expected",
+    [
+        ({"Host": f"streamlit-{APP_ID}.example"}, APP_ID),
+        (
+            {"Host": "localhost", "X-Original-Host": f"streamlit-{APP_ID}.example"},
+            APP_ID,
+        ),
+        ({"Host": "localhost:8501"}, None),
+        ({}, None),
+    ],
+)
+def test_host_id_resolution(monkeypatch, headers, expected):
+    monkeypatch.setitem(
+        sys.modules,
+        "streamlit",
+        SimpleNamespace(context=SimpleNamespace(headers=headers)),
     )
-
-    assert "secret-token" not in repr(credentials)
-
-
-def test_dropped_connection_during_exchange_is_transient() -> None:
-    def open_request(_request: Any, *, timeout: float) -> Any:
-        raise RemoteDisconnected("Remote end closed connection without response")
-
-    with pytest.raises(CurrentUserApiTokenError) as exc_info:
-        current_user_api_credentials(
-            app_id="11111111-2222-3333-4444-555555555555",
-            streamlit_token="cookie",
-            opener=open_request,
-        )
-
-    assert exc_info.value.transient is True
+    assert auth._read_streamlit_app_id_from_context() == expected
 
 
-def test_exchange_prefers_the_app_id_exported_by_the_launcher(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("DEEPNOTE_STREAMLIT_APP_ID", APP_ID.upper())
-    urls = []
+def test_session_state_lookup_suppresses_missing_context_warning(monkeypatch):
+    calls = []
 
-    def open_request(request: Any, *, timeout: float) -> FakeResponse:
-        urls.append(request.full_url)
-        return FakeResponse(
-            {
-                "token": "viewer-api-token",
-                "apiOrigin": "https://api.deepnote.com",
-                "expiresAtSeconds": 1_800_000_000,
-            }
-        )
+    def get_ctx(*, suppress_warning):
+        calls.append(suppress_warning)
+        return None
 
-    with patch(
-        "deepnote_toolkit.streamlit.auth._read_streamlit_app_id_from_context",
-        return_value="00000000-0000-0000-0000-000000000000",
-    ):
-        current_user_api_credentials(
-            streamlit_token="opaque-cookie", opener=open_request
-        )
-
-    assert urls == [
-        f"http://localhost:19456/userpod-api/streamlit-apps/{APP_ID}/api-token"
-    ]
+    monkeypatch.setitem(sys.modules, "streamlit", SimpleNamespace())
+    monkeypatch.setitem(
+        sys.modules,
+        "streamlit.runtime.scriptrunner",
+        SimpleNamespace(get_script_run_ctx=get_ctx),
+    )
+    assert auth._read_streamlit_session_state() is None
+    assert calls == [True]

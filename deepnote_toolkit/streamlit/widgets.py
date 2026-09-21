@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import calendar
+import math
 import re
 from collections.abc import Iterable
 from datetime import date, timedelta
@@ -33,16 +34,17 @@ def render_inputs(
 
         container = st
 
+    inputs = tuple(inputs)
+    names = [block.variable_name for block in inputs]
+    if len(names) != len(set(names)):
+        raise ValueError("Input variable names must be unique")
     values: dict[str, Any] = {}
     for input_block in inputs:
-        # One submitted value applies to every block sharing a variable name.
-        if input_block.variable_name in values:
-            continue
         label = input_block.label or input_block.variable_name.replace("_", " ").title()
         key = f"{key_prefix}:{input_block.variable_name}"
-        values[input_block.variable_name] = _render_one(
-            container, input_block, label, key
-        )
+        value = _render_one(container, input_block, label, key)
+        if value is not None:
+            values[input_block.variable_name] = value
     return values
 
 
@@ -59,21 +61,32 @@ def _render_one(container: Any, input_block: InputBlock, label: str, key: str) -
             defaults = [
                 normalized for item in value if (normalized := str(item)) in options
             ]
+            if len(defaults) != len(value):
+                container.warning(
+                    f"{label}: saved selections are no longer available. Review the selection before running."
+                )
             return container.multiselect(label, options, default=defaults, key=key)
         index = (
             options.index(str(input_block.value))
             if str(input_block.value) in options
-            else 0
+            else None
         )
-        return (
-            container.selectbox(label, options, index=index, key=key) if options else ""
-        )
+        return container.selectbox(label, options, index=index, key=key)
 
     if input_block.type == "input-slider":
         minimum = input_block.min if input_block.min is not None else 0
         maximum = input_block.max if input_block.max is not None else 100
         step = input_block.step if input_block.step is not None else 1
         value = _as_number(input_block.value, minimum)
+        if (
+            not all(math.isfinite(n) for n in (minimum, maximum, step, value))
+            or minimum >= maximum
+            or step <= 0
+            or not minimum <= value <= maximum
+        ):
+            raise ValueError(
+                f"{label}: slider needs finite ordered bounds, a positive step, and a default within its bounds"
+            )
         if any(isinstance(number, float) for number in (minimum, maximum, value, step)):
             minimum, maximum, value, step = (
                 float(number) for number in (minimum, maximum, value, step)
@@ -95,16 +108,24 @@ def _render_one(container: Any, input_block: InputBlock, label: str, key: str) -
             label, value=_as_date_range(input_block.value), key=key
         )
         if not isinstance(selected, (list, tuple)):
-            selected = (selected, selected)
+            return None
         serialized = [_serialize_date(value) for value in selected]
         if len(serialized) == 1:
-            return serialized * 2
+            return None
         return serialized if len(serialized) == 2 else ["", ""]
 
     if input_block.type == "input-textarea":
-        return container.text_area(label, value=str(input_block.value or ""), key=key)
+        return container.text_area(
+            label,
+            value=str(input_block.value) if input_block.value is not None else "",
+            key=key,
+        )
 
-    return container.text_input(label, value=str(input_block.value or ""), key=key)
+    return container.text_input(
+        label,
+        value=str(input_block.value) if input_block.value is not None else "",
+        key=key,
+    )
 
 
 def _as_bool(value: Any) -> bool:
@@ -114,6 +135,8 @@ def _as_bool(value: Any) -> bool:
 
 
 def _as_number(value: Any, fallback: float | int) -> float | int:
+    if value is None:
+        return fallback
     try:
         number = float(value)
         return (
@@ -121,8 +144,8 @@ def _as_number(value: Any, fallback: float | int) -> float | int:
             if isinstance(fallback, float) or not number.is_integer()
             else int(number)
         )
-    except (TypeError, ValueError):
-        return fallback
+    except (TypeError, ValueError) as error:
+        raise ValueError("Slider default must be a number") from error
 
 
 def _as_date(value: Any) -> date | None:

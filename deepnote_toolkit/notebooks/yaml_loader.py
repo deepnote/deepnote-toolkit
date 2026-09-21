@@ -70,7 +70,7 @@ def load_yaml(content: str) -> Any:
     loader = _CoreSchemaLoader(content)
     try:
         return loader.get_single_data()
-    except ValueError as error:
+    except (ValueError, AttributeError, TypeError) as error:
         raise yaml.YAMLError(str(error)) from error
     finally:
         loader.dispose()

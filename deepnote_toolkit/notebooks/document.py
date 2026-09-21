@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import yaml
 
-from .api_types import INPUT_BLOCK_TYPES, InputBlockType
+from .api_types import INPUT_BLOCK_TYPES
 from .models import InputBlock, NotebookOutput
 from .outputs import OutputCollection
 from .wire import decode_block_outputs, optional_number, optional_string, string_tuple
@@ -98,7 +98,7 @@ def _read_input_block(block: Mapping[str, Any]) -> InputBlock | None:
         return None
     return InputBlock(
         variable_name=variable_name,
-        type=cast(InputBlockType, block_type),
+        type=block_type,
         label=optional_string(metadata.get("deepnote_input_label")),
         value=metadata.get("deepnote_variable_value"),
         options=string_tuple(metadata.get("deepnote_variable_options")),

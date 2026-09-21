@@ -85,3 +85,11 @@ def test_the_same_key_may_repeat_in_separate_mappings(load_yaml: Any) -> None:
 def test_mapping_tag_on_another_node_is_a_yaml_error(load_yaml: Any) -> None:
     with pytest.raises(yaml.YAMLError, match="expected a mapping node"):
         load_yaml("!!map [1, 2]")
+
+
+@pytest.mark.parametrize(
+    "content", ["x: !!timestamp invalid", "x: !!binary [1]", "x: !!bool []"]
+)
+def test_malformed_explicit_tags_raise_yaml_error(load_yaml, content):
+    with pytest.raises(yaml.YAMLError):
+        load_yaml(content)

@@ -24,7 +24,7 @@ class ApiCredentials:
 class CredentialsProvider(Protocol):
     """Returns the credentials for one request. Called before every request."""
 
-    def __call__(self) -> ApiCredentials:
+    def __call__(self, *, timeout: float = 30) -> ApiCredentials:
         """Return the credentials, or raise `RunnerError` when there are none."""
 
 
@@ -40,7 +40,7 @@ def token_credentials(
         raise ValueError("Pass token or token_provider, not both")
     api_origin = base_url.rstrip("/")
 
-    def provide() -> ApiCredentials:
+    def provide(*, timeout: float = 30) -> ApiCredentials:
         if token_provider is not None:
             value: str | None = token_provider()
         elif token is not None:

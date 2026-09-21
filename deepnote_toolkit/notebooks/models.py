@@ -151,8 +151,8 @@ class RunnerInfo:
     inputs: tuple[InputBlock, ...]
     run_target: str
 
-    def accepts_inputs(self, inputs: Iterable[InputBlock]) -> bool:
-        """Return whether values made for `inputs` fit this runner's notebook.
+    def matches_inputs(self, inputs: Iterable[InputBlock]) -> bool:
+        """Return whether the static input definitions match this runner's notebook.
 
         Names, block types, single or multiple selection, slider bounds and select
         options must match. Options filled from a variable change between runs, so
@@ -160,6 +160,10 @@ class RunnerInfo:
         """
 
         expected = tuple(inputs)
+        for blocks in (expected, self.inputs):
+            names = [block.variable_name for block in blocks]
+            if len(names) != len(set(names)):
+                return False
         dynamic = frozenset(
             input_block.variable_name
             for input_block in expected
@@ -190,6 +194,7 @@ def _value_constraints(
         return (
             input_block.min if input_block.min is not None else 0,
             input_block.max if input_block.max is not None else 100,
+            input_block.step if input_block.step is not None else 1,
         )
     if input_block.type == "input-select":
         is_dynamic = input_block.variable_name in dynamic_options

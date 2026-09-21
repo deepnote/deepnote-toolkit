@@ -3,28 +3,29 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import responses
 
 from deepnote_toolkit.notebooks import (
-    DATAFRAME_MIME,
     DeepnoteDataframe,
     DeepnoteDocument,
-    DeepnoteRunner,
+    DeepnoteLocalRunner,
     InputBlock,
     RunResult,
-    join_text,
 )
-
-
-class FakeTransport:
-    def __init__(self, payload: Mapping[str, Any]):
-        self.payload = payload
-
-    def request_json(self, *_args: Any, **_kwargs: Any) -> Mapping[str, Any]:
-        return self.payload
+from deepnote_toolkit.notebooks.models import DATAFRAME_MIME, join_text
+from tests.unit.helpers.notebook_api import session
 
 
 def run_locally(payload: Mapping[str, Any]) -> RunResult:
-    return DeepnoteRunner(transport=FakeTransport(payload)).run({})
+    with responses.RequestsMock() as http:
+        http.post("http://127.0.0.1:8787/api/run", json=payload)
+        return DeepnoteLocalRunner(session=session()).run({})
+
+
+def local_info(payload):
+    with responses.RequestsMock() as http:
+        http.get("http://127.0.0.1:8787/api/info", json=payload)
+        return DeepnoteLocalRunner(session=session()).info()
 
 
 SNAPSHOT_YAML = """
@@ -126,22 +127,20 @@ def test_reads_input_metadata_from_file_and_api_shapes() -> None:
             }
         }
     )
-    info = DeepnoteRunner(
-        transport=FakeTransport(
-            {
-                "inputs": [
-                    {
-                        "variableName": "countries",
-                        "type": "input-select",
-                        "label": "Countries",
-                        "value": ["Panama"],
-                        "options": ["Panama", "Colombia"],
-                        "multiple": True,
-                    }
-                ]
-            }
-        )
-    ).info()
+    info = local_info(
+        {
+            "inputs": [
+                {
+                    "variableName": "countries",
+                    "type": "input-select",
+                    "label": "Countries",
+                    "value": ["Panama"],
+                    "options": ["Panama", "Colombia"],
+                    "multiple": True,
+                }
+            ]
+        }
+    )
     (file_input,) = document.inputs
     (api_input,) = info.inputs
 
