@@ -14,12 +14,7 @@ from deepnote_toolkit.notebooks.credentials import (
 )
 from deepnote_toolkit.notebooks.runner import RunnerError
 
-from .auth import (
-    CurrentUserApiTokenError,
-    StreamlitRuntime,
-    current_user_api_credentials,
-    streamlit_runtime,
-)
+from .auth import StreamlitRuntime, current_user_api_credentials, streamlit_runtime
 
 _NO_REQUEST = (
     "No viewer request is available on this thread. Call the runner from the "
@@ -65,14 +60,11 @@ class ViewerCredentials:
         if is_hosted or (has_request and not self._local_mode):
             if not has_request:
                 raise RunnerError(_NO_REQUEST)
-            try:
-                viewer = current_user_api_credentials(
-                    timeout=min(timeout, self._timeout),
-                    session=self._session,
-                    runtime=self._runtime,
-                )
-            except CurrentUserApiTokenError as error:
-                raise RunnerError(str(error), transient=error.transient) from error
+            viewer = current_user_api_credentials(
+                timeout=min(timeout, self._timeout),
+                session=self._session,
+                runtime=self._runtime,
+            )
             return ApiCredentials(token=viewer.token, api_origin=viewer.api_origin)
 
         if self._runtime.is_worker_thread():

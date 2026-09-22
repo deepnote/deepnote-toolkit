@@ -75,16 +75,6 @@ class DeepnoteDataframe:
 
         return self.row_count > len(self.rows)
 
-    @property
-    def data_columns(self) -> tuple[str, ...]:
-        """Column names without Deepnote's index column."""
-
-        return tuple(
-            str(column.get("name"))
-            for column in self.columns
-            if column.get("name") not in (None, INDEX_COLUMN)
-        )
-
     def records(self, *, include_index: bool = True) -> list[dict[str, Any]]:
         """Return rows as plain dicts, optionally without the index column."""
 

@@ -13,11 +13,15 @@ from tests.unit.helpers.streamlit_runtime import FakeStreamlitRuntime
 
 APP_ID = "11111111-2222-3333-4444-555555555555"
 TOKEN_URL = f"http://localhost:19456/userpod-api/streamlit-apps/{APP_ID}/api-token"
-VIEWER_TOKEN = {
-    "token": "viewer",
-    "apiOrigin": "https://api.deepnote.com",
-    "expiresAtSeconds": time.time() + 900,
-}
+
+
+def viewer_token(**overrides):
+    return {
+        "token": "viewer",
+        "apiOrigin": "https://api.deepnote.com",
+        "expiresAtSeconds": time.time() + 900,
+        **overrides,
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -57,7 +61,7 @@ def test_hosted_run_uses_viewer_and_readonly_even_with_explicit_owner_token(
 ):
     http.post(
         TOKEN_URL,
-        json={**VIEWER_TOKEN, "apiOrigin": "https://api.deepnote-staging.com"},
+        json=viewer_token(apiOrigin="https://api.deepnote-staging.com"),
     )
     add_run(
         http,
@@ -98,7 +102,7 @@ def test_resolved_viewer_token_overrides_requests_auth(
     ambient_auth: str,
 ) -> None:
     """Keep the viewer bearer authoritative over ambient Requests authentication."""
-    http.post(TOKEN_URL, json=VIEWER_TOKEN)
+    http.post(TOKEN_URL, json=viewer_token())
     add_run(http, run_response(snapshotBlocks=[]), create=True)
     transport = requests.Session()
     if ambient_auth == "netrc":
@@ -177,9 +181,9 @@ def test_bare_python_requires_explicit_local_credentials(
 
 
 def test_transient_exchange_failure_during_poll_is_retried(http):
-    http.post(TOKEN_URL, json=VIEWER_TOKEN)
+    http.post(TOKEN_URL, json=viewer_token())
     http.post(TOKEN_URL, status=503)
-    http.post(TOKEN_URL, json=VIEWER_TOKEN)
+    http.post(TOKEN_URL, json=viewer_token())
     add_run(http, run_response("running"), create=True)
     add_run(http, run_response(snapshotBlocks=[]))
     clock = Clock()
@@ -199,7 +203,7 @@ def test_real_streamlit_script_and_worker_keep_viewer_identity(
 ):
     monkeypatch.setenv("DEEPNOTE_STREAMLIT_APP_ID", APP_ID)
     monkeypatch.setattr(auth, "read_streamlit_token_from_context", lambda: "cookie")
-    http.post(TOKEN_URL, json=VIEWER_TOKEN)
+    http.post(TOKEN_URL, json=viewer_token())
     add_run(http, run_response(snapshotBlocks=[]), create=True)
 
     def app():

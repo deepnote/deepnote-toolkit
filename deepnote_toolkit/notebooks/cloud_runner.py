@@ -154,12 +154,7 @@ class DeepnoteCloudRunner:
             if not self._pause(deadline):
                 break
             try:
-                updated = self._client.get_run(
-                    run.run_id, timeout=deadline - self._clock()
-                )
-                run = updated
-                if self._clock() >= deadline:
-                    break
+                run = self._client.get_run(run.run_id, timeout=deadline - self._clock())
             except RunnerError as error:
                 if not error.transient:
                     raise

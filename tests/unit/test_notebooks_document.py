@@ -79,28 +79,8 @@ def test_loads_inputs_and_structured_outputs(tmp_path: Path) -> None:
     )
     dataframe = snapshot.first_dataframe()
     assert dataframe is not None
-    assert dataframe.data_columns == ("Revenue",)
     assert dataframe.records(include_index=False) == [{"Revenue": 42}]
     assert snapshot.agent_text() == "**Done**"
-
-
-def test_dataframe_ignores_columns_without_names() -> None:
-    dataframe = DeepnoteDocument.parse("""
-project:
-  notebooks:
-    - blocks:
-        - id: table
-          type: code
-          outputs:
-            - output_type: execute_result
-              data:
-                application/vnd.deepnote.dataframe.v3+json:
-                  columns: [{}, {name: value}]
-                  rows: [{value: 42}]
-""").first_dataframe()
-
-    assert dataframe is not None
-    assert dataframe.data_columns == ("value",)
 
 
 def test_reads_input_metadata_from_file_and_api_shapes() -> None:

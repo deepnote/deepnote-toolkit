@@ -86,14 +86,9 @@ def test_app_id_is_validated_before_network(http, runtime, value):
         {"expiresAtSeconds": "99999999999"},
         {"apiOrigin": "https://user:pass@example.com"},
         {"apiOrigin": "https://example.com/path"},
+        {"apiOrigin": "https://example.com/?next=1"},
+        {"apiOrigin": "ftp://example.com"},
         {"apiOrigin": "https://[::1"},
-        {"apiOrigin": "https://example.com?"},
-        {"apiOrigin": "https://example.com#"},
-        {"apiOrigin": "https://example.com;"},
-        {"apiOrigin": "https://example.com/?"},
-        {"apiOrigin": "https://example.com/#"},
-        {"apiOrigin": "https://example.com/;"},
-        {"apiOrigin": "https://example.com;/"},
     ],
 )
 def test_malformed_credentials_are_not_cached(http, runtime, overrides):
@@ -101,6 +96,14 @@ def test_malformed_credentials_are_not_cached(http, runtime, overrides):
     with pytest.raises(auth.CurrentUserApiTokenError):
         credentials(session(), runtime)
     assert runtime.state == {}
+
+
+@pytest.mark.parametrize("suffix", ["", "/", "/?", "/#", "?#"])
+def test_api_origin_is_reduced_to_scheme_and_host(http, runtime, suffix):
+    http.post(
+        TOKEN_URL, json=payload(apiOrigin="HTTPS://api.example.com:8443" + suffix)
+    )
+    assert credentials(session(), runtime).api_origin == "https://api.example.com:8443"
 
 
 @pytest.mark.parametrize(

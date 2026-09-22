@@ -48,12 +48,11 @@ class DeepnoteDocument(OutputCollection):
 
         source = Path(path)
         try:
-            raw = load_yaml(source.read_text(encoding="utf-8"))
-        except yaml.YAMLError as error:
-            raise ValueError(f"Could not parse {source}: {error}") from error
-        if not isinstance(raw, Mapping):
-            raise ValueError(f"Expected {source} to contain a YAML object")
-        return cls(raw, notebook_id=notebook_id)
+            return cls.parse(
+                source.read_text(encoding="utf-8"), notebook_id=notebook_id
+            )
+        except ValueError as error:
+            raise ValueError(f"{source}: {error}") from None
 
     @classmethod
     def parse(cls, content: str, *, notebook_id: str | None = None) -> DeepnoteDocument:

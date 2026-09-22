@@ -10,7 +10,7 @@ import time
 from collections.abc import MutableMapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
-from urllib.parse import urlparse
+from urllib.parse import urlsplit
 
 import requests
 from pydantic import ValidationError
@@ -32,12 +32,8 @@ _SESSION_STATE_KEY = "_deepnote_current_user_api_credentials"
 _EXPIRY_MARGIN_SECONDS = 60
 
 
-class CurrentUserApiTokenError(RuntimeError):
+class CurrentUserApiTokenError(RunnerError):
     """Raised when a hosted app cannot obtain the current viewer's API token."""
-
-    def __init__(self, message: str, *, transient: bool = False):
-        super().__init__(message)
-        self.transient = transient
 
 
 @dataclass(frozen=True)
@@ -159,7 +155,6 @@ def _exchange(
     timeout: float,
     session: requests.Session | None,
 ) -> CurrentUserApiCredentials:
-    owned_session = session is None
     http = session if session is not None else requests.Session()
     try:
         payload = request_json(
@@ -170,18 +165,6 @@ def _exchange(
             timeout=timeout,
         )
         parsed = ViewerTokenResponse(**payload)
-        credentials = CurrentUserApiCredentials(
-            token=parsed.token,
-            api_origin=_validated_origin(parsed.api_origin, name="apiOrigin"),
-            expires_at_seconds=float(parsed.expires_at_seconds),
-        )
-        if (
-            not math.isfinite(credentials.expires_at_seconds)
-            or credentials.expires_at_seconds <= time.time()
-        ):
-            raise CurrentUserApiTokenError(
-                "Viewer API credentials have already expired."
-            )
     except RunnerError as error:
         raise CurrentUserApiTokenError(str(error), transient=error.transient) from error
     except ValidationError:
@@ -190,9 +173,16 @@ def _exchange(
             "Viewer API-token response is missing or has invalid required fields."
         ) from None
     finally:
-        if owned_session:
+        if http is not session:
             http.close()
-    return credentials
+    expires_at = float(parsed.expires_at_seconds)
+    if not math.isfinite(expires_at) or expires_at <= time.time():
+        raise CurrentUserApiTokenError("Viewer API credentials have already expired.")
+    return CurrentUserApiCredentials(
+        token=parsed.token,
+        api_origin=_origin(parsed.api_origin),
+        expires_at_seconds=expires_at,
+    )
 
 
 def _read_streamlit_app_id_from_context() -> str | None:
@@ -225,25 +215,20 @@ def _read_streamlit_app_id_from_context() -> str | None:
     return None
 
 
-def _validated_origin(value: str, *, name: str) -> str:
-    """Validate an origin and normalize URL parser failures to authentication errors."""
+def _origin(value: str) -> str:
+    """Reduce `apiOrigin` to `scheme://host[:port]`, rejecting anything else in it."""
+
     try:
-        parsed = urlparse(value)
-    except ValueError as error:
-        raise CurrentUserApiTokenError(
-            f"{name} must be a valid HTTP(S) origin."
-        ) from error
-    normalized = value.rstrip("/")
-    if (
-        parsed.scheme not in {"http", "https"}
-        or not parsed.netloc
-        or parsed.username
-        or parsed.password
-        or parsed.path not in {"", "/"}
-        or parsed.params
-        or parsed.query
-        or parsed.fragment
-        or normalized.endswith(("?", "#", ";"))
-    ):
-        raise CurrentUserApiTokenError(f"{name} must be a valid HTTP(S) origin.")
-    return normalized
+        parts = urlsplit(value)
+        bare = (
+            parts.scheme in {"http", "https"}
+            and bool(parts.hostname)
+            and parts.username is None
+            and not parts.path.strip("/")
+            and not (parts.query or parts.fragment)
+        )
+    except ValueError:
+        bare = False
+    if not bare:
+        raise CurrentUserApiTokenError("apiOrigin must be a valid HTTP(S) origin.")
+    return f"{parts.scheme}://{parts.netloc}"
