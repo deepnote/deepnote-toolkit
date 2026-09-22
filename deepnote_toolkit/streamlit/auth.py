@@ -242,6 +242,7 @@ def _validated_origin(value: str, *, name: str) -> str:
         raise CurrentUserApiTokenError(
             f"{name} must be a valid HTTP(S) origin."
         ) from error
+    normalized = value.rstrip("/")
     if (
         parsed.scheme not in {"http", "https"}
         or not parsed.netloc
@@ -251,7 +252,7 @@ def _validated_origin(value: str, *, name: str) -> str:
         or parsed.params
         or parsed.query
         or parsed.fragment
-        or value.endswith(("?", "#", ";"))
+        or normalized.endswith(("?", "#", ";"))
     ):
         raise CurrentUserApiTokenError(f"{name} must be a valid HTTP(S) origin.")
-    return value.rstrip("/")
+    return normalized
