@@ -14,8 +14,8 @@ from .outputs import OutputCollection
 class RunResult(OutputCollection):
     """What one run produced, whether it ran in Deepnote Cloud or locally.
 
-    `snapshot_status` is set for cloud runs. `snapshot` and `created` are set by
-    the local runner.
+    `snapshot_status` is set for cloud runs. `view_url`, `snapshot` and `created`
+    are set by the local runner.
     """
 
     target: str

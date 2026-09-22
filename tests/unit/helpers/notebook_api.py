@@ -20,7 +20,7 @@ class Clock:
 
 
 def run_response(status="success", **fields):
-    return {"run": {"runId": "run-1", "status": status, **fields}}
+    return {"runId": "run-1", "status": status, **fields}
 
 
 def session():
@@ -34,5 +34,9 @@ def body(call):
 
 
 def add_run(http, payload, *, create=False, origin="https://api.deepnote.com"):
-    path = "/v2/runs" if create else "/v2/runs/run-1?snapshotDelivery=blocks"
-    http.add(responses.POST if create else responses.GET, origin + path, json=payload)
+    """Register the flat POST /v2/runs response or the nested GET /v2/runs/{id} one."""
+    if create:
+        http.add(responses.POST, origin + "/v2/runs", json=payload)
+    else:
+        path = "/v2/runs/run-1?snapshotDelivery=blocks"
+        http.add(responses.GET, origin + path, json={"run": payload})

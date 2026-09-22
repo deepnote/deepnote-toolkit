@@ -14,6 +14,7 @@ from deepnote_toolkit.notebooks.credentials import DEFAULT_API_ORIGIN, TokenProv
 from deepnote_toolkit.notebooks.models import RunnerInfo
 from deepnote_toolkit.notebooks.run_result import RunResult
 
+from .auth import StreamlitRuntime, streamlit_runtime
 from .viewer_credentials import ViewerCredentials
 
 
@@ -41,6 +42,7 @@ class StreamlitCloudRunner:
         session: requests.Session | None = None,
         sleep: Sleep = time.sleep,
         clock: Callable[[], float] = time.monotonic,
+        runtime: StreamlitRuntime = streamlit_runtime,
     ):
         session = session if session is not None else requests.Session()
         self._runner = DeepnoteCloudRunner(
@@ -52,6 +54,7 @@ class StreamlitCloudRunner:
                 timeout=min(timeout, 10),
                 session=session,
                 local=local,
+                runtime=runtime,
             ),
             storage_mode=storage_mode,
             timeout=timeout,

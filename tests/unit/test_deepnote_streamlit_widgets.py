@@ -379,31 +379,37 @@ def test_stale_multiselect_default_warns() -> None:
 
 
 @pytest.mark.parametrize(
-    "value,min_value,max_value,step",
-    [
-        (11, 0, 10, 1),
-        (-1, 0, 10, 1),
-        (3, 10, 0, 1),
-        (3, 0, 10, 0),
-        (3, 0, 10, -1),
-        ("bad", 0, 10, 1),
-        (float("nan"), 0, 10, 1),
-        (3, 0, float("inf"), 1),
-    ],
+    "min_value,max_value,step",
+    [(10, 0, 1), (0, 10, 0), (0, 10, -1), (0, float("inf"), 1)],
 )
-def test_invalid_slider_configuration_is_reported(
-    value: Any, min_value: float, max_value: float, step: float
+def test_invalid_slider_constraints_are_rejected(
+    min_value: float, max_value: float, step: float
 ) -> None:
-    """Reject invalid bounds, steps, and defaults before rendering."""
-    with pytest.raises(ValueError, match="[Ss]lider"):
+    with pytest.raises(ValueError, match="slider"):
         render_inputs(
             [
                 InputBlock(
-                    "x", "input-slider", value, min=min_value, max=max_value, step=step
+                    "x", "input-slider", 3, min=min_value, max=max_value, step=step
                 )
             ],
             FakeContainer(),
         )
+
+
+@pytest.mark.parametrize(
+    "value,expected", [(11, 10), (-1, 0), ("bad", 0), (float("nan"), 0), (None, 0)]
+)
+def test_slider_default_outside_bounds_is_clamped_with_a_warning(
+    value: Any, expected: int
+) -> None:
+    warnings = []
+    container = FakeContainer()
+    container.warning = warnings.append
+    values = render_inputs(
+        [InputBlock("x", "input-slider", value, min=0, max=10, step=1)], container
+    )
+    assert values == {"x": expected}
+    assert len(warnings) == (0 if value is None else 1)
 
 
 def test_real_widgets_keep_falsey_defaults_and_require_selection(

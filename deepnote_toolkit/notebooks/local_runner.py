@@ -37,7 +37,7 @@ class DeepnoteLocalRunner:
         payload = self._request("GET", "/api/info")
         return RunnerInfo(
             notebook=str(payload.get("notebook", "Untitled project")),
-            inputs=decode_inputs(payload.get("inputs"), name_key="variableName"),
+            inputs=decode_inputs(payload.get("inputs")),
             run_target=str(payload.get("runTarget", "")),
         )
 

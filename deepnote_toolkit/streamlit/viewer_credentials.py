@@ -16,16 +16,14 @@ from deepnote_toolkit.notebooks.runner import RunnerError
 
 from .auth import (
     CurrentUserApiTokenError,
-    _has_hosted_streamlit_context,
-    _has_script_run_context,
-    _is_streamlit_thread_without_request,
-    _read_hosted_app_id,
+    StreamlitRuntime,
     current_user_api_credentials,
+    streamlit_runtime,
 )
 
 _NO_REQUEST = (
     "No viewer request is available on this thread. Call the runner from the "
-    "Streamlit script thread"
+    "Streamlit script thread."
 )
 
 
@@ -46,35 +44,39 @@ class ViewerCredentials:
         timeout: float = 10,
         session: requests.Session | None = None,
         local: bool = False,
+        runtime: StreamlitRuntime = streamlit_runtime,
     ):
         self._local_mode = local
         self._local_token_explicit = token is not None or token_provider is not None
         self._local = token_credentials(token, token_provider, base_url=base_url)
         self._timeout = timeout
         self._session = session
+        self._runtime = runtime
 
     def __call__(self, *, timeout: float = 30) -> ApiCredentials:
         """Return the viewer's credentials, or the local ones outside hosting."""
 
-        has_request = _has_script_run_context()
+        has_request = self._runtime.has_request()
         is_hosted = (
-            _read_hosted_app_id() is not None
+            self._runtime.app_id() is not None
             or bool(os.environ.get("DEEPNOTE_PROJECT_ID"))
-            or (has_request and _has_hosted_streamlit_context())
+            or self._runtime.viewer_cookie() is not None
         )
         if is_hosted or (has_request and not self._local_mode):
             if not has_request:
-                raise RunnerError(_NO_REQUEST + ".")
+                raise RunnerError(_NO_REQUEST)
             try:
                 viewer = current_user_api_credentials(
-                    timeout=min(timeout, self._timeout), session=self._session
+                    timeout=min(timeout, self._timeout),
+                    session=self._session,
+                    runtime=self._runtime,
                 )
             except CurrentUserApiTokenError as error:
                 raise RunnerError(str(error), transient=error.transient) from error
             return ApiCredentials(token=viewer.token, api_origin=viewer.api_origin)
 
-        if _is_streamlit_thread_without_request():
-            raise RunnerError(_NO_REQUEST + ".")
+        if self._runtime.is_worker_thread():
+            raise RunnerError(_NO_REQUEST)
 
         if not self._local_mode or not self._local_token_explicit:
             raise RunnerError(

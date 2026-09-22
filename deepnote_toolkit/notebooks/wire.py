@@ -1,4 +1,4 @@
-"""Decode the JSON shapes shared by the API, the sidecar and `.deepnote` files."""
+"""Decode the JSON shapes shared by the sidecar, the API and `.deepnote` files."""
 
 from __future__ import annotations
 
@@ -31,14 +31,14 @@ def string_tuple(value: Any) -> tuple[str, ...]:
     return tuple(str(item) for item in value) if isinstance(value, list) else ()
 
 
-def decode_inputs(values: Any, *, name_key: str) -> tuple[InputBlock, ...]:
-    """Read an API's camelCase inputs, skipping any without a name or a known type."""
+def decode_inputs(values: Any) -> tuple[InputBlock, ...]:
+    """Read the sidecar's inputs, skipping any without a name or a known type."""
 
     if not isinstance(values, list):
         return ()
     return tuple(
         InputBlock(
-            variable_name=value[name_key],
+            variable_name=value["variableName"],
             type=cast(InputBlockType, value["type"]),
             label=optional_string(value.get("label")),
             value=value.get("value"),
@@ -50,7 +50,7 @@ def decode_inputs(values: Any, *, name_key: str) -> tuple[InputBlock, ...]:
         )
         for value in values
         if isinstance(value, Mapping)
-        and isinstance(value.get(name_key), str)
+        and isinstance(value.get("variableName"), str)
         and isinstance(value.get("type"), str)
         and value["type"] in INPUT_BLOCK_TYPES
     )

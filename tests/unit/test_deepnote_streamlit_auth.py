@@ -8,17 +8,15 @@ import responses
 
 from deepnote_toolkit.streamlit import auth
 from tests.unit.helpers.notebook_api import session
+from tests.unit.helpers.streamlit_runtime import FakeStreamlitRuntime
 
 APP_ID = "3853c7f5-2048-4b57-946d-6c5592c3317e"
 TOKEN_URL = f"http://localhost:19456/userpod-api/streamlit-apps/{APP_ID}/api-token"
 
 
 @pytest.fixture
-def state(monkeypatch):
-    state = {}
-    monkeypatch.delenv("DEEPNOTE_STREAMLIT_APP_ID", raising=False)
-    monkeypatch.setattr(auth, "_read_streamlit_session_state", lambda: state)
-    return state
+def runtime():
+    return FakeStreamlitRuntime(app=APP_ID, cookie="cookie")
 
 
 @pytest.fixture
@@ -27,10 +25,8 @@ def http():
         yield mock
 
 
-def credentials(http_session, **kwargs):
-    return auth.current_user_api_credentials(
-        app_id=APP_ID, streamlit_token="cookie", session=http_session, **kwargs
-    )
+def credentials(http_session, runtime):
+    return auth.current_user_api_credentials(session=http_session, runtime=runtime)
 
 
 def payload(**overrides):
@@ -42,11 +38,13 @@ def payload(**overrides):
     }
 
 
-def test_exchange_uses_cookie_and_reuses_credentials_only_in_same_session(http, state):
+def test_exchange_uses_cookie_and_reuses_credentials_only_in_same_session(
+    http, runtime
+):
     http.post(TOKEN_URL, json=payload())
     transport = session()
-    first = credentials(transport)
-    assert credentials(transport) is first
+    first = credentials(transport, runtime)
+    assert credentials(transport, runtime) is first
     assert (
         first.token == "viewer"
         and first.api_origin == "https://api.deepnote-staging.com"
@@ -54,32 +52,27 @@ def test_exchange_uses_cookie_and_reuses_credentials_only_in_same_session(http, 
     assert len(http.calls) == 1
     assert http.calls[0].request.headers["StreamlitToken"] == "cookie"
     assert "Authorization" not in http.calls[0].request.headers
-    state.clear()
-    assert credentials(transport) is not first
+    runtime.state.clear()
+    assert credentials(transport, runtime) is not first
     assert len(http.calls) == 2
 
 
-def test_changed_cookie_or_expiry_refreshes_credentials(http, state):
+def test_changed_cookie_or_expiry_refreshes_credentials(http, runtime):
     http.post(TOKEN_URL, json=payload(expiresAtSeconds=time.time() + 30))
     http.post(TOKEN_URL, json=payload(token="second"))
     http.post(TOKEN_URL, json=payload(token="third"))
     transport = session()
-    assert credentials(transport).token == "viewer"
-    assert credentials(transport).token == "second"
-    assert (
-        auth.current_user_api_credentials(
-            app_id=APP_ID, streamlit_token="changed", session=transport
-        ).token
-        == "third"
-    )
+    assert credentials(transport, runtime).token == "viewer"
+    assert credentials(transport, runtime).token == "second"
+    runtime.cookie = "changed"
+    assert credentials(transport, runtime).token == "third"
 
 
 @pytest.mark.parametrize("value", ["bad/path", "../apps", "", "x?query", "x#fragment"])
-def test_explicit_app_id_is_validated_before_network(http, state, value):
+def test_app_id_is_validated_before_network(http, runtime, value):
+    runtime.app = value
     with pytest.raises(auth.CurrentUserApiTokenError):
-        auth.current_user_api_credentials(
-            app_id=value, streamlit_token="cookie", session=session()
-        )
+        credentials(session(), runtime)
     assert not http.calls
 
 
@@ -103,18 +96,18 @@ def test_explicit_app_id_is_validated_before_network(http, state, value):
         {"apiOrigin": "https://example.com;/"},
     ],
 )
-def test_malformed_credentials_are_not_cached(http, state, overrides):
+def test_malformed_credentials_are_not_cached(http, runtime, overrides):
     http.post(TOKEN_URL, json=payload(**overrides))
     with pytest.raises(auth.CurrentUserApiTokenError):
-        credentials(session())
-    assert state == {}
+        credentials(session(), runtime)
+    assert runtime.state == {}
 
 
 @pytest.mark.parametrize(
     "status,transient", [(401, False), (403, False), (429, True), (503, True)]
 )
 def test_exchange_preserves_server_reason_and_retry_classification(
-    http, state, status, transient
+    http, runtime, status, transient
 ):
     http.post(
         TOKEN_URL,
@@ -124,7 +117,7 @@ def test_exchange_preserves_server_reason_and_retry_classification(
     with pytest.raises(
         auth.CurrentUserApiTokenError, match="API access is not available"
     ) as exc:
-        credentials(session())
+        credentials(session(), runtime)
     assert exc.value.transient is transient
     assert len(http.calls) == 1
 
@@ -132,20 +125,20 @@ def test_exchange_preserves_server_reason_and_retry_classification(
 @pytest.mark.parametrize(
     "failure", [requests.Timeout(), requests.ConnectionError("closed")]
 )
-def test_exchange_network_failures_are_transient(http, state, failure):
+def test_exchange_network_failures_are_transient(http, runtime, failure):
     http.post(TOKEN_URL, body=failure)
     with pytest.raises(auth.CurrentUserApiTokenError) as exc:
-        credentials(session())
+        credentials(session(), runtime)
     assert exc.value.transient
 
 
-def test_exchange_never_follows_redirects_or_exposes_html(http, state):
+def test_exchange_never_follows_redirects_or_exposes_html(http, runtime):
     http.post(TOKEN_URL, status=302, headers={"Location": "https://other.example"})
     with pytest.raises(auth.CurrentUserApiTokenError, match="Refused a redirect"):
-        credentials(session())
+        credentials(session(), runtime)
     http.replace(responses.POST, TOKEN_URL, status=502, body="<html>private</html>")
     with pytest.raises(auth.CurrentUserApiTokenError) as exc:
-        credentials(session())
+        credentials(session(), runtime)
     assert "private" not in str(exc.value)
 
 
@@ -183,14 +176,14 @@ def test_session_state_lookup_suppresses_missing_context_warning(monkeypatch):
         "streamlit.runtime.scriptrunner",
         SimpleNamespace(get_script_run_ctx=get_ctx),
     )
-    assert auth._read_streamlit_session_state() is None
+    assert auth.streamlit_runtime.session_state() is None
     assert calls == [True]
 
 
-def test_credential_validation_traceback_does_not_expose_bearer(http, state):
+def test_credential_validation_traceback_does_not_expose_bearer(http, runtime):
     import traceback
 
     http.post(TOKEN_URL, json=payload(token={"secret": "private-token"}))
     with pytest.raises(auth.CurrentUserApiTokenError) as exc:
-        credentials(session())
+        credentials(session(), runtime)
     assert "private-token" not in "".join(traceback.format_exception(exc.value))

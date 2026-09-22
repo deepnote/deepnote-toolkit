@@ -7,8 +7,9 @@ import math
 import os
 import re
 import time
+from collections.abc import MutableMapping
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Protocol
 from urllib.parse import urlparse
 
 import requests
@@ -26,7 +27,6 @@ from deepnote_toolkit.streamlit_data_apps import read_streamlit_token_from_conte
 _APP_ID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 STREAMLIT_APP_HOST_PATTERN = re.compile(rf"^streamlit-({_APP_ID})\.", re.IGNORECASE)
 STREAMLIT_APP_ID_ENV = "DEEPNOTE_STREAMLIT_APP_ID"
-
 
 _SESSION_STATE_KEY = "_deepnote_current_user_api_credentials"
 _EXPIRY_MARGIN_SECONDS = 60
@@ -49,57 +49,94 @@ class CurrentUserApiCredentials:
     expires_at_seconds: float
 
 
-def current_user_api_token() -> str:
-    """Return a short-lived public API bearer for the current Streamlit viewer.
+class StreamlitRuntime(Protocol):
+    """What viewer authentication asks Streamlit about the process and the thread."""
 
-    The opaque streamlit-token cookie is exchanged for a viewer-scoped token.
-    It is never itself used as a public API bearer.
-    """
+    def has_request(self) -> bool:
+        """Whether this thread is running a script for a viewer."""
 
-    return current_user_api_credentials().token
+    def is_worker_thread(self) -> bool:
+        """Whether Streamlit is running but this thread has no viewer request."""
+
+    def app_id(self) -> str | None:
+        """The hosted app's ID, from the launcher or from the request host."""
+
+    def viewer_cookie(self) -> str | None:
+        """The viewer's streamlit-token cookie."""
+
+    def session_state(self) -> MutableMapping[str, Any] | None:
+        """The viewer's session state, or None outside a script run."""
+
+
+class _DefaultStreamlitRuntime:
+    def has_request(self) -> bool:
+        try:
+            from streamlit.runtime.scriptrunner import (  # type: ignore[import-not-found]
+                get_script_run_ctx,
+            )
+        except ImportError:
+            return False
+
+        return get_script_run_ctx(suppress_warning=True) is not None
+
+    def is_worker_thread(self) -> bool:
+        try:
+            from streamlit import runtime  # type: ignore[import-not-found]
+        except ImportError:
+            return False
+
+        return runtime.exists() and not self.has_request()
+
+    def app_id(self) -> str | None:
+        hosted = os.environ.get(STREAMLIT_APP_ID_ENV)
+        if hosted is not None:
+            return hosted
+        return _read_streamlit_app_id_from_context() if self.has_request() else None
+
+    def viewer_cookie(self) -> str | None:
+        return read_streamlit_token_from_context() if self.has_request() else None
+
+    def session_state(self) -> MutableMapping[str, Any] | None:
+        if not self.has_request():
+            return None
+        import streamlit as st  # type: ignore[import-not-found]
+
+        return st.session_state
+
+
+streamlit_runtime: StreamlitRuntime = _DefaultStreamlitRuntime()
 
 
 def current_user_api_credentials(
     *,
-    app_id: str | None = None,
-    streamlit_token: str | None = None,
     timeout: float = 10,
     session: requests.Session | None = None,
+    runtime: StreamlitRuntime = streamlit_runtime,
 ) -> CurrentUserApiCredentials:
-    """Exchange the active viewer cookie for public API credentials.
+    """Exchange the viewer's cookie for short-lived public API credentials.
 
-    The bearer is only valid at the returned API origin. Credentials are reused
+    The token is only valid at the returned API origin. Credentials are reused
     within the current Streamlit session until shortly before they expire, and
     never shared between sessions.
     """
 
-    resolved_app_id = (
-        app_id
-        if app_id is not None
-        else (_read_hosted_app_id() or _read_streamlit_app_id_from_context())
-    )
-    if not resolved_app_id:
+    app_id = runtime.app_id()
+    if not app_id:
         raise CurrentUserApiTokenError(
-            "Could not resolve a Deepnote Streamlit app ID from the request host."
+            "Could not resolve the Deepnote Streamlit app ID."
         )
+    if not re.fullmatch(_APP_ID, app_id, re.IGNORECASE):
+        raise CurrentUserApiTokenError("The Deepnote Streamlit app ID must be a UUID.")
+    app_id = app_id.lower()
 
-    if not isinstance(resolved_app_id, str) or not re.fullmatch(
-        _APP_ID, resolved_app_id, re.IGNORECASE
-    ):
-        raise CurrentUserApiTokenError("app_id must be a UUID.")
-    resolved_app_id = resolved_app_id.lower()
-
-    viewer_token = streamlit_token or read_streamlit_token_from_context()
+    viewer_token = runtime.viewer_cookie()
     if not viewer_token:
         raise CurrentUserApiTokenError(
             "Could not read the current viewer's streamlit-token cookie."
         )
 
-    session_state = _read_streamlit_session_state()
-    cache_key = (
-        resolved_app_id,
-        hashlib.sha256(viewer_token.encode()).hexdigest(),
-    )
+    session_state = runtime.session_state()
+    cache_key = (app_id, hashlib.sha256(viewer_token.encode()).hexdigest())
     if session_state is not None:
         cached = session_state.get(_SESSION_STATE_KEY)
         if (
@@ -109,13 +146,26 @@ def current_user_api_credentials(
         ):
             return cached[1]
 
+    credentials = _exchange(app_id, viewer_token, timeout=timeout, session=session)
+    if session_state is not None:
+        session_state[_SESSION_STATE_KEY] = (cache_key, credentials)
+    return credentials
+
+
+def _exchange(
+    app_id: str,
+    viewer_token: str,
+    *,
+    timeout: float,
+    session: requests.Session | None,
+) -> CurrentUserApiCredentials:
     owned_session = session is None
     http = session if session is not None else requests.Session()
     try:
         payload = request_json(
             http,
             "POST",
-            get_absolute_userpod_api_url(f"streamlit-apps/{resolved_app_id}/api-token"),
+            get_absolute_userpod_api_url(f"streamlit-apps/{app_id}/api-token"),
             headers={"StreamlitToken": viewer_token, **get_project_auth_headers()},
             timeout=timeout,
         )
@@ -142,31 +192,7 @@ def current_user_api_credentials(
     finally:
         if owned_session:
             http.close()
-    if session_state is not None:
-        session_state[_SESSION_STATE_KEY] = (cache_key, credentials)
     return credentials
-
-
-def _read_streamlit_session_state() -> Any | None:
-    """Return the current session's state, or None outside a Streamlit script run."""
-
-    try:
-        import streamlit as st  # type: ignore[import-not-found]
-        from streamlit.runtime.scriptrunner import (  # type: ignore[import-not-found]
-            get_script_run_ctx,
-        )
-    except ImportError:
-        return None
-
-    if get_script_run_ctx(suppress_warning=True) is None:
-        return None
-    return st.session_state
-
-
-def _read_hosted_app_id() -> str | None:
-    """Return the app ID that Deepnote's launcher exports to a hosted app's process."""
-
-    return os.environ.get(STREAMLIT_APP_ID_ENV)
 
 
 def _read_streamlit_app_id_from_context() -> str | None:
@@ -197,41 +223,6 @@ def _read_streamlit_app_id_from_context() -> str | None:
         if match:
             return match.group(1).lower()
     return None
-
-
-def _has_hosted_streamlit_context() -> bool:
-    """Return whether this request carries either hosted-app identity signal."""
-
-    return bool(
-        _read_streamlit_app_id_from_context() or read_streamlit_token_from_context()
-    )
-
-
-def _has_script_run_context() -> bool:
-    """Return whether this thread is running a Streamlit script for a viewer."""
-
-    try:
-        from streamlit.runtime.scriptrunner import (  # type: ignore[import-not-found]
-            get_script_run_ctx,
-        )
-    except ImportError:
-        return False
-
-    return get_script_run_ctx(suppress_warning=True) is not None
-
-
-def _is_streamlit_thread_without_request() -> bool:
-    """Return whether Streamlit is running but this thread has no viewer request.
-
-    Worker threads see no headers or cookies, so they look identical to a local script.
-    """
-
-    try:
-        from streamlit import runtime  # type: ignore[import-not-found]
-    except ImportError:
-        return False
-
-    return runtime.exists() and not _has_script_run_context()
 
 
 def _validated_origin(value: str, *, name: str) -> str:

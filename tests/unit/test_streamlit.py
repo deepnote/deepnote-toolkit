@@ -122,19 +122,16 @@ class TestStartStreamlitServers(unittest.TestCase):
         assert calls[0].kwargs["env"] == {"DEEPNOTE_STREAMLIT_APP_ID": apps[0]["id"]}
         assert calls[1].kwargs["env"] == {"DEEPNOTE_STREAMLIT_APP_ID": apps[1]["id"]}
 
-    def test_missing_app_id_warns_and_still_marks_process_as_hosted(self) -> None:
-        """Missing app IDs warn without permitting local credential fallback."""
+    def test_missing_app_id_still_marks_process_as_hosted(self) -> None:
         app = {"entrypoint": "app.py", "port": "8501"}
         venv = MagicMock()
-        logger = MagicMock(spec=logging.Logger)
         with (
             patch(
                 "installer.module.streamlit.fetch_streamlit_apps", return_value=[app]
             ),
             patch("installer.module.streamlit.os.path.exists", return_value=True),
         ):
-            start_streamlit_servers(venv, logger)
-        logger.warning.assert_called_once()
+            start_streamlit_servers(venv, MagicMock(spec=logging.Logger))
         assert venv.start_server.call_args.kwargs["env"] == {
             "DEEPNOTE_STREAMLIT_APP_ID": ""
         }

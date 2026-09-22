@@ -31,10 +31,10 @@ if st.button("Run"):
 
 ## Authentication and local development
 
-On Deepnote, `StreamlitCloudRunner` uses the current viewer's permissions.
-The hosting environment must support viewer-token exchange. If the app ID,
-viewer cookie, or exchange is unavailable, the call fails; it does not fall back
-to an owner token. Call it on the Streamlit script thread, not a worker thread.
+On Deepnote, `StreamlitCloudRunner` runs the notebook with the current viewer's
+permissions. If the app ID, viewer cookie or token exchange is unavailable, the
+call fails instead of falling back to an owner token. Call it on the Streamlit
+script thread, not a worker thread.
 
 For a locally hosted Streamlit app, opt into local credentials explicitly:
 
@@ -46,28 +46,29 @@ runner = StreamlitCloudRunner(
 )
 ```
 
-`token_provider=` can supply a renewable token instead. A Deepnote app or project
-marker overrides `local=True` and explicit tokens. Older launchers can also be
-recognized by the request host or viewer cookie. Do not set `local=True` in an
-unmarked hosting environment: that is an explicit choice to use local credentials.
+`token_provider=` can supply a renewable token instead. On Deepnote, `local=True`
+and explicit tokens are ignored and the viewer is used.
+
+To call other API endpoints as the viewer, `current_user_api_credentials()`
+returns the viewer's short-lived token and the API origin it is valid at. It
+raises `CurrentUserApiTokenError` outside a hosted request.
 
 For Python code outside Streamlit, use `DeepnoteCloudRunner` from
 `deepnote_toolkit.notebooks`. It accepts `token=`, `token_provider=`, or
 `DEEPNOTE_TOKEN`. For a local `@deepnote/local-runner` sidecar, use
 `DeepnoteLocalRunner(base_url="http://127.0.0.1:8787")`.
-`StreamlitCloudRunner` requires explicit local mode and credentials even when
-called outside the Streamlit runtime.
 
 ## Inputs and outputs
 
-`render_inputs()` preserves saved defaults, including `0` and `False`. A select
-without a valid saved choice starts empty. Unselected single selects and incomplete
-selections in the date-range picker are omitted from the returned dictionary;
-disable your Run button until required fields are present. An omitted input uses
-the notebook's value according to the API. Saved open-ended ranges use separate
-start/end fields so their chosen endpoint is preserved. Stale multi-select choices
-produce a warning. Invalid slider bounds/defaults and duplicate variable names
-raise `ValueError`. File inputs render as text paths; this helper does not upload files.
+`render_inputs()` keeps saved defaults, including `0` and `False`. A select
+without a valid saved choice starts empty. Unselected single selects and
+incomplete date-range selections are left out of the returned dictionary, so
+disable your Run button until the required values are present. An omitted input
+runs with the notebook's saved value. A saved open-ended date range renders as
+separate start and end fields. Stale multi-select choices and slider defaults
+outside the bounds are adjusted with a warning. Invalid slider bounds and
+duplicate variable names raise `ValueError`. File inputs render as text paths;
+this helper does not upload files.
 
 `runner.info().matches_inputs(document.inputs)` compares static input definitions:
 unique names, types, single/multiple selection, options, and slider bounds/steps.
@@ -83,27 +84,16 @@ without network access.
 
 ## Execution settings
 
-Streamlit runs are detached and use `storage_mode="readonly"`: they can read
-persistent project files but cannot modify them. Use `storage_mode="read_write"`
-only when the app intentionally needs to change those files. The general cloud
-runner leaves storage mode to the API.
+Streamlit runs use `storage_mode="readonly"`: the notebook can read the project's
+files but not change them. Pass `storage_mode="read_write"` when the app needs to
+write them. `DeepnoteCloudRunner` leaves the choice to the API.
 
-`timeout` (600 seconds by default) is the elapsed-time budget for creation,
-authentication, polling, and output retrieval. Each HTTP request and sleep is
-limited to the remaining budget. Output retrieval also has its own
-`snapshot_timeout` (10 seconds); only an explicitly pending snapshot is polled.
-Requests uses socket timeouts, so OS DNS resolution or a server streaming bytes
-can exceed a request budget; this is not hard cancellation of a running notebook.
-Run-status GET polls retry transient failures up to five consecutive times;
-snapshot GET polls retry within the snapshot budget. Creating a run is never
-automatically retried.
+`timeout` (600 seconds by default) bounds the whole run, from creating it to
+reading its outputs. Outputs can arrive after the run finishes; `snapshot_timeout`
+(10 seconds) is how long to wait for them, and a result whose `snapshot_status` is
+still `pending` has none.
 
-Pass `session=requests.Session()` to configure proxies or HTTP adapters. A custom
-`credentials=` provider on `DeepnoteCloudRunner` receives a `timeout` keyword and
-returns `ApiCredentials(token=..., api_origin=...)`. Providers should honor that
-budget. Resolved bearer credentials take precedence over `.netrc` and session
-authentication. API clients, HTTP helpers, and wire schemas are internal;
-supported names are listed in each package's `__all__`.
-
-The existing `streamlit_data_apps` module handles database federation. Notebook
-execution uses its viewer-cookie reader and does not replace its database APIs.
+Pass `session=requests.Session()` to configure proxies or HTTP adapters. On
+`DeepnoteCloudRunner`, `credentials=` accepts any callable that takes a `timeout`
+keyword and returns `ApiCredentials(token=..., api_origin=...)`. Supported names
+are listed in each package's `__all__`.

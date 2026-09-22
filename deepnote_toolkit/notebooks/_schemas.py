@@ -1,7 +1,6 @@
 """Consumed fields of the v2 API contracts (contracts/runs.ts and notebooks.ts).
 
-Extra fields are intentionally ignored. Status strings are extensible: only the
-known terminal run statuses stop polling. Missing or ill-typed statuses are errors.
+Extra fields are ignored.
 """
 
 from __future__ import annotations
@@ -9,6 +8,8 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic import BaseModel, Field, StrictBool, StrictFloat, StrictInt, StrictStr
+
+from .api_types import RunStatus, SnapshotStatus
 
 
 class ApiInput(BaseModel):
@@ -34,13 +35,16 @@ class NotebookResponse(BaseModel):
 
 class ApiRun(BaseModel):
     run_id: StrictStr = Field(alias="runId", min_length=1)
-    status: StrictStr = Field(min_length=1)
-    snapshot_status: StrictStr | None = Field(default=None, alias="snapshotStatus")
+    status: RunStatus
+    snapshot_status: SnapshotStatus | None = Field(default=None, alias="snapshotStatus")
     snapshot_blocks: list[dict[str, Any]] | None = Field(
         default=None, alias="snapshotBlocks"
     )
-    error: StrictStr | dict[str, Any] | None = None
-    view_url: StrictStr | None = Field(default=None, alias="viewUrl")
+    error: StrictStr | None = None
+
+
+class GetRunResponse(BaseModel):
+    run: ApiRun
 
 
 class ViewerTokenResponse(BaseModel):

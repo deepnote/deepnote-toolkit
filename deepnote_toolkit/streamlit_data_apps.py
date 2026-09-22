@@ -87,12 +87,6 @@ def read_streamlit_token_from_context() -> Optional[str]:
     return token
 
 
-def _read_streamlit_token_from_context() -> Optional[str]:
-    """Backward-compatible private alias for the public cookie helper."""
-
-    return read_streamlit_token_from_context()
-
-
 def get_federated_auth_token(
     integration_id: str,
     *,
@@ -127,7 +121,7 @@ def get_federated_auth_token(
     if not integration_id:
         raise StreamlitFederatedAuthError("integration_id is required.")
 
-    token = streamlit_token or _read_streamlit_token_from_context()
+    token = streamlit_token or read_streamlit_token_from_context()
     if not token:
         raise StreamlitFederatedAuthError(
             "Could not read the `streamlit-token` cookie from the Streamlit context. "

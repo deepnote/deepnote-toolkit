@@ -2,21 +2,22 @@
 
 from __future__ import annotations
 
-import json
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar, cast
 from urllib.parse import quote
 
 import requests
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
-from ._schemas import ApiRun, NotebookResponse
+from ._schemas import ApiInput, ApiRun, GetRunResponse, NotebookResponse
 from .api_types import (
-    SNAPSHOT_STATUSES,
+    INPUT_BLOCK_TYPES,
     TERMINAL_RUN_STATUSES,
+    InputBlockType,
     InputValue,
+    RunStatus,
     SnapshotStatus,
     StorageMode,
 )
@@ -24,7 +25,9 @@ from .credentials import CredentialsProvider
 from .models import InputBlock, NotebookOutput
 from .runner import RunnerError
 from .transport import request_json
-from .wire import decode_block_outputs, decode_inputs
+from .wire import decode_block_outputs
+
+Schema = TypeVar("Schema", bound=BaseModel)
 
 
 @dataclass(frozen=True)
@@ -40,11 +43,10 @@ class CloudRun:
     """The state of one run. `outputs` is None until the run's snapshot is stored."""
 
     run_id: str
-    status: str
+    status: RunStatus
     snapshot_status: SnapshotStatus | None
     outputs: tuple[NotebookOutput, ...] | None
     error: str | None
-    view_url: str | None
 
     @property
     def is_finished(self) -> bool:
@@ -73,15 +75,14 @@ class DeepnoteApiClient:
         """Read a notebook's name and input blocks."""
 
         payload = self._request("GET", f"/v2/notebooks/{quote(notebook_id, safe='')}")
-        try:
-            notebook = NotebookResponse(**payload).notebook
-        except ValidationError as error:
-            raise RunnerError(
-                "Deepnote API returned an invalid notebook response"
-            ) from error
+        notebook = _validate(NotebookResponse, payload, "notebook").notebook
         return CloudNotebook(
             name=notebook.name,
-            inputs=decode_inputs(payload["notebook"].get("inputs"), name_key="name"),
+            inputs=tuple(
+                _input_block(value)
+                for value in notebook.inputs
+                if value.type in INPUT_BLOCK_TYPES
+            ),
         )
 
     def create_run(
@@ -103,7 +104,8 @@ class DeepnoteApiClient:
         }
         if storage_mode is not None:
             body["detachedRunStorageMode"] = storage_mode
-        return _decode_run(self._request("POST", "/v2/runs", body, timeout=timeout))
+        payload = self._request("POST", "/v2/runs", body, timeout=timeout)
+        return _cloud_run(_validate(ApiRun, payload, "run"))
 
     def get_run(self, run_id: str, *, timeout: float | None = None) -> CloudRun:
         """Read a run with the outputs of the notebook it executed."""
@@ -114,7 +116,7 @@ class DeepnoteApiClient:
             f"/v2/runs/{quote(run_id, safe='')}?snapshotDelivery=blocks",
             timeout=timeout,
         )
-        return _decode_run(payload, run_id=run_id)
+        return _cloud_run(_validate(GetRunResponse, payload, "run").run)
 
     def _request(
         self,
@@ -148,6 +150,15 @@ class DeepnoteApiClient:
         )
 
 
+def _validate(schema: type[Schema], payload: Mapping[str, Any], what: str) -> Schema:
+    try:
+        return schema(**payload)
+    except ValidationError as error:
+        raise RunnerError(
+            f"Deepnote API returned an invalid {what} response"
+        ) from error
+
+
 def _encode_input(name: str, value: Any) -> InputValue:
     """Convert a value to the form the runs API accepts, or raise `ValueError`."""
 
@@ -163,34 +174,29 @@ def _encode_input(name: str, value: Any) -> InputValue:
     return str(value)
 
 
-def _decode_run(payload: Mapping[str, Any], *, run_id: str | None = None) -> CloudRun:
-    nested = payload.get("run")
-    run = nested if isinstance(nested, Mapping) else payload
-    run_id = run.get("runId") or run.get("id") or run_id
-    if not isinstance(run_id, str) or not run_id:
-        raise RunnerError("Deepnote API response did not include a run id")
-    try:
-        parsed = ApiRun(**{**run, "runId": run_id})
-    except ValidationError as error:
-        raise RunnerError(
-            f"Deepnote API returned an invalid run response for {run_id}"
-        ) from error
-    error = parsed.error
-    if isinstance(error, Mapping):
-        error = error.get("message") or json.dumps(error)
+def _input_block(value: ApiInput) -> InputBlock:
+    return InputBlock(
+        variable_name=value.name,
+        type=cast(InputBlockType, value.type),
+        value=value.value,
+        label=value.label,
+        options=tuple(value.options),
+        multiple=value.multiple,
+        min=value.min,
+        max=value.max,
+        step=value.step,
+    )
+
+
+def _cloud_run(run: ApiRun) -> CloudRun:
     return CloudRun(
-        run_id=parsed.run_id,
-        status=parsed.status,
-        snapshot_status=(
-            parsed.snapshot_status
-            if parsed.snapshot_status in SNAPSHOT_STATUSES
-            else None
-        ),
+        run_id=run.run_id,
+        status=run.status,
+        snapshot_status=run.snapshot_status,
         outputs=(
-            decode_block_outputs(parsed.snapshot_blocks, id_key="id")
-            if parsed.snapshot_blocks is not None
+            decode_block_outputs(run.snapshot_blocks, id_key="id")
+            if run.snapshot_blocks is not None
             else None
         ),
-        error=str(error) if error is not None else None,
-        view_url=parsed.view_url,
+        error=run.error,
     )

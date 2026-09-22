@@ -22,8 +22,6 @@ StorageMode = Literal["read_write", "readonly"]
 InputValue = Union[str, bool, list[str]]
 
 INPUT_BLOCK_TYPES: frozenset[InputBlockType] = frozenset(get_args(InputBlockType))
-RUN_STATUSES: frozenset[RunStatus] = frozenset(get_args(RunStatus))
 TERMINAL_RUN_STATUSES: frozenset[RunStatus] = frozenset(
     {"success", "error", "internal_error", "stopped"}
 )
-SNAPSHOT_STATUSES: frozenset[SnapshotStatus] = frozenset(get_args(SnapshotStatus))

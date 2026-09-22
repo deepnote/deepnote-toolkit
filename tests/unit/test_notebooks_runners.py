@@ -83,7 +83,7 @@ def test_run_refreshes_credentials_normalizes_inputs_and_reads_only_run_blocks(
     http, clock
 ):
     add_run(http, run_response("pending"), create=True)
-    add_run(http, run_response("future-state"))
+    add_run(http, run_response("running"))
     add_run(http, run_response(snapshotStatus="pending"))
     add_run(
         http,
@@ -125,23 +125,32 @@ def test_run_refreshes_credentials_normalizes_inputs_and_reads_only_run_blocks(
 @pytest.mark.parametrize(
     "payload",
     [
-        {"run": {"runId": "r"}},
-        {"run": {"runId": "r", "status": None}},
-        {"run": {"runId": "r", "status": []}},
-        {"run": {"runId": "r", "status": ""}},
-        {"run": {"status": "success"}},
+        {"runId": "r"},
+        {"runId": "r", "status": None},
+        {"runId": "r", "status": ""},
+        {"runId": "r", "status": "future"},
+        {"runId": "r", "status": "success", "snapshotStatus": "future"},
+        {"status": "success"},
+        {"run": {"runId": "r", "status": "success"}},
     ],
 )
 def test_malformed_run_fails_without_polling(http, runner, payload):
     add_run(http, payload, create=True)
-    with pytest.raises(RunnerError, match="run (response|id)"):
+    with pytest.raises(RunnerError, match="invalid run response"):
         runner.run({})
     assert len(http.calls) == 1
 
 
-@pytest.mark.parametrize(
-    "snapshot_status", [None, "unavailable", "available", "future"]
-)
+@pytest.mark.parametrize("payload", [{"runId": "run-1", "status": "future"}, {}])
+def test_malformed_poll_stops_the_run(http, runner, payload):
+    add_run(http, run_response("running"), create=True)
+    add_run(http, payload)
+    with pytest.raises(RunnerError, match="invalid run response"):
+        runner.run({})
+    assert len(http.calls) == 2
+
+
+@pytest.mark.parametrize("snapshot_status", [None, "unavailable", "available"])
 def test_only_pending_snapshots_are_polled(http, runner, snapshot_status):
     add_run(
         http,
@@ -206,7 +215,7 @@ def test_request_and_sleep_time_count_against_run_deadline(http, clock):
     def poll(request):
         observed.append(request.req_kwargs["timeout"].total)
         clock.now += 4
-        return 200, {}, json.dumps(run_response("running"))
+        return 200, {}, json.dumps({"run": run_response("running")})
 
     http.add_callback(
         responses.POST, "https://api.deepnote.com/v2/runs", callback=create
@@ -246,14 +255,14 @@ def test_snapshot_deadline_counts_slow_requests_and_caps_timeout(
         clock.now += 4
         payload = run_response(snapshotStatus="available" if available else "pending")
         if available:
-            payload["run"]["snapshotBlocks"] = [
+            payload["snapshotBlocks"] = [
                 {
                     "id": "b",
                     "type": "code",
                     "outputs": [{"output_type": "stream", "text": "done"}],
                 }
             ]
-        return 200, {}, json.dumps(payload)
+        return 200, {}, json.dumps({"run": payload})
 
     http.add_callback(
         responses.GET,
@@ -293,23 +302,6 @@ def test_no_request_starts_after_snapshot_deadline(http, clock):
     assert len(http.calls) == 1
 
 
-def test_unknown_status_is_bounded_by_deadline(http, clock):
-    add_run(http, run_response("future"), create=True)
-    add_run(http, run_response("future"))
-    runner = DeepnoteCloudRunner(
-        "n",
-        token="t",
-        session=session(),
-        timeout=2,
-        poll_interval=1,
-        clock=clock,
-        sleep=clock.sleep,
-    )
-    with pytest.raises(RunnerError, match="2 seconds"):
-        runner.run({})
-    assert len(http.calls) == 2
-
-
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -328,7 +320,7 @@ def test_run_id_is_quoted(http, runner):
     add_run(http, run_response("running", runId="a/b?x"), create=True)
     http.get(
         "https://api.deepnote.com/v2/runs/a%2Fb%3Fx?snapshotDelivery=blocks",
-        json=run_response(),
+        json={"run": run_response()},
     )
     assert runner.run({}).success
 

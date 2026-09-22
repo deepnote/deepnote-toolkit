@@ -78,16 +78,22 @@ def _render_one(container: Any, input_block: InputBlock, label: str, key: str) -
         minimum = input_block.min if input_block.min is not None else 0
         maximum = input_block.max if input_block.max is not None else 100
         step = input_block.step if input_block.step is not None else 1
-        value = _as_number(input_block.value, minimum)
         if (
-            not all(math.isfinite(n) for n in (minimum, maximum, step, value))
+            not all(math.isfinite(n) for n in (minimum, maximum, step))
             or minimum >= maximum
             or step <= 0
-            or not minimum <= value <= maximum
         ):
             raise ValueError(
-                f"{label}: slider needs finite ordered bounds, a positive step, and a default within its bounds"
+                f"{label}: slider needs finite ordered bounds and a positive step"
             )
+        value = _as_number(input_block.value)
+        if input_block.value is not None and (
+            value is None or not minimum <= value <= maximum
+        ):
+            container.warning(
+                f"{label}: the saved default is outside the slider's bounds. Review the value before running."
+            )
+        value = min(max(value if value is not None else minimum, minimum), maximum)
         if any(isinstance(number, float) for number in (minimum, maximum, value, step)):
             minimum, maximum, value, step = (
                 float(number) for number in (minimum, maximum, value, step)
@@ -145,19 +151,15 @@ def _as_bool(value: Any) -> bool:
     return str(value).lower() in {"true", "1"}
 
 
-def _as_number(value: Any, fallback: float | int) -> float | int:
-    """Decode numeric defaults while preserving fractional values."""
-    if value is None:
-        return fallback
+def _as_number(value: Any) -> float | int | None:
+    """Read a saved slider value. None when it is missing or not a finite number."""
     try:
         number = float(value)
-        return (
-            number
-            if isinstance(fallback, float) or not number.is_integer()
-            else int(number)
-        )
-    except (TypeError, ValueError) as error:
-        raise ValueError("Slider default must be a number") from error
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return int(number) if number.is_integer() else number
 
 
 def _as_date(value: Any) -> date | None:

@@ -119,23 +119,12 @@ def start_streamlit_servers(
 
             arg_str = " ".join(args)
 
-            # The toolkit reads the app ID to run notebooks as the app's viewer.
-            app_id = app.get("id")
-            if not isinstance(app_id, str) or not app_id:
-                logger.warning(
-                    "Streamlit app %r has no app ID; viewer authentication will fail",
-                    entrypoint_path,
-                )
-            # Always mark the process as hosted; the SDK validates the app ID.
-            env = {
-                "DEEPNOTE_STREAMLIT_APP_ID": app_id if isinstance(app_id, str) else ""
-            }
-
             processes.append(
                 venv.start_server(
                     f"streamlit run {shlex.quote(entrypoint_path)} {arg_str}",
                     cwd=directory_path,
-                    env=env,
+                    # The toolkit reads the app ID to run notebooks as the app's viewer.
+                    env={"DEEPNOTE_STREAMLIT_APP_ID": str(app.get("id") or "")},
                 )
             )
     except Exception as e:

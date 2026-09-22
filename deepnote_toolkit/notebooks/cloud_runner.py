@@ -116,7 +116,6 @@ class DeepnoteCloudRunner:
             status=run.status,
             error=run.error,
             snapshot_status=run.snapshot_status,
-            view_url=run.view_url,
         )
 
     def _timed_out(self, run: CloudRun) -> None:
