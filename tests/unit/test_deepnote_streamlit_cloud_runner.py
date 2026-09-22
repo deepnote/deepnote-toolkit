@@ -2,6 +2,7 @@ import time
 from typing import Any
 
 import pytest
+import requests
 import responses
 
 from deepnote_toolkit.notebooks import RunnerError
@@ -81,6 +82,41 @@ def test_hosted_run_uses_viewer_and_readonly_even_with_explicit_owner_token(
     assert http.calls[0].request.headers["StreamlitToken"] == "viewer-cookie"
     assert http.calls[1].request.headers["Authorization"] == "Bearer viewer"
     assert body(http.calls[1])["detachedRunStorageMode"] == "readonly"
+
+
+@pytest.mark.parametrize("ambient_auth", ["netrc", "session"])
+def test_resolved_viewer_token_overrides_requests_auth(
+    context, http, monkeypatch, tmp_path, ambient_auth
+):
+    monkeypatch.setenv("DEEPNOTE_STREAMLIT_APP_ID", APP_ID)
+    http.post(
+        TOKEN_URL,
+        json={
+            "token": "viewer",
+            "apiOrigin": "https://api.deepnote.com",
+            "expiresAtSeconds": time.time() + 900,
+        },
+    )
+    add_run(http, run_response(snapshotBlocks=[]), create=True)
+    transport = requests.Session()
+    if ambient_auth == "netrc":
+        netrc = tmp_path / "credentials.netrc"
+        netrc.write_text("machine api.deepnote.com login unrelated password dummy\n")
+        monkeypatch.setenv("NETRC", str(netrc))
+    else:
+
+        def owner_auth(request):
+            request.headers["Authorization"] = "Bearer owner"
+            return request
+
+        transport.auth = owner_auth
+
+    with transport:
+        result = StreamlitCloudRunner("n", session=transport).run({})
+
+    assert result.success
+    assert http.calls[1].request.headers["Authorization"] == "Bearer viewer"
+    assert transport.trust_env is True
 
 
 @pytest.mark.parametrize("marker", ["", "invalid", APP_ID])

@@ -183,6 +183,38 @@ def test_empty_dates_stay_empty_instead_of_becoming_today() -> None:
     assert values == {"as_of": "", "period": ["", ""]}
 
 
+@pytest.mark.parametrize("value", [["2026-08-01", ""], ["", "2026-08-17"]])
+def test_saved_open_ended_date_range_keeps_its_chosen_endpoint(value) -> None:
+    assert render_inputs(
+        [InputBlock("period", "input-date-range", value)], FakeContainer()
+    ) == {"period": value}
+
+
+@pytest.mark.parametrize("value", [["2026-08-01", ""], ["", "2026-08-17"]])
+def test_real_widgets_preserve_and_edit_open_ended_date_ranges(
+    streamlit_app_test: "type[AppTest]", value
+) -> None:
+    def app(value) -> None:
+        import streamlit as st
+
+        from deepnote_toolkit.notebooks import InputBlock
+        from deepnote_toolkit.streamlit import render_inputs
+
+        st.session_state["values"] = render_inputs(
+            [InputBlock("period", "input-date-range", value)]
+        )
+
+    at = streamlit_app_test.from_function(app, args=(value,)).run()
+    assert not at.exception
+    assert at.session_state["values"] == {"period": value}
+    assert len(at.date_input) == 2
+    missing = value.index("")
+    chosen = date(2026, 8, 1 if missing == 0 else 17)
+    at.date_input[missing].set_value(chosen).run()
+    assert not at.exception
+    assert at.session_state["values"] == {"period": ["2026-08-01", "2026-08-17"]}
+
+
 class FrozenDate(date):
     """Keep relative date calculations deterministic."""
 

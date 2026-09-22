@@ -12,6 +12,13 @@ from urllib3.util import Timeout
 from .runner import RunnerError
 
 
+def _preserve_authorization(
+    request: requests.PreparedRequest,
+) -> requests.PreparedRequest:
+    """Keep resolved credentials instead of applying Session.auth or .netrc."""
+    return request
+
+
 def request_json(
     session: requests.Session,
     method: str,
@@ -29,6 +36,7 @@ def request_json(
             method,
             url,
             headers={"Accept": "application/json", **headers},
+            auth=_preserve_authorization if "Authorization" in headers else None,
             json=body,
             timeout=Timeout(total=timeout),
             allow_redirects=False,

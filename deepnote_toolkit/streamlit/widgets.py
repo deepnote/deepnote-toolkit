@@ -105,9 +105,18 @@ def _render_one(container: Any, input_block: InputBlock, label: str, key: str) -
         return f"{selected}T00:00:00.000Z" if selected and is_timestamp else selected
 
     if input_block.type == "input-date-range":
-        selected = container.date_input(
-            label, value=_as_date_range(input_block.value), key=key
-        )
+        defaults = _as_date_range(input_block.value)
+        # One range picker cannot represent an open start or end independently.
+        if None in defaults:
+            return [
+                _serialize_date(
+                    container.date_input(
+                        f"{label} ({endpoint})", value=value, key=f"{key}:{endpoint}"
+                    )
+                )
+                for endpoint, value in zip(("start", "end"), defaults)
+            ]
+        selected = container.date_input(label, value=defaults, key=key)
         if not isinstance(selected, (list, tuple)):
             return None
         serialized = [_serialize_date(value) for value in selected]
@@ -162,12 +171,12 @@ def _as_date(value: Any) -> date | None:
         return None
 
 
-def _as_date_range(value: Any) -> tuple[date, ...]:
-    """Resolve an absolute or relative Deepnote range. () leaves the widget empty."""
+def _as_date_range(value: Any) -> tuple[date | None, ...]:
+    """Resolve a range; None marks an open endpoint and () an entirely empty range."""
 
     if isinstance(value, list):
         dates = tuple(_as_date(item) for item in value[:2])
-        return dates if len(dates) == 2 and None not in dates else ()
+        return dates if len(dates) == 2 and any(dates) else ()
 
     today = date.today()
     if match := re.fullmatch(r"past(\d+)days|customDays(\d+)", str(value)):

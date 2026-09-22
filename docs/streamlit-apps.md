@@ -61,12 +61,13 @@ called outside the Streamlit runtime.
 ## Inputs and outputs
 
 `render_inputs()` preserves saved defaults, including `0` and `False`. A select
-without a valid saved choice starts empty. Unselected single selects and partially
-selected date ranges are omitted from the returned dictionary; disable your Run
-button until required fields are present. An omitted input uses the notebook's
-value according to the API. Stale multi-select choices produce a warning. Invalid
-slider bounds/defaults and duplicate variable names raise `ValueError`. File inputs
-render as text paths; this helper does not upload files.
+without a valid saved choice starts empty. Unselected single selects and incomplete
+selections in the date-range picker are omitted from the returned dictionary;
+disable your Run button until required fields are present. An omitted input uses
+the notebook's value according to the API. Saved open-ended ranges use separate
+start/end fields so their chosen endpoint is preserved. Stale multi-select choices
+produce a warning. Invalid slider bounds/defaults and duplicate variable names
+raise `ValueError`. File inputs render as text paths; this helper does not upload files.
 
 `runner.info().matches_inputs(document.inputs)` compares static input definitions:
 unique names, types, single/multiple selection, options, and slider bounds/steps.
@@ -93,14 +94,16 @@ limited to the remaining budget. Output retrieval also has its own
 `snapshot_timeout` (10 seconds); only an explicitly pending snapshot is polled.
 Requests uses socket timeouts, so OS DNS resolution or a server streaming bytes
 can exceed a request budget; this is not hard cancellation of a running notebook.
-Only GET polls are retried after transient failures, up to five consecutive
-retries. Creating a run is never automatically retried.
+Run-status GET polls retry transient failures up to five consecutive times;
+snapshot GET polls retry within the snapshot budget. Creating a run is never
+automatically retried.
 
 Pass `session=requests.Session()` to configure proxies or HTTP adapters. A custom
 `credentials=` provider on `DeepnoteCloudRunner` receives a `timeout` keyword and
 returns `ApiCredentials(token=..., api_origin=...)`. Providers should honor that
-budget. API clients, HTTP helpers, and wire schemas are internal; supported names
-are listed in each package's `__all__`.
+budget. Resolved bearer credentials take precedence over `.netrc` and session
+authentication. API clients, HTTP helpers, and wire schemas are internal;
+supported names are listed in each package's `__all__`.
 
 The existing `streamlit_data_apps` module handles database federation. Notebook
 execution uses its viewer-cookie reader and does not replace its database APIs.
