@@ -251,6 +251,7 @@ def _validated_origin(value: str, *, name: str) -> str:
         or parsed.params
         or parsed.query
         or parsed.fragment
+        or value.endswith(("?", "#", ";"))
     ):
         raise CurrentUserApiTokenError(f"{name} must be a valid HTTP(S) origin.")
     return value.rstrip("/")

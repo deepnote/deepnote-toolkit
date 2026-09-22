@@ -1,4 +1,5 @@
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -86,8 +87,13 @@ def test_hosted_run_uses_viewer_and_readonly_even_with_explicit_owner_token(
 
 @pytest.mark.parametrize("ambient_auth", ["netrc", "session"])
 def test_resolved_viewer_token_overrides_requests_auth(
-    context, http, monkeypatch, tmp_path, ambient_auth
-):
+    context: dict[str, bool],
+    http: responses.RequestsMock,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    ambient_auth: str,
+) -> None:
+    """Keep the viewer bearer authoritative over ambient Requests authentication."""
     monkeypatch.setenv("DEEPNOTE_STREAMLIT_APP_ID", APP_ID)
     http.post(
         TOKEN_URL,
@@ -105,7 +111,8 @@ def test_resolved_viewer_token_overrides_requests_auth(
         monkeypatch.setenv("NETRC", str(netrc))
     else:
 
-        def owner_auth(request):
+        def owner_auth(request: requests.PreparedRequest) -> requests.PreparedRequest:
+            """Represent an injected session configured with an owner identity."""
             request.headers["Authorization"] = "Bearer owner"
             return request
 

@@ -588,6 +588,36 @@ def test_same_origin_redirect_is_also_refused(http, runner):
     assert len(http.calls) == 1
 
 
+@pytest.mark.parametrize(
+    "header", [None, "Authorization", "authorization", "aUtHoRiZaTiOn"]
+)
+def test_explicit_auth_headers_override_session_auth_regardless_of_case(
+    http: responses.RequestsMock, header: str | None
+) -> None:
+    """Honor HTTP header casing while retaining session auth for unauthenticated calls."""
+    from deepnote_toolkit.notebooks.transport import request_json
+
+    def ambient_auth(request: requests.PreparedRequest) -> requests.PreparedRequest:
+        """Represent a session configured with a different API identity."""
+        request.headers["Authorization"] = "Bearer ambient"
+        return request
+
+    http.get("https://api.example/info", json={})
+    with session() as transport:
+        transport.auth = ambient_auth
+        request_json(
+            transport,
+            "GET",
+            "https://api.example/info",
+            headers={header: "Bearer selected"} if header else {},
+            timeout=1,
+        )
+
+    assert http.calls[0].request.headers["Authorization"] == (
+        "Bearer selected" if header else "Bearer ambient"
+    )
+
+
 def test_exhausted_poll_budget_does_not_even_fetch_credentials(http):
     from deepnote_toolkit.notebooks.api_client import DeepnoteApiClient
 

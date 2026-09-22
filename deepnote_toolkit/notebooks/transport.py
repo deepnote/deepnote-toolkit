@@ -31,12 +31,17 @@ def request_json(
     """Send one request, without replaying POSTs or forwarding credentials on redirects."""
     origin = urlsplit(url)
     origin_name = f"{origin.scheme}://{origin.netloc}"
+    request_headers = requests.structures.CaseInsensitiveDict(
+        {"Accept": "application/json", **headers}
+    )
     try:
         with session.request(
             method,
             url,
-            headers={"Accept": "application/json", **headers},
-            auth=_preserve_authorization if "Authorization" in headers else None,
+            headers=request_headers,
+            auth=(
+                _preserve_authorization if "Authorization" in request_headers else None
+            ),
             json=body,
             timeout=Timeout(total=timeout),
             allow_redirects=False,

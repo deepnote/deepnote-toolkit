@@ -184,7 +184,10 @@ def test_empty_dates_stay_empty_instead_of_becoming_today() -> None:
 
 
 @pytest.mark.parametrize("value", [["2026-08-01", ""], ["", "2026-08-17"]])
-def test_saved_open_ended_date_range_keeps_its_chosen_endpoint(value) -> None:
+def test_saved_open_ended_date_range_keeps_its_chosen_endpoint(
+    value: list[str],
+) -> None:
+    """Preserve the saved endpoint instead of clearing an open-ended range."""
     assert render_inputs(
         [InputBlock("period", "input-date-range", value)], FakeContainer()
     ) == {"period": value}
@@ -192,9 +195,12 @@ def test_saved_open_ended_date_range_keeps_its_chosen_endpoint(value) -> None:
 
 @pytest.mark.parametrize("value", [["2026-08-01", ""], ["", "2026-08-17"]])
 def test_real_widgets_preserve_and_edit_open_ended_date_ranges(
-    streamlit_app_test: "type[AppTest]", value
+    streamlit_app_test: "type[AppTest]", value: list[str]
 ) -> None:
-    def app(value) -> None:
+    """Keep open endpoints visible and allow completing them in real widgets."""
+
+    def app(value: list[str]) -> None:
+        """Render a saved open-ended range inside a Streamlit script."""
         import streamlit as st
 
         from deepnote_toolkit.notebooks import InputBlock
