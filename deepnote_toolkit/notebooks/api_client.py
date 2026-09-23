@@ -151,6 +151,8 @@ class DeepnoteApiClient:
 
 
 def _validate(schema: type[Schema], payload: Mapping[str, Any], what: str) -> Schema:
+    """Validate an API response, reporting schema failures as `RunnerError`."""
+
     try:
         return schema(**payload)
     except ValidationError as error:
@@ -175,6 +177,8 @@ def _encode_input(name: str, value: Any) -> InputValue:
 
 
 def _input_block(value: ApiInput) -> InputBlock:
+    """Convert validated API input metadata to a notebook input block."""
+
     return InputBlock(
         variable_name=value.name,
         type=cast(InputBlockType, value.type),
@@ -189,6 +193,8 @@ def _input_block(value: ApiInput) -> InputBlock:
 
 
 def _cloud_run(run: ApiRun) -> CloudRun:
+    """Convert a validated run and any available snapshot blocks to runner data."""
+
     return CloudRun(
         run_id=run.run_id,
         status=run.status,

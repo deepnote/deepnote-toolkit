@@ -223,6 +223,7 @@ def _origin(value: str) -> str:
         bare = (
             parts.scheme in {"http", "https"}
             and bool(parts.hostname)
+            and ";" not in parts.netloc
             and parts.username is None
             and not parts.path.strip("/")
             and not (parts.query or parts.fragment)

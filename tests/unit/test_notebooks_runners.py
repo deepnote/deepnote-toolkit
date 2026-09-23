@@ -142,7 +142,12 @@ def test_malformed_run_fails_without_polling(http, runner, payload):
 
 
 @pytest.mark.parametrize("payload", [{"runId": "run-1", "status": "future"}, {}])
-def test_malformed_poll_stops_the_run(http, runner, payload):
+def test_malformed_poll_stops_the_run(
+    http: responses.RequestsMock,
+    runner: DeepnoteCloudRunner,
+    payload: dict[str, Any],
+) -> None:
+    """Stop polling when the API returns a response outside the run contract."""
     add_run(http, run_response("running"), create=True)
     add_run(http, payload)
     with pytest.raises(RunnerError, match="invalid run response"):

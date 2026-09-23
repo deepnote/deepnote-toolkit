@@ -44,6 +44,8 @@ class ApiRun(BaseModel):
 
 
 class GetRunResponse(BaseModel):
+    """The response envelope returned when fetching an existing run."""
+
     run: ApiRun
 
 

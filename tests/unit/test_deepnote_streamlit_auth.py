@@ -89,6 +89,10 @@ def test_app_id_is_validated_before_network(http, runtime, value):
         {"apiOrigin": "https://example.com/?next=1"},
         {"apiOrigin": "ftp://example.com"},
         {"apiOrigin": "https://[::1"},
+        {"apiOrigin": "https://example.com;/"},
+        {"apiOrigin": "https://example.com;"},
+        {"apiOrigin": "https://exam;ple.com/"},
+        {"apiOrigin": "https://example.com:8443;/"},
     ],
 )
 def test_malformed_credentials_are_not_cached(http, runtime, overrides):
@@ -99,11 +103,24 @@ def test_malformed_credentials_are_not_cached(http, runtime, overrides):
 
 
 @pytest.mark.parametrize("suffix", ["", "/", "/?", "/#", "?#"])
-def test_api_origin_is_reduced_to_scheme_and_host(http, runtime, suffix):
-    http.post(
-        TOKEN_URL, json=payload(apiOrigin="HTTPS://api.example.com:8443" + suffix)
-    )
-    assert credentials(session(), runtime).api_origin == "https://api.example.com:8443"
+@pytest.mark.parametrize(
+    "origin,expected",
+    [
+        ("HTTPS://api.example.com:8443", "https://api.example.com:8443"),
+        ("http://localhost:8080", "http://localhost:8080"),
+        ("https://[::1]:8443", "https://[::1]:8443"),
+    ],
+)
+def test_api_origin_is_reduced_to_scheme_and_host(
+    http: responses.RequestsMock,
+    runtime: FakeStreamlitRuntime,
+    suffix: str,
+    origin: str,
+    expected: str,
+) -> None:
+    """Preserve hosts and ports while removing empty URL components."""
+    http.post(TOKEN_URL, json=payload(apiOrigin=origin + suffix))
+    assert credentials(session(), runtime).api_origin == expected
 
 
 @pytest.mark.parametrize(
