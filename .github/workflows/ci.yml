@@ -333,6 +333,10 @@ jobs:
       - name: Install project
         run: poetry install --no-interaction --only-root
 
+      - name: Install Streamlit for widget integration tests
+        if: matrix.python-version == '3.12'
+        run: poetry install --no-interaction --extras server
+
       - name: Run unit tests
         env:
           TOOLKIT_VERSION: ${{ steps.version.outputs.VERSION }}

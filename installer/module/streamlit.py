@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import shlex
 import urllib.request
 from typing import List
 
@@ -120,7 +121,10 @@ def start_streamlit_servers(
 
             processes.append(
                 venv.start_server(
-                    f"streamlit run '{entrypoint_path}' {arg_str}", cwd=directory_path
+                    f"streamlit run {shlex.quote(entrypoint_path)} {arg_str}",
+                    cwd=directory_path,
+                    # The toolkit reads the app ID to run notebooks as the app's viewer.
+                    env={"DEEPNOTE_STREAMLIT_APP_ID": str(app.get("id") or "")},
                 )
             )
     except Exception as e:

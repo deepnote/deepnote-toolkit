@@ -81,7 +81,7 @@ def test_get_federated_auth_token_raises_when_token_missing(tmp_path, monkeypatc
     _setup_attached_config(tmp_path, monkeypatch)
 
     with patch(
-        "deepnote_toolkit.streamlit_data_apps._read_streamlit_token_from_context",
+        "deepnote_toolkit.streamlit_data_apps.read_streamlit_token_from_context",
         return_value=None,
     ):
         with pytest.raises(StreamlitFederatedAuthError) as excinfo:
