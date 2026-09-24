@@ -315,6 +315,12 @@ def test_duplicate_variable_names_are_rejected() -> None:
         )
 
 
+def test_empty_variable_name_is_rejected() -> None:
+    """Do not render a hand-built input that cannot be submitted to the API."""
+    with pytest.raises(ValueError, match="must not be empty"):
+        render_inputs([InputBlock("", "input-text", "value")], FakeContainer())
+
+
 def test_multiselect_treats_a_scalar_default_as_one_selection() -> None:
     """Normalize scalar and absent multiselect defaults."""
     values = render_inputs(

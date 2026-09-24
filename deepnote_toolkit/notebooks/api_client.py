@@ -87,7 +87,7 @@ class DeepnoteApiClient:
             inputs=tuple(
                 _input_block(value)
                 for value in notebook.inputs
-                if value.type in INPUT_BLOCK_TYPES
+                if value.type in INPUT_BLOCK_TYPES and value.name
             ),
         )
 

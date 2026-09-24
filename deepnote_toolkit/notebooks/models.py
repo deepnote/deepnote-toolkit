@@ -152,7 +152,7 @@ class RunnerInfo:
         expected = tuple(inputs)
         for blocks in (expected, self.inputs):
             names = [block.variable_name for block in blocks]
-            if len(names) != len(set(names)):
+            if any(not name for name in names) or len(names) != len(set(names)):
                 return False
         dynamic = frozenset(
             input_block.variable_name

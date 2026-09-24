@@ -209,6 +209,86 @@ def test_finished_create_fetches_snapshot_metadata(
     assert len(http.calls) == 2
 
 
+@pytest.mark.parametrize(
+    "pending_blocks",
+    [
+        [],
+        [{"id": "b", "outputs": []}],
+        [{"id": "b", "outputs": [{"output_type": "stream", "text": "partial"}]}],
+    ],
+)
+def test_pending_snapshot_blocks_do_not_stop_polling(
+    http: responses.RequestsMock,
+    runner: DeepnoteCloudRunner,
+    pending_blocks: list[dict[str, Any]],
+) -> None:
+    """Use snapshot lifecycle status even when a pending response has blocks."""
+    add_run(http, create_run_response("running"), create=True)
+    add_run(
+        http,
+        run_response(snapshotStatus="pending", snapshotBlocks=pending_blocks),
+    )
+    add_run(
+        http,
+        run_response(
+            snapshotStatus="available",
+            snapshotBlocks=[
+                {
+                    "id": "b",
+                    "outputs": [{"output_type": "stream", "text": "complete"}],
+                }
+            ],
+        ),
+    )
+    result = runner.run({})
+    assert result.snapshot_status == "available"
+    assert result.text() == "complete"
+    assert len(http.calls) == 3
+
+
+@pytest.mark.parametrize("target", ["cloud", "local"])
+def test_runner_info_skips_unnamed_inputs(
+    http: responses.RequestsMock, target: str
+) -> None:
+    """Keep decoded inputs consistent with .deepnote files and valid API keys."""
+    name_key = "name" if target == "cloud" else "variableName"
+    metadata = {
+        "inputs": [
+            {name_key: "", "type": "input-text", "value": "unnamed"},
+            {name_key: "region", "type": "input-text", "value": "EU"},
+        ]
+    }
+    if target == "cloud":
+        http.get("https://api.deepnote.com/v2/notebooks/n", json={"notebook": metadata})
+        info = DeepnoteCloudRunner("n", token="t", session=session()).info()
+    else:
+        http.get("http://127.0.0.1:8787/api/info", json=metadata)
+        info = DeepnoteLocalRunner(session=session()).info()
+    assert info.inputs == (InputBlock("region", "input-text", "EU"),)
+
+
+def test_pending_empty_blocks_still_respect_snapshot_deadline(
+    http: responses.RequestsMock, clock: Clock
+) -> None:
+    """Waiting for a pending snapshot remains bounded even when it has blocks."""
+    add_run(http, create_run_response("running"), create=True)
+    add_run(http, run_response(snapshotStatus="pending", snapshotBlocks=[]))
+    runner = DeepnoteCloudRunner(
+        "n",
+        token="t",
+        session=session(),
+        snapshot_timeout=1,
+        poll_interval=0.25,
+        clock=clock,
+        sleep=clock.sleep,
+    )
+    result = runner.run({})
+    assert result.snapshot_status == "pending"
+    assert result.outputs == ()
+    assert clock.now == 1.25
+    assert len(http.calls) == 5
+
+
 @pytest.mark.parametrize("snapshot_status", ["unavailable", "available"])
 def test_only_pending_snapshots_are_polled(http, runner, snapshot_status):
     add_run(http, create_run_response("running"), create=True)
@@ -498,6 +578,13 @@ def test_runner_info_rejects_repeated_input_names() -> None:
             InputBlock("region", "input-text", "US"),
         ]
     )
+
+
+def test_runner_info_rejects_matching_empty_input_names() -> None:
+    """Matching unnamed inputs still cannot form a valid execution contract."""
+    inputs = (InputBlock("", "input-text", "EU"),)
+    info = RunnerInfo(notebook="N", inputs=inputs, run_target="cloud")
+    assert not info.matches_inputs(inputs)
 
 
 @pytest.mark.parametrize(

@@ -155,7 +155,7 @@ class DeepnoteCloudRunner:
 
     def _settle_snapshot(self, run: CloudRun, deadline: float) -> CloudRun:
         # POST has no snapshot metadata, even when it reports a completed run.
-        while run.outputs is None and run.snapshot_status in {None, "pending"}:
+        while run.snapshot_status in {None, "pending"}:
             if not self._pause(deadline):
                 break
             try:

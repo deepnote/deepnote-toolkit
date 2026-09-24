@@ -66,9 +66,9 @@ incomplete date-range selections are left out of the returned dictionary, so
 disable your Run button until the required values are present. An omitted input
 runs with the notebook's saved value. A saved open-ended date range renders as
 separate start and end fields. Stale multi-select choices and slider defaults
-outside the bounds are adjusted with a warning. Invalid slider bounds and
-duplicate variable names raise `ValueError`. File inputs render as text paths;
-this helper does not upload files.
+outside the bounds are adjusted with a warning. Invalid slider bounds, empty
+variable names and duplicate variable names raise `ValueError`. File inputs render
+as text paths; this helper does not upload files.
 
 `runner.info().matches_inputs(document.inputs)` compares static input definitions:
 unique names, types, single/multiple selection, options, and slider bounds/steps.

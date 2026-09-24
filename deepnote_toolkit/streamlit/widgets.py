@@ -36,6 +36,8 @@ def render_inputs(
 
     inputs = tuple(inputs)
     names = [block.variable_name for block in inputs]
+    if any(not name for name in names):
+        raise ValueError("Input variable names must not be empty")
     if len(names) != len(set(names)):
         raise ValueError("Input variable names must be unique")
     values: dict[str, Any] = {}

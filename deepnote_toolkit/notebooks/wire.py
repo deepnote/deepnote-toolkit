@@ -51,6 +51,7 @@ def decode_inputs(values: Any) -> tuple[InputBlock, ...]:
         for value in values
         if isinstance(value, Mapping)
         and isinstance(value.get("variableName"), str)
+        and value["variableName"]
         and isinstance(value.get("type"), str)
         and value["type"] in INPUT_BLOCK_TYPES
     )
