@@ -75,3 +75,20 @@ You can run a single test using the following format:
 ```sh
 TEST_TYPE="unit" TOOLKIT_VERSION="local-build" ./bin/test tests/unit/test_sql_execution.py::TestExecuteSql::test_execute_sql_with_connection_json_with_snowflake_encrypted_private_key
 ```
+
+## Documentation
+
+Before opening a pull request, check whether the change makes any documentation stale, and update it in the same pull request:
+
+- `docs/user/` - user-facing toolkit configuration and behavior
+- `docs/dev/` - development and internal configuration
+- `README.md` - features, installation, and supported versions
+- `CONTRIBUTING.md` - contributor and release workflow
+- Product documentation for Deepnote Cloud is not in this repository: it lives as Markdown under `docs/` in the public [`deepnote`](https://github.com/deepnote/deepnote) repository and is published at https://deepnote.com/docs. A change that alters what a Deepnote user sees (SQL behavior, integrations, pre-installed packages, supported Python versions) needs a matching pull request there.
+
+Update only the documentation your change actually affects.
+
+## Pull Requests
+
+- Keep each pull request as simple and clean as possible: one purpose, the smallest diff that achieves it, no drive-by refactors or unrelated formatting
+- Split anything that does not serve the stated purpose into its own pull request
