@@ -10,10 +10,11 @@ import time
 from collections.abc import MutableMapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
-from urllib.parse import urlsplit
 
 import requests
 from pydantic import ValidationError
+from urllib3.exceptions import LocationParseError
+from urllib3.util import parse_url
 
 from deepnote_toolkit.get_webapp_url import (
     get_absolute_userpod_api_url,
@@ -221,16 +222,17 @@ def _origin(value: str) -> str:
     """Reduce `apiOrigin` to `scheme://host[:port]`, rejecting anything else in it."""
 
     try:
-        parts = urlsplit(value)
+        # Use the same URL parser as Requests, including its port validation.
+        parts = parse_url(value)
         bare = (
             parts.scheme in {"http", "https"}
-            and bool(parts.hostname)
-            and ";" not in parts.netloc
-            and parts.username is None
-            and not parts.path.strip("/")
+            and bool(parts.host)
+            and not re.search(r"[\s;]", parts.host)
+            and parts.auth is None
+            and not (parts.path or "").strip("/")
             and not (parts.query or parts.fragment)
         )
-    except ValueError:
+    except LocationParseError:
         bare = False
     if not bare:
         raise CurrentUserApiTokenError("apiOrigin must be a valid HTTP(S) origin.")

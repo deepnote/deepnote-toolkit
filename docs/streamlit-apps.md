@@ -88,10 +88,12 @@ Streamlit runs use `storage_mode="readonly"`: the notebook can read the project'
 files but not change them. Pass `storage_mode="read_write"` when the app needs to
 write them. `DeepnoteCloudRunner` leaves the choice to the API.
 
-`timeout` (600 seconds by default) bounds the whole run, from creating it to
-reading its outputs. Outputs can arrive after the run finishes; `snapshot_timeout`
-(10 seconds) is how long to wait for them, and a result whose `snapshot_status` is
-still `pending` has none.
+`timeout` (600 seconds by default) is the polling budget, including time spent
+creating the run, obtaining credentials and reading outputs. Network operations
+or custom credential providers can overrun it. Expiry stops polling but does not
+cancel the notebook. Outputs can arrive after the run finishes; `snapshot_timeout`
+(10 seconds) limits the remaining wait for them within that budget. A result whose
+`snapshot_status` is still `pending` has no outputs yet.
 
 Pass `session=requests.Session()` to configure proxies or HTTP adapters. On
 `DeepnoteCloudRunner`, `credentials=` accepts any callable that takes a `timeout`

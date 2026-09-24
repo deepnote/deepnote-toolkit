@@ -128,6 +128,11 @@ def test_app_id_is_validated_before_network(http, runtime, value):
         {"apiOrigin": "https://example.com;"},
         {"apiOrigin": "https://exam;ple.com/"},
         {"apiOrigin": "https://example.com:8443;/"},
+        {"apiOrigin": "https://example.com:invalid/"},
+        {"apiOrigin": "https://example.com:65536/"},
+        {"apiOrigin": "https://exa mple.com/"},
+        {"apiOrigin": "https://example.com\t/"},
+        {"apiOrigin": "https://example.com\\other/"},
     ],
 )
 def test_malformed_credentials_are_not_cached(http, runtime, overrides):

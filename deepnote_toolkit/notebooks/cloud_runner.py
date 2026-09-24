@@ -37,6 +37,10 @@ class DeepnoteCloudRunner:
     `storage_mode="readonly"` keeps the run from changing the project's stored
     files. None leaves the choice to the API, which allows writes.
 
+    `timeout` is a polling budget, including credentials and API requests. Network
+    operations or custom credential providers can overrun it. Expiry stops polling
+    but does not cancel the notebook.
+
     The outputs can arrive after the run finishes. `snapshot_timeout` is how many
     seconds to wait for them. A result whose `snapshot_status` is still `pending`
     has none because that wait ran out.
