@@ -11,7 +11,13 @@ from urllib.parse import quote
 import requests
 from pydantic import BaseModel, ValidationError
 
-from ._schemas import ApiInput, ApiRun, GetRunResponse, NotebookResponse
+from ._schemas import (
+    ApiInput,
+    ApiRun,
+    CreateRunResponse,
+    GetRunResponse,
+    NotebookResponse,
+)
 from .api_types import (
     INPUT_BLOCK_TYPES,
     TERMINAL_RUN_STATUSES,
@@ -105,7 +111,14 @@ class DeepnoteApiClient:
         if storage_mode is not None:
             body["detachedRunStorageMode"] = storage_mode
         payload = self._request("POST", "/v2/runs", body, timeout=timeout)
-        return _cloud_run(_validate(ApiRun, payload, "run"))
+        run = _validate(CreateRunResponse, payload, "run")
+        return CloudRun(
+            run_id=run.run_id,
+            status=run.status,
+            snapshot_status=None,
+            outputs=None,
+            error=None,
+        )
 
     def get_run(self, run_id: str, *, timeout: float | None = None) -> CloudRun:
         """Read a run with the outputs of the notebook it executed."""

@@ -10,7 +10,7 @@ import yaml
 _BaseLoader: type = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 
-class _CoreSchemaLoader(_BaseLoader):  # type: ignore[misc,valid-type]
+class _DeepnoteSchemaLoader(_BaseLoader):  # type: ignore[misc,valid-type]
     """A safe loader for the scalar conventions used by `.deepnote` files.
 
     `.deepnote` files are written as YAML 1.2, where `No`, `on`, `12:30` and
@@ -60,7 +60,7 @@ for _tag, _pattern, _first in (
         list("-+0123456789."),
     ),
 ):
-    _CoreSchemaLoader.add_implicit_resolver(
+    _DeepnoteSchemaLoader.add_implicit_resolver(
         f"tag:yaml.org,2002:{_tag}", re.compile(_pattern), _first
     )
 
@@ -68,7 +68,7 @@ for _tag, _pattern, _first in (
 def load_yaml(content: str) -> Any:
     """Parse one YAML document. Raises `yaml.YAMLError` when it is malformed."""
 
-    loader = _CoreSchemaLoader(content)
+    loader = _DeepnoteSchemaLoader(content)
     try:
         return loader.get_single_data()
     except (ValueError, AttributeError, TypeError) as error:

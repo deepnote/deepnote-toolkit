@@ -15,7 +15,14 @@ from deepnote_toolkit.notebooks import (
     RunnerError,
     RunnerInfo,
 )
-from tests.unit.helpers.notebook_api import Clock, add_run, body, run_response, session
+from tests.unit.helpers.notebook_api import (
+    Clock,
+    add_run,
+    body,
+    create_run_response,
+    run_response,
+    session,
+)
 
 
 @pytest.fixture
@@ -82,7 +89,7 @@ def test_cloud_info_preserves_input_contract_and_quotes_notebook_id(http):
 def test_run_refreshes_credentials_normalizes_inputs_and_reads_only_run_blocks(
     http, clock
 ):
-    add_run(http, run_response("pending"), create=True)
+    add_run(http, create_run_response("pending"), create=True)
     add_run(http, run_response("running"))
     add_run(http, run_response(snapshotStatus="pending"))
     add_run(
@@ -129,7 +136,6 @@ def test_run_refreshes_credentials_normalizes_inputs_and_reads_only_run_blocks(
         {"runId": "r", "status": None},
         {"runId": "r", "status": ""},
         {"runId": "r", "status": "future"},
-        {"runId": "r", "status": "success", "snapshotStatus": "future"},
         {"status": "success"},
         {"run": {"runId": "r", "status": "success"}},
     ],
@@ -141,37 +147,85 @@ def test_malformed_run_fails_without_polling(http, runner, payload):
     assert len(http.calls) == 1
 
 
-@pytest.mark.parametrize("payload", [{"runId": "run-1", "status": "future"}, {}])
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"runId": "run-1", "status": "future", "snapshotStatus": "pending"},
+        {"runId": "run-1", "status": "success", "snapshotStatus": "future"},
+        {},
+    ],
+)
 def test_malformed_poll_stops_the_run(
     http: responses.RequestsMock,
     runner: DeepnoteCloudRunner,
     payload: dict[str, Any],
 ) -> None:
     """Stop polling when the API returns a response outside the run contract."""
-    add_run(http, run_response("running"), create=True)
+    add_run(http, create_run_response("running"), create=True)
     add_run(http, payload)
     with pytest.raises(RunnerError, match="invalid run response"):
         runner.run({})
     assert len(http.calls) == 2
 
 
-@pytest.mark.parametrize("snapshot_status", [None, "unavailable", "available"])
+@pytest.mark.parametrize("status", ["running", "success"])
+@pytest.mark.parametrize("snapshot", [{}, {"snapshotStatus": None}])
+def test_get_run_requires_snapshot_status(
+    http: responses.RequestsMock,
+    runner: DeepnoteCloudRunner,
+    status: str,
+    snapshot: dict[str, Any],
+) -> None:
+    """Reject missing or null GET snapshot metadata instead of returning no outputs."""
+    add_run(http, create_run_response("running"), create=True)
+    add_run(http, {"runId": "run-1", "status": status, **snapshot})
+    with pytest.raises(RunnerError, match="invalid run response"):
+        runner.run({})
+    assert len(http.calls) == 2
+
+
+def test_finished_create_fetches_snapshot_metadata(
+    http: responses.RequestsMock, runner: DeepnoteCloudRunner
+) -> None:
+    """A completed POST still needs GET metadata to discover its outputs."""
+    add_run(http, create_run_response(), create=True)
+    add_run(
+        http,
+        run_response(
+            snapshotStatus="available",
+            snapshotBlocks=[
+                {
+                    "id": "b",
+                    "type": "code",
+                    "outputs": [{"output_type": "stream", "text": "done"}],
+                }
+            ],
+        ),
+    )
+    result = runner.run({})
+    assert result.success
+    assert result.snapshot_status == "available"
+    assert result.text() == "done"
+    assert len(http.calls) == 2
+
+
+@pytest.mark.parametrize("snapshot_status", ["unavailable", "available"])
 def test_only_pending_snapshots_are_polled(http, runner, snapshot_status):
+    add_run(http, create_run_response("running"), create=True)
     add_run(
         http,
         run_response("error", snapshotStatus=snapshot_status, error="bad input"),
-        create=True,
     )
     result = runner.run({})
     assert not result.success and result.error == "bad input"
-    assert len(http.calls) == 1
+    assert len(http.calls) == 2
 
 
 @pytest.mark.parametrize(
     "failure", [429, 503, requests.ConnectionError("reset"), requests.Timeout()]
 )
 def test_transient_get_failure_is_retried(http, runner, failure):
-    add_run(http, run_response("running"), create=True)
+    add_run(http, create_run_response("running"), create=True)
     kwargs = {"status": failure} if isinstance(failure, int) else {"body": failure}
     http.get("https://api.deepnote.com/v2/runs/run-1?snapshotDelivery=blocks", **kwargs)
     add_run(http, run_response(snapshotBlocks=[]))
@@ -181,7 +235,7 @@ def test_transient_get_failure_is_retried(http, runner, failure):
 
 @pytest.mark.parametrize("status", [400, 401, 403, 404])
 def test_non_transient_poll_failure_is_not_retried(http, runner, status):
-    add_run(http, run_response("running"), create=True)
+    add_run(http, create_run_response("running"), create=True)
     http.get(
         "https://api.deepnote.com/v2/runs/run-1?snapshotDelivery=blocks",
         status=status,
@@ -200,7 +254,7 @@ def test_post_is_never_replayed(http, runner):
 
 
 def test_poll_retries_have_a_limit(http, runner):
-    add_run(http, run_response("running"), create=True)
+    add_run(http, create_run_response("running"), create=True)
     http.get(
         "https://api.deepnote.com/v2/runs/run-1?snapshotDelivery=blocks", status=503
     )
@@ -215,7 +269,7 @@ def test_request_and_sleep_time_count_against_run_deadline(http, clock):
     def create(request):
         observed.append(request.req_kwargs["timeout"].total)
         clock.now += 3
-        return 200, {}, json.dumps(run_response("running"))
+        return 200, {}, json.dumps(create_run_response("running"))
 
     def poll(request):
         observed.append(request.req_kwargs["timeout"].total)
@@ -251,7 +305,7 @@ def test_snapshot_deadline_counts_slow_requests_and_caps_timeout(
     http: responses.RequestsMock, clock: Clock, available: bool
 ) -> None:
     """Keep received outputs at the deadline without starting another request."""
-    add_run(http, run_response(snapshotStatus="pending"), create=True)
+    add_run(http, create_run_response(), create=True)
     timeouts = []
 
     def poll(request: Any) -> tuple[int, dict[str, str], str]:
@@ -292,7 +346,7 @@ def test_snapshot_deadline_counts_slow_requests_and_caps_timeout(
 
 
 def test_no_request_starts_after_snapshot_deadline(http, clock):
-    add_run(http, run_response(snapshotStatus="pending"), create=True)
+    add_run(http, create_run_response(), create=True)
     runner = DeepnoteCloudRunner(
         "n",
         token="t",
@@ -322,7 +376,7 @@ def test_invalid_timeouts_rejected(kwargs):
 
 
 def test_run_id_is_quoted(http, runner):
-    add_run(http, run_response("running", runId="a/b?x"), create=True)
+    add_run(http, create_run_response("running", runId="a/b?x"), create=True)
     http.get(
         "https://api.deepnote.com/v2/runs/a%2Fb%3Fx?snapshotDelivery=blocks",
         json={"run": run_response()},
@@ -521,7 +575,7 @@ def test_credential_exchange_time_reduces_http_budget(http, clock):
         clock.now += 3
         return ApiCredentials("token")
 
-    http.post("https://api.deepnote.com/v2/runs", json=run_response(snapshotBlocks=[]))
+    http.post("https://api.deepnote.com/v2/runs", json=create_run_response())
     runner = DeepnoteCloudRunner(
         "n",
         credentials=credentials,
@@ -553,7 +607,7 @@ def test_expired_credential_budget_does_not_send_request(http, clock):
 
 @pytest.mark.parametrize("status", [403, 503])
 def test_snapshot_poll_error_policy(http, runner, status):
-    add_run(http, run_response(snapshotStatus="pending"), create=True)
+    add_run(http, create_run_response(), create=True)
     http.get(
         "https://api.deepnote.com/v2/runs/run-1?snapshotDelivery=blocks", status=status
     )

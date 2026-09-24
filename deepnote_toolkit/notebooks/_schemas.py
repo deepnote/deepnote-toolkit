@@ -33,10 +33,17 @@ class NotebookResponse(BaseModel):
     notebook: ApiNotebook
 
 
-class ApiRun(BaseModel):
+class CreateRunResponse(BaseModel):
+    """The run identity and execution status returned by POST /v2/runs."""
+
     run_id: StrictStr = Field(alias="runId", min_length=1)
     status: RunStatus
-    snapshot_status: SnapshotStatus | None = Field(default=None, alias="snapshotStatus")
+
+
+class ApiRun(CreateRunResponse):
+    """GET run details, including the required snapshot lifecycle status."""
+
+    snapshot_status: SnapshotStatus = Field(alias="snapshotStatus")
     snapshot_blocks: list[dict[str, Any]] | None = Field(
         default=None, alias="snapshotBlocks"
     )

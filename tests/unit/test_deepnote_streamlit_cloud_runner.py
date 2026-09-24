@@ -8,7 +8,14 @@ import responses
 
 from deepnote_toolkit.notebooks import RunnerError
 from deepnote_toolkit.streamlit import StreamlitCloudRunner, auth
-from tests.unit.helpers.notebook_api import Clock, add_run, body, run_response, session
+from tests.unit.helpers.notebook_api import (
+    Clock,
+    add_run,
+    body,
+    create_run_response,
+    run_response,
+    session,
+)
 from tests.unit.helpers.streamlit_runtime import FakeStreamlitRuntime
 
 APP_ID = "11111111-2222-3333-4444-555555555555"
@@ -65,8 +72,13 @@ def test_hosted_run_uses_viewer_and_readonly_even_with_explicit_owner_token(
     )
     add_run(
         http,
-        run_response(snapshotBlocks=[]),
+        create_run_response("running"),
         create=True,
+        origin="https://api.deepnote-staging.com",
+    )
+    add_run(
+        http,
+        run_response(snapshotBlocks=[]),
         origin="https://api.deepnote-staging.com",
     )
     runner = StreamlitCloudRunner(
@@ -103,7 +115,8 @@ def test_resolved_viewer_token_overrides_requests_auth(
 ) -> None:
     """Keep the viewer bearer authoritative over ambient Requests authentication."""
     http.post(TOKEN_URL, json=viewer_token())
-    add_run(http, run_response(snapshotBlocks=[]), create=True)
+    add_run(http, create_run_response("running"), create=True)
+    add_run(http, run_response(snapshotBlocks=[]))
     transport = requests.Session()
     if ambient_auth == "netrc":
         netrc = tmp_path / "credentials.netrc"
@@ -184,7 +197,7 @@ def test_transient_exchange_failure_during_poll_is_retried(http):
     http.post(TOKEN_URL, json=viewer_token())
     http.post(TOKEN_URL, status=503)
     http.post(TOKEN_URL, json=viewer_token())
-    add_run(http, run_response("running"), create=True)
+    add_run(http, create_run_response("running"), create=True)
     add_run(http, run_response(snapshotBlocks=[]))
     clock = Clock()
     runner = StreamlitCloudRunner(
@@ -204,7 +217,8 @@ def test_real_streamlit_script_and_worker_keep_viewer_identity(
     monkeypatch.setenv("DEEPNOTE_STREAMLIT_APP_ID", APP_ID)
     monkeypatch.setattr(auth, "read_streamlit_token_from_context", lambda: "cookie")
     http.post(TOKEN_URL, json=viewer_token())
-    add_run(http, run_response(snapshotBlocks=[]), create=True)
+    add_run(http, create_run_response("running"), create=True)
+    add_run(http, run_response(snapshotBlocks=[]))
 
     def app():
         import threading
@@ -233,5 +247,5 @@ def test_real_streamlit_script_and_worker_keep_viewer_identity(
     assert not at.exception
     assert at.session_state["success"] is True
     assert "No viewer request" in at.session_state["worker_errors"][0]
-    assert len(http.calls) == 2
+    assert len(http.calls) == 3
     assert http.calls[1].request.headers["Authorization"] == "Bearer viewer"

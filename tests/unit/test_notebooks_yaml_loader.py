@@ -53,7 +53,7 @@ def load_yaml(
         ('"true"', "true"),
     ],
 )
-def test_plain_scalars_resolve_by_the_yaml_1_2_core_schema(
+def test_plain_scalars_follow_deepnote_schema_conventions(
     load_yaml: Any, scalar: str, expected: object
 ) -> None:
     assert load_yaml(f"value: {scalar}\n") == {"value": expected}

@@ -1,6 +1,7 @@
 """Reusable HTTP and clock fixtures for the notebook clients."""
 
 import json
+from typing import Any
 
 import requests
 import responses
@@ -19,8 +20,21 @@ class Clock:
         self.now += seconds
 
 
-def run_response(status="success", **fields):
+def create_run_response(status: str = "success", **fields: Any) -> dict[str, Any]:
+    """Build the run identity returned when creating a run."""
     return {"runId": "run-1", "status": status, **fields}
+
+
+def run_response(status: str = "success", **fields: Any) -> dict[str, Any]:
+    """Build GET run details with the required snapshot lifecycle status."""
+    return {
+        "runId": "run-1",
+        "status": status,
+        "snapshotStatus": (
+            "pending" if status in {"pending", "running"} else "available"
+        ),
+        **fields,
+    }
 
 
 def session():

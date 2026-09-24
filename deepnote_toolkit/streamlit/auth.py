@@ -137,7 +137,9 @@ def current_user_api_credentials(
         cached = session_state.get(_SESSION_STATE_KEY)
         if (
             isinstance(cached, tuple)
+            and len(cached) == 2
             and cached[0] == cache_key
+            and isinstance(cached[1], CurrentUserApiCredentials)
             and cached[1].expires_at_seconds - _EXPIRY_MARGIN_SECONDS > time.time()
         ):
             return cached[1]

@@ -68,6 +68,41 @@ def test_changed_cookie_or_expiry_refreshes_credentials(http, runtime):
     assert credentials(transport, runtime).token == "third"
 
 
+@pytest.mark.parametrize(
+    "cache_shape",
+    ["empty", "short", "long", "none", "text", "mapping", "old_type", "list"],
+)
+def test_malformed_cached_credentials_are_refreshed(
+    http: responses.RequestsMock,
+    runtime: FakeStreamlitRuntime,
+    cache_shape: str,
+) -> None:
+    """Replace malformed or stale session state with a fresh credential exchange."""
+    http.post(TOKEN_URL, json=payload(token="old"))
+    http.post(TOKEN_URL, json=payload(token="fresh"))
+    with session() as transport:
+        initial = credentials(transport, runtime)
+        assert runtime.state is not None
+        key, _ = runtime.state[auth._SESSION_STATE_KEY]
+        malformed = {
+            "empty": (),
+            "short": (key,),
+            "long": (key, initial, "extra"),
+            "none": (key, None),
+            "text": (key, "old-token"),
+            "mapping": (key, {"expires_at_seconds": time.time() + 900}),
+            "old_type": (key, SimpleNamespace(**vars(initial))),
+            "list": [key, initial],
+        }
+        runtime.state[auth._SESSION_STATE_KEY] = malformed[cache_shape]
+
+        refreshed = credentials(transport, runtime)
+        assert refreshed.token == "fresh"
+        assert runtime.state[auth._SESSION_STATE_KEY] == (key, refreshed)
+        assert credentials(transport, runtime) is refreshed
+    assert len(http.calls) == 2
+
+
 @pytest.mark.parametrize("value", ["bad/path", "../apps", "", "x?query", "x#fragment"])
 def test_app_id_is_validated_before_network(http, runtime, value):
     runtime.app = value
