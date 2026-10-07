@@ -474,9 +474,13 @@ jobs:
           # * false positive for Python: advisory says RecordBatchFileReader::PreBufferMetadata is not exposed in Python bindings
           # * this repo uses PyArrow through pandas parquet IO and Arrow table construction, not IPC file pre-buffering
           # * databricks-sqlalchemy 1.x caps pyarrow<17, but upgrading requires SQLAlchemy 2.x (which is not possible for some Python versions)
+          # PYSEC-2026-4114 (oauthlib PKCE code_verifier timing side-channel)
+          # * not exploitable here: affects server-side AuthorizationCodeGrant validation; databricks-sql-connector only uses the client side (WebApplicationClient)
+          # * fix is in oauthlib 4.0.0, but databricks-sql-connector (latest 4.6.0) caps oauthlib<4.0.0
           ignore-vulns: &ignore-vulns |
             PYSEC-2024-161
             PYSEC-2026-113
+            PYSEC-2026-4114
 
   audit-all:
     name: Audit - All
