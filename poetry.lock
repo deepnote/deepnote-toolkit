@@ -1754,15 +1754,15 @@ files = [
 
 [[package]]
 name = "deepnote-python-lsp-server"
-version = "1.13.1rc2"
+version = "1.13.1.1"
 description = "Python Language Server for the Language Server Protocol"
 optional = true
 python-versions = ">=3.9"
 groups = ["main"]
 markers = "extra == \"server\""
 files = [
-    {file = "deepnote_python_lsp_server-1.13.1rc2-py3-none-any.whl", hash = "sha256:1a2906fdfdbcebdda7cb1d47459cf5be7a517a646a12d7d333ae47a14de33e25"},
-    {file = "deepnote_python_lsp_server-1.13.1rc2.tar.gz", hash = "sha256:7c7ad683c01ea493c4f0354fd52d80a53b59b4de547900ea620cff3408dad965"},
+    {file = "deepnote_python_lsp_server-1.13.1.1-py3-none-any.whl", hash = "sha256:25e261d2653477db6df125573fcfff5094bed3794b5bc165d7193736d946a49a"},
+    {file = "deepnote_python_lsp_server-1.13.1.1.tar.gz", hash = "sha256:f718e06ba0f791c555c5ec9e747b7b62dc17620ed79974a8233af38018f36714"},
 ]
 
 [package.dependencies]
@@ -9172,4 +9172,4 @@ server = ["deepnote-python-lsp-server", "jupyter-resource-usage", "jupyter-serve
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10.0,<3.15"
-content-hash = "5f3a76c01d400d2df1bae23e0c7575e2649a92ea071256476704fd58aff38c22"
+content-hash = "4a1b1b3597098baa3b82450a9e3fb231d912886be9617bfb80733e34ac33b2a4"
