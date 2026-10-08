@@ -87,8 +87,3 @@ Before opening a pull request, check whether the change makes any documentation 
 - Product documentation for Deepnote Cloud is not in this repository: it lives as Markdown under `docs/` in the public [`deepnote`](https://github.com/deepnote/deepnote) repository and is published at https://deepnote.com/docs. A change that alters what a Deepnote user sees (SQL behavior, integrations, pre-installed packages, supported Python versions) needs a matching pull request there.
 
 Update only the documentation your change actually affects.
-
-## Pull Requests
-
-- Keep each pull request as simple and clean as possible: one purpose, the smallest diff that achieves it, no drive-by refactors or unrelated formatting
-- Split anything that does not serve the stated purpose into its own pull request
