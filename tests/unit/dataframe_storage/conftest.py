@@ -3,13 +3,83 @@
 Kept out of tests/unit/conftest.py because the names are generic.
 """
 
+import builtins
+import json
+import signal
+import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, Iterator, List, Optional
 
 import pytest
+import responses
+from IPython.core.interactiveshell import InteractiveShell
+from traitlets.config import Config
 
 from deepnote_toolkit import dataframe_storage
+from deepnote_toolkit.dataframe_storage import register_dataframe_storage
+from tests.unit.helpers.dataframe_storage import REPORT_URL, storage_request
+
+
+@pytest.fixture
+def parent() -> Dict[str, Any]:
+    """The execute_request the fake kernel reports; tests mutate it in place."""
+    return storage_request()
+
+
+@pytest.fixture
+def reports(monkeypatch: pytest.MonkeyPatch) -> Iterator[SimpleNamespace]:
+    """Replace the webapp transport; `bodies` holds each posted JSON body.
+
+    The writer remembers what it already reported in module state, so it is
+    cleared around every test.
+    """
+    transport = SimpleNamespace(bodies=[], calls=[], mock=None)
+
+    def record(request: Any) -> Any:
+        transport.calls.append(request)
+        transport.bodies.append(json.loads(request.body))
+        return 200, {}, ""
+
+    monkeypatch.setattr(
+        dataframe_storage,
+        "get_absolute_userpod_api_url",
+        lambda path: f"http://userpod/{path}",
+    )
+    dataframe_storage._reported.clear()
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mock:
+        mock.add_callback(responses.POST, REPORT_URL, callback=record)
+        transport.mock = mock
+        yield transport
+    dataframe_storage._reported.clear()
+
+
+@pytest.fixture
+def shell(
+    parent: Dict[str, Any],
+    reports: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[InteractiveShell]:
+    """A shell whose kernel reports `parent`, with the hook registered and enabled."""
+    monkeypatch.setenv(dataframe_storage.ENABLED_ENV_VAR, "true")
+    # A shell swaps in its own __main__ and adds builtins; leave both as found
+    monkeypatch.setitem(sys.modules, "__main__", sys.modules["__main__"])
+    builtins_before = set(vars(builtins))
+    # No history: it would write a sqlite file into the user's profile, and its
+    # sqlite3 usage raises a DeprecationWarning on Python 3.12+
+    config = Config()
+    config.HistoryManager.enabled = False
+    InteractiveShell.clear_instance()
+    shell = InteractiveShell.instance(config=config)
+    shell.ast_node_interactivity = "all"
+    shell.kernel = SimpleNamespace(get_parent=lambda channel=None: parent)
+    register_dataframe_storage()
+    yield shell
+    shell.events.unregister("post_run_cell", dataframe_storage._on_post_run_cell)
+    InteractiveShell.clear_instance()
+    for name in set(vars(builtins)) - builtins_before:
+        delattr(builtins, name)
 
 
 @pytest.fixture
@@ -100,6 +170,39 @@ def close_error(monkeypatch: pytest.MonkeyPatch) -> Dict[str, Optional[OSError]]
 
     monkeypatch.setattr(Path, "open", open_failing_on_close)
     return state
+
+
+@pytest.fixture
+def queued_sigints() -> Iterator[List[int]]:
+    """Stand in for the handler ipykernel installs while it runs a cell.
+
+    It only queues the interrupt. Under pytest SIGINT already raises
+    KeyboardInterrupt, so without this the interrupt tests would pass vacuously.
+    """
+    queued: List[int] = []
+    original = signal.signal(signal.SIGINT, lambda *args: queued.append(1))
+    yield queued
+    signal.signal(signal.SIGINT, original)
+
+
+@pytest.fixture(params=["ordinary-cell", "top-level-await-cell"])
+def sigint_handler(request: pytest.FixtureRequest) -> Iterator[List[int]]:
+    """The handler a cell's post_run_cell runs under, and what it has queued.
+
+    ipykernel keeps default_int_handler for ordinary cells, so SIGINT raises
+    anywhere. Only a cell with top-level await runs under a handler that queues.
+    """
+    queued: List[int] = []
+
+    def only_queue(*args: Any) -> None:
+        queued.append(1)
+
+    handler: Any = only_queue
+    if request.param == "ordinary-cell":
+        handler = signal.default_int_handler
+    original = signal.signal(signal.SIGINT, handler)
+    yield queued
+    signal.signal(signal.SIGINT, original)
 
 
 @pytest.fixture

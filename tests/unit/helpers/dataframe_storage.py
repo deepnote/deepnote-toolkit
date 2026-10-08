@@ -1,10 +1,10 @@
-"""Frames and interrupts shared by the DataFrame storage tests."""
+"""Frames, interrupts and execute requests shared by the DataFrame storage tests."""
 
 import io
 import signal
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 import pandas as pd
@@ -12,6 +12,10 @@ import pyarrow as pa
 import pytest
 
 from deepnote_toolkit import dataframe_storage
+
+NAME = "revenue"
+BLOCK_ID = "blk1"
+REPORT_URL = "http://userpod/toolkit/errors"
 
 
 def probe_failure(frame: Any) -> Optional[type]:
@@ -102,3 +106,17 @@ def interrupt_at(point: str, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
             dataframe_storage, "_delete_replaced_frames", interrupt_then_delete
         )
+
+
+def storage_request(**overrides: Any) -> Dict[str, Any]:
+    """Return the request message that asks the kernel to store a block's result.
+
+    `overrides` replace fields of `deepnote.dataframeStorage`.
+    """
+    return {
+        "metadata": {
+            "deepnote": {
+                "dataframeStorage": {"name": NAME, "blockId": BLOCK_ID, **overrides}
+            }
+        }
+    }

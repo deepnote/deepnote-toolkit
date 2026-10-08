@@ -8,6 +8,7 @@ import psycopg2.extras
 
 from deepnote_toolkit.runtime_patches import apply_runtime_patches
 
+from .dataframe_storage import register_dataframe_storage
 from .dataframe_utils import add_formatters
 from .execute_post_start_hooks import execute_post_start_hooks
 from .logging import LoggerManager
@@ -51,6 +52,13 @@ def init_deepnote_runtime():
         add_output_middleware()
     except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("Failed to add output middleware with a error: %s", e)
+
+    # Store flagged blocks' full DataFrames
+    try:
+        logger.debug("Registering DataFrame storage hook.")
+        register_dataframe_storage()
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Failed to register DataFrame storage hook with error: %s", e)
 
     # Disable sqlparse grouping limits for large analytical queries
     try:

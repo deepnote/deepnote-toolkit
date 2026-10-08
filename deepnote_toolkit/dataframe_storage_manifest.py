@@ -62,13 +62,19 @@ def read_manifest(directory: Path) -> Optional[Manifest]:
 
 
 def write_manifest(
-    directory: Path, new_file: str, previous: Optional[str], rows: int
+    directory: Path,
+    new_file: str,
+    previous: Optional[str],
+    rows: int,
+    block_id: Optional[str] = None,
 ) -> None:
-    """Point the manifest at `new_file`."""
+    """Point the manifest at `new_file`, recording the block that wrote it, if any."""
     manifest: dict[str, Any] = {"version": MANIFEST_VERSION, "file": new_file}
     if previous is not None:
         manifest["previous"] = previous
     manifest["written_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     manifest["rows"] = rows
     manifest["toolkit_version"] = __version__
+    if block_id is not None:
+        manifest["block_id"] = block_id
     (directory / MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
