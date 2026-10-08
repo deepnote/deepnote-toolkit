@@ -14,7 +14,13 @@ logger = logging.getLogger(__name__)
 class ServerProcess:
     """A class to manage a server process."""
 
-    def __init__(self, command: str, cwd: Optional[str] = None):
+    def __init__(
+        self,
+        command: str,
+        cwd: Optional[str] = None,
+        *,
+        env: Optional[dict[str, str]] = None,
+    ) -> None:
         """
         Initialize the ServerProcess with the given command.
 
@@ -22,6 +28,7 @@ class ServerProcess:
         """
         self.command = command
         self.cwd = cwd
+        self.env = dict(env or {})
         self.process = None
         self.stdout_thread = None
         self.stderr_thread = None
@@ -53,7 +60,7 @@ class ServerProcess:
         :return: The started process.
         :raises Exception: If the process fails to start after all retries.
         """
-        env = os.environ.copy()
+        env = {**os.environ, **self.env}
         env["PYTHONUNBUFFERED"] = "1"
 
         attempt = 0

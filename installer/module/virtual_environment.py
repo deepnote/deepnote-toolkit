@@ -64,7 +64,13 @@ class VirtualEnvironment:
         result = self._run_command(full_command, shell=True)
         return result.stdout
 
-    def start_server(self, command: str, cwd: Optional[str] = None) -> ServerProcess:
+    def start_server(
+        self,
+        command: str,
+        cwd: Optional[str] = None,
+        *,
+        env: Optional[dict[str, str]] = None,
+    ) -> ServerProcess:
         """
         Start a server process using the virtual environment.
 
@@ -73,7 +79,7 @@ class VirtualEnvironment:
         :raises Exception: If the server fails to start.
         """
         full_command = f". {self.activate_file_path} && {command}"
-        server_proc = ServerProcess(full_command, cwd=cwd)
+        server_proc = ServerProcess(full_command, cwd=cwd, env=env)
 
         # Start the server internally and handle any startup errors
         server_proc.start()

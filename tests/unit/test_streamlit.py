@@ -97,3 +97,41 @@ class TestStartStreamlitServers(unittest.TestCase):
 
         assert mock_logger.warning.call_count == 2
         assert mock_venv.start_server.call_count == 1
+
+    def test_passes_app_id_as_environment_data(self) -> None:
+        """App IDs are data, never shell syntax; validation belongs to the SDK."""
+        apps = [
+            {
+                "id": "11111111-2222-3333-4444-555555555555",
+                "entrypoint": "a/app.py",
+                "port": "8501",
+            },
+            {"id": "x; rm -rf /", "entrypoint": "b/app.py", "port": "8502"},
+        ]
+        mock_venv = MagicMock()
+
+        with (
+            patch("installer.module.streamlit.fetch_streamlit_apps", return_value=apps),
+            patch("installer.module.streamlit.os.path.exists", return_value=True),
+        ):
+            start_streamlit_servers(mock_venv, MagicMock(spec=logging.Logger))
+
+        calls = mock_venv.start_server.call_args_list
+        assert calls[0].args[0].startswith("streamlit run /work/a/app.py ")
+        assert calls[1].args[0].startswith("streamlit run /work/b/app.py ")
+        assert calls[0].kwargs["env"] == {"DEEPNOTE_STREAMLIT_APP_ID": apps[0]["id"]}
+        assert calls[1].kwargs["env"] == {"DEEPNOTE_STREAMLIT_APP_ID": apps[1]["id"]}
+
+    def test_missing_app_id_still_marks_process_as_hosted(self) -> None:
+        app = {"entrypoint": "app.py", "port": "8501"}
+        venv = MagicMock()
+        with (
+            patch(
+                "installer.module.streamlit.fetch_streamlit_apps", return_value=[app]
+            ),
+            patch("installer.module.streamlit.os.path.exists", return_value=True),
+        ):
+            start_streamlit_servers(venv, MagicMock(spec=logging.Logger))
+        assert venv.start_server.call_args.kwargs["env"] == {
+            "DEEPNOTE_STREAMLIT_APP_ID": ""
+        }

@@ -61,7 +61,7 @@ class FederatedAuthRequired(StreamlitFederatedAuthError):
         self.integration_name = integration_name
 
 
-def _read_streamlit_token_from_context() -> Optional[str]:
+def read_streamlit_token_from_context() -> Optional[str]:
     """Read the ``streamlit-token`` cookie from the active Streamlit context.
 
     Returns ``None`` if Streamlit is not installed, no script run is active, or the cookie
@@ -121,7 +121,7 @@ def get_federated_auth_token(
     if not integration_id:
         raise StreamlitFederatedAuthError("integration_id is required.")
 
-    token = streamlit_token or _read_streamlit_token_from_context()
+    token = streamlit_token or read_streamlit_token_from_context()
     if not token:
         raise StreamlitFederatedAuthError(
             "Could not read the `streamlit-token` cookie from the Streamlit context. "

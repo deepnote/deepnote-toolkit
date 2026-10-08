@@ -98,3 +98,34 @@ class TestImportPackageBundle:
                 condition_env="SOME_ENV_VAR",
                 priority=True,
             )
+
+
+def test_server_environment_is_passed_as_data_and_inherits_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pass app IDs as environment data while retaining the parent environment."""
+    import json
+    import shlex
+    import sys
+
+    from installer.module.virtual_environment import VirtualEnvironment
+
+    monkeypatch.setenv("TOOLKIT_TEST_PARENT", "inherited")
+    venv_path = tmp_path / "venv"
+    (venv_path / "bin").mkdir(parents=True)
+    (venv_path / "bin" / "activate").write_text("")
+    result = tmp_path / "result.json"
+    script = tmp_path / "child.py"
+    script.write_text(
+        "import json, os\n"
+        f"with open({str(result)!r}, 'w') as f:\n"
+        " json.dump([os.environ['DEEPNOTE_STREAMLIT_APP_ID'], "
+        "os.environ['TOOLKIT_TEST_PARENT']], f)\n"
+    )
+    app_id = "x; echo must-not-be-executed"
+    server = VirtualEnvironment(venv_path).start_server(
+        f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}",
+        env={"DEEPNOTE_STREAMLIT_APP_ID": app_id},
+    )
+    assert server.wait(timeout=10) == 0
+    assert json.loads(result.read_text()) == [app_id, "inherited"]
