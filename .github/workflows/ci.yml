@@ -47,7 +47,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .venv
-          key: venv-v2-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('poetry.lock') }}
+          key: venv-v2-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ runner.os }}-${{ runner.arch }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('poetry.lock') }}
 
       - name: Install dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'
@@ -83,7 +83,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .venv
-          key: venv-v2-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('poetry.lock') }}
+          key: venv-v2-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ runner.os }}-${{ runner.arch }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('poetry.lock') }}
 
       - name: Install dependencies
         if: steps.cache-deps.outputs.cache-hit != 'true'
@@ -167,6 +167,7 @@ jobs:
         persist-credentials: false
 
     - name: Set up Python ${{ matrix.python-version }}
+      id: setup-python
       uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
       with:
         python-version: ${{ matrix.python-version }}
@@ -184,7 +185,7 @@ jobs:
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: .venv
-        key: venv-v2-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
+        key: venv-v2-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ runner.os }}-${{ runner.arch }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('poetry.lock') }}
 
     - name: Install dependencies
       if: steps.cache-deps.outputs.cache-hit != 'true'
@@ -289,6 +290,7 @@ jobs:
         uses: ./.github/actions/export-version
 
       - name: Set up Python ${{ matrix.python-version }}
+        id: setup-python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -304,7 +306,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.local
-          key: poetry-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ matrix.python-version }}-poetry${{ env.POETRY_VERSION }}
+          key: poetry-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ runner.os }}-${{ runner.arch }}-py${{ steps.setup-python.outputs.python-version }}-poetry${{ env.POETRY_VERSION }}
 
       - name: Install Poetry
         uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
@@ -320,7 +322,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .venv
-          key: venv-v2-${{ github.event.pull_request.head.repo.full_name || github.repository }}-py${{ matrix.python-version }}-${{ hashFiles('poetry.lock') }}
+          key: venv-v2-${{ github.event.pull_request.head.repo.full_name || github.repository }}-${{ runner.os }}-${{ runner.arch }}-py${{ steps.setup-python.outputs.python-version }}-${{ hashFiles('poetry.lock') }}
 
       - name: Add venv to PATH
         if: steps.cache-deps.outputs.cache-hit == 'true'

@@ -379,7 +379,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: ~/.local
-          key: ${{ github.event.pull_request.head.repo.full_name || github.repository }}-poetry-${{ steps.setup-python.outputs.python-version }}-poetry${{ env.POETRY_VERSION }}
+          key: ${{ github.event.pull_request.head.repo.full_name || github.repository }}-poetry-${{ runner.os }}-${{ runner.arch }}-py${{ steps.setup-python.outputs.python-version }}-poetry${{ env.POETRY_VERSION }}
 
       - name: Install Poetry
         uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
