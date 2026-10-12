@@ -229,20 +229,16 @@ def test_pandas_on_spark_result_writes_nothing(
     shell: InteractiveShell,
     root: Path,
     reports: SimpleNamespace,
-    spark: Any,
+    spark_without_ansi_mode: Any,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # pyspark.pandas warns on import unless told that pyarrow may ignore time zones
     monkeypatch.setenv("PYARROW_IGNORE_TIMEZONE", "1")
     # pyspark 3.5, which Python < 3.13 gets, imports distutils, gone since Python 3.12
     pytest.importorskip("pyspark.pandas")
-    # pandas-on-Spark refuses to run under ANSI mode, which Spark 4 enables by default
-    ansi_mode = spark.conf.get("spark.sql.ansi.enabled")
-    spark.conf.set("spark.sql.ansi.enabled", "false")
-    try:
-        wrapped = DeepnoteDataFrameWithDataPreview(spark.range(3).pandas_api())
-    finally:
-        spark.conf.set("spark.sql.ansi.enabled", ansi_mode)
+    wrapped = DeepnoteDataFrameWithDataPreview(
+        spark_without_ansi_mode.range(3).pandas_api()
+    )
 
     _run(shell, wrapped)
 
