@@ -21,7 +21,8 @@ import pyarrow as pa
 import pytest
 
 import deepnote_toolkit
-from deepnote_toolkit import artifacts, dataframe_storage, dataframe_storage_manifest
+from deepnote_toolkit import artifacts
+from deepnote_toolkit.artifacts import dataframe_storage, dataframe_storage_manifest
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
 from tests.unit.helpers.dataframe_storage import (
     ALWAYS_FAILING,

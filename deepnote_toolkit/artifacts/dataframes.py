@@ -9,7 +9,7 @@ import errno
 import shutil
 from typing import Any, Optional
 
-from deepnote_toolkit import dataframe_storage
+from . import dataframe_storage
 
 
 def _check_name(name: object) -> None:

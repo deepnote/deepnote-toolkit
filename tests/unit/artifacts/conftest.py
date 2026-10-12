@@ -9,7 +9,7 @@ from typing import Any, Dict, Iterator, List, Optional
 
 import pytest
 
-from deepnote_toolkit import dataframe_storage
+from deepnote_toolkit.artifacts import dataframe_storage
 
 
 @pytest.fixture

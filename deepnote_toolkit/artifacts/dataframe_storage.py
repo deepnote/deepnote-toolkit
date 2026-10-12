@@ -13,17 +13,18 @@ from packaging.version import Version
 
 from deepnote_toolkit import env
 from deepnote_toolkit.config import get_config
-from deepnote_toolkit.dataframe_storage_manifest import (
-    Manifest,
-    is_frame_name,
-    read_manifest,
-    write_manifest,
-)
 from deepnote_toolkit.ocelots.utils import (
     is_pandas_dataframe,
     is_polars_eager_dataframe,
 )
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
+
+from .dataframe_storage_manifest import (
+    Manifest,
+    is_frame_name,
+    read_manifest,
+    write_manifest,
+)
 
 FRAMES_DIR = Path("deepnote_dataframes")
 STALE_FRAME_AGE_SECONDS = 24 * 60 * 60

@@ -11,7 +11,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from deepnote_toolkit import dataframe_storage
+from deepnote_toolkit.artifacts import dataframe_storage
 
 
 def probe_failure(frame: Any) -> Optional[type]:
