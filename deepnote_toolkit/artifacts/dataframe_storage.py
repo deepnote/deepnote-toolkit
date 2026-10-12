@@ -11,8 +11,7 @@ from typing import Any, Callable, Iterator, Literal, Optional
 
 from packaging.version import Version
 
-from deepnote_toolkit import env
-from deepnote_toolkit.config import get_config
+from deepnote_toolkit.config import resolve_notebook_root
 from deepnote_toolkit.ocelots.utils import (
     is_pandas_dataframe,
     is_polars_eager_dataframe,
@@ -65,24 +64,12 @@ def classify_frame(value: object) -> Optional[FrameKind]:
 
 
 def resolve_project_root() -> Path:
-    """Return the project's root directory, mirroring set_notebook_path().
+    """Return the project's root directory, the one set_notebook_path() uses.
 
     The working directory cannot be used: set_notebook_path() moves it into the
     notebook's directory.
     """
-    try:
-        cfg = get_config()
-        if cfg.paths.notebook_root:
-            return Path(cfg.paths.notebook_root)
-        if cfg.paths.home_dir:
-            return Path(cfg.paths.home_dir)
-        if cfg.runtime.dev_mode:
-            return Path("/work")
-        return Path(os.environ.get("HOME", str(Path.home()))) / "work"
-    except Exception:  # pylint: disable=broad-exception-caught
-        if env.get_env("DEEPNOTE_RUNNING_IN_DEV_MODE"):
-            return Path("/work")
-        return Path(os.environ.get("HOME", str(Path.home()))) / "work"
+    return resolve_notebook_root()
 
 
 @contextlib.contextmanager
@@ -105,12 +92,18 @@ def _sigint_handled_by(handler: Callable[..., Any]) -> Iterator[None]:
 
 @contextlib.contextmanager
 def _sigint_deferred() -> Iterator[None]:
-    """Hold SIGINT back until the block ends, then raise it as KeyboardInterrupt."""
+    """Hold SIGINT back until the block ends, then raise it as KeyboardInterrupt.
+
+    It is raised even when the block fails, chained to that failure, so that an
+    error never swallows Stop.
+    """
     interrupted: list[bool] = []
-    with _sigint_handled_by(lambda *_: interrupted.append(True)):
-        yield
-    if interrupted:
-        raise KeyboardInterrupt
+    try:
+        with _sigint_handled_by(lambda *_: interrupted.append(True)):
+            yield
+    finally:
+        if interrupted:
+            raise KeyboardInterrupt
 
 
 def is_read_only(root: Path) -> bool:
@@ -123,12 +116,8 @@ def _select_compression() -> str:
     import pyarrow as pa
 
     for codec in ("zstd", "lz4"):
-        try:
-            if pa.Codec.is_available(codec):
-                return codec
-        except Exception:  # pylint: disable=broad-exception-caught
-            # pyarrow raises, rather than returning False, for names it does not know
-            continue
+        if pa.Codec.is_available(codec):
+            return codec
     return "uncompressed"
 
 
@@ -188,8 +177,7 @@ def store_frame(frame: Any, kind: FrameKind, name: str, root: Path) -> str:
     The order matters because S3 replaces the manifest in one step: the frame is
     complete before the manifest names it, and nothing is deleted before then.
     An interrupt stops everything but the manifest update, which finishes first:
-    one between truncating the manifest and writing it would upload an empty one,
-    and one after it would delete the frame it now names.
+    one after the manifest is renamed into place would delete the frame it now names.
     """
     directory = root / FRAMES_DIR / name
     directory.mkdir(parents=True, exist_ok=True)

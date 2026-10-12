@@ -6,7 +6,9 @@ import errno
 import json
 import os
 import re
+import shutil
 import signal
+import tempfile
 import threading
 import time
 from datetime import datetime, timezone
@@ -22,6 +24,7 @@ import pytest
 
 import deepnote_toolkit
 from deepnote_toolkit import artifacts
+from deepnote_toolkit import config as toolkit_config
 from deepnote_toolkit.artifacts import dataframe_storage, dataframe_storage_manifest
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
 from tests.unit.helpers.dataframe_storage import (
@@ -251,19 +254,13 @@ def test_pyspark_frame_raises_type_error(root: Path, spark: Any) -> None:
 
 
 def test_pandas_on_spark_frame_raises_type_error(
-    root: Path, spark: Any, monkeypatch: pytest.MonkeyPatch
+    root: Path, spark_without_ansi_mode: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # pyspark.pandas warns on import unless told that pyarrow may ignore time zones
     monkeypatch.setenv("PYARROW_IGNORE_TIMEZONE", "1")
     # pyspark 3.5, which Python < 3.13 gets, imports distutils, gone since Python 3.12
     pytest.importorskip("pyspark.pandas")
-    # pandas-on-Spark refuses to run under ANSI mode, which Spark 4 enables by default
-    ansi_mode = spark.conf.get("spark.sql.ansi.enabled")
-    spark.conf.set("spark.sql.ansi.enabled", "false")
-    try:
-        frame = spark.range(3).pandas_api()
-    finally:
-        spark.conf.set("spark.sql.ansi.enabled", ansi_mode)
+    frame = spark_without_ansi_mode.range(3).pandas_api()
 
     with pytest.raises(TypeError):
         artifacts.store_dataframe(frame, NAME)
@@ -516,14 +513,11 @@ def test_frames_are_compressed(root: Path, make_frame: Any) -> None:
 class _FakeCodec:
     """Stands in for pyarrow.Codec, whose extension type cannot be patched."""
 
-    def __init__(self, availability: Dict[str, Any]) -> None:
+    def __init__(self, availability: Dict[str, bool]) -> None:
         self._availability = availability
 
     def is_available(self, name: str) -> bool:
-        outcome = self._availability[name]
-        if isinstance(outcome, Exception):
-            raise outcome
-        return outcome
+        return self._availability[name]
 
 
 @pytest.mark.parametrize(
@@ -531,21 +525,11 @@ class _FakeCodec:
     [
         pytest.param({"zstd": True, "lz4": True}, "zstd", id="zstd"),
         pytest.param({"zstd": False, "lz4": True}, "lz4", id="zstd-missing"),
-        pytest.param(
-            {"zstd": ValueError("Unsupported codec"), "lz4": True},
-            "lz4",
-            id="zstd-unrecognised",
-        ),
         pytest.param({"zstd": False, "lz4": False}, "uncompressed", id="none"),
-        pytest.param(
-            {"zstd": False, "lz4": ValueError("Unsupported codec")},
-            "uncompressed",
-            id="none-unrecognised",
-        ),
     ],
 )
 def test_compression_falls_back_from_zstd_to_lz4_to_none(
-    monkeypatch: pytest.MonkeyPatch, availability: Dict[str, Any], expected: str
+    monkeypatch: pytest.MonkeyPatch, availability: Dict[str, bool], expected: str
 ) -> None:
     monkeypatch.setattr(pa, "Codec", _FakeCodec(availability))
 
@@ -745,6 +729,70 @@ def test_failure_before_the_manifest_step_deletes_nothing(
     assert _stored_table(root).to_pydict() == {"a": [2]}
 
 
+def _entries_beside_the_frames(root: Path) -> List[str]:
+    return sorted(
+        path.name for path in _frame_dir(root).iterdir() if path.suffix != ".arrow"
+    )
+
+
+def test_successful_write_leaves_only_the_manifest_beside_the_frames(
+    root: Path,
+) -> None:
+    artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+    artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
+
+    assert _entries_beside_the_frames(root) == ["manifest.json"]
+
+
+class _FailingManifestHandle:
+    """A temporary manifest that fails in write(), or in close() like s3fs's upload."""
+
+    def __init__(self, handle: Any, failing: str) -> None:
+        self._handle = handle
+        self._failing = failing
+
+    def write(self, data: str) -> int:
+        if self._failing == "write":
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return self._handle.write(data)
+
+    def __enter__(self) -> "_FailingManifestHandle":
+        return self
+
+    def __exit__(self, *exc_info: Any) -> None:
+        self._handle.close()
+        if self._failing == "close":
+            raise OSError(errno.EIO, "Input/output error")
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._handle, name)
+
+
+@pytest.mark.parametrize("failing", ["write", "close"])
+def test_failed_manifest_write_keeps_the_previous_frame(
+    root: Path, monkeypatch: pytest.MonkeyPatch, failing: str
+) -> None:
+    artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+    manifest_bytes = (_frame_dir(root) / "manifest.json").read_bytes()
+    real_temporary_file = tempfile.NamedTemporaryFile
+
+    def failing_temporary_file(*args: Any, **kwargs: Any) -> Any:
+        return _FailingManifestHandle(real_temporary_file(*args, **kwargs), failing)
+
+    monkeypatch.setattr(
+        dataframe_storage_manifest,
+        "tempfile",
+        SimpleNamespace(NamedTemporaryFile=failing_temporary_file),
+    )
+
+    with pytest.raises(OSError):
+        artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
+
+    assert (_frame_dir(root) / "manifest.json").read_bytes() == manifest_bytes
+    assert _stored_table(root).to_pydict() == {"a": [1]}
+    assert _entries_beside_the_frames(root) == ["manifest.json"]
+
+
 def test_failure_after_the_manifest_step_keeps_the_new_frame(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -848,7 +896,7 @@ def test_interrupt_during_the_write_raises_and_keeps_the_previous_frame(
 
 
 @pytest.mark.parametrize(
-    "point", ["manifest-truncated", "manifest-written", "old-frames-deleted"]
+    "point", ["manifest-being-written", "manifest-written", "old-frames-deleted"]
 )
 def test_interrupt_after_the_frame_is_written_leaves_a_usable_manifest(
     root: Path, monkeypatch: pytest.MonkeyPatch, point: str
@@ -863,6 +911,26 @@ def test_interrupt_after_the_frame_is_written_leaves_a_usable_manifest(
 
     # the manifest parses and names the new frame, which is there and complete
     assert _stored_table(root).to_pydict() == {"a": [3]}
+    assert signal.getsignal(signal.SIGINT) is handler_before
+
+
+@pytest.mark.parametrize("error", [errno.EIO, errno.EROFS], ids=["eio", "erofs"])
+def test_interrupt_during_a_failing_manifest_write_is_raised(
+    root: Path, monkeypatch: pytest.MonkeyPatch, error: int
+) -> None:
+    handler_before = signal.getsignal(signal.SIGINT)
+
+    def interrupt_then_fail(*args: Any) -> None:
+        signal.raise_signal(signal.SIGINT)
+        raise OSError(error, os.strerror(error))
+
+    monkeypatch.setattr(dataframe_storage, "write_manifest", interrupt_then_fail)
+
+    with pytest.raises(KeyboardInterrupt) as raised:
+        artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+
+    assert isinstance(raised.value.__context__, OSError)
+    assert _arrow_files(root) == []
     assert signal.getsignal(signal.SIGINT) is handler_before
 
 
@@ -904,7 +972,7 @@ class TestProjectRoot:
     def test_unreadable_config_falls_back_to_dev_mode_env(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(dataframe_storage, "get_config", _broken_config)
+        monkeypatch.setattr(toolkit_config, "get_config", _broken_config)
         monkeypatch.setenv("DEEPNOTE_RUNNING_IN_DEV_MODE", "true")
 
         assert dataframe_storage.resolve_project_root() == Path("/work")
@@ -912,7 +980,7 @@ class TestProjectRoot:
     def test_unreadable_config_falls_back_to_work_under_home(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(dataframe_storage, "get_config", _broken_config)
+        monkeypatch.setattr(toolkit_config, "get_config", _broken_config)
         monkeypatch.setenv("HOME", str(tmp_path))
 
         assert dataframe_storage.resolve_project_root() == tmp_path / "work"
@@ -1013,6 +1081,20 @@ def test_delete_on_a_read_only_mount_deletes_nothing(
     assert artifacts.delete_dataframe(NAME) is False
 
     assert len(_arrow_files(root)) == 1
+
+
+def test_delete_returns_false_when_the_filesystem_refuses_with_erofs(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """store_dataframe() returns None for the same error."""
+    artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+
+    def refuse(path: Any) -> None:
+        raise OSError(errno.EROFS, "Read-only file system")
+
+    monkeypatch.setattr(shutil, "rmtree", refuse)
+
+    assert artifacts.delete_dataframe(NAME) is False
 
 
 def test_functions_are_exported_from_the_package() -> None:

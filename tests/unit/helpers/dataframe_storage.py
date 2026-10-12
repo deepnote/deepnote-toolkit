@@ -2,8 +2,9 @@
 
 import io
 import signal
+import tempfile
 import uuid
-from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Optional
 
 import numpy as np
@@ -11,7 +12,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-from deepnote_toolkit.artifacts import dataframe_storage
+from deepnote_toolkit.artifacts import dataframe_storage, dataframe_storage_manifest
 
 
 def probe_failure(frame: Any) -> Optional[type]:
@@ -49,7 +50,7 @@ VERSION_DEPENDENT = [
 
 
 class SigintBeforeWrite:
-    """A handle that gets SIGINT after the file was truncated, before it is written."""
+    """A handle that gets SIGINT after the file was opened, before it is written."""
 
     def __init__(self, handle: Any) -> None:
         self._handle = handle
@@ -70,18 +71,17 @@ class SigintBeforeWrite:
 
 def interrupt_at(point: str, monkeypatch: pytest.MonkeyPatch) -> None:
     """Make the next write receive SIGINT at the named point after its frame file."""
-    if point == "manifest-truncated":
-        real_open = Path.open
+    if point == "manifest-being-written":
+        real_temporary_file = tempfile.NamedTemporaryFile
 
-        def open_manifest(
-            self: Path, mode: str = "r", *args: Any, **kwargs: Any
-        ) -> Any:
-            handle = real_open(self, mode, *args, **kwargs)
-            if self.name == "manifest.json" and "w" in mode:
-                return SigintBeforeWrite(handle)
-            return handle
+        def temporary_file_getting_sigint(*args: Any, **kwargs: Any) -> Any:
+            return SigintBeforeWrite(real_temporary_file(*args, **kwargs))
 
-        monkeypatch.setattr(Path, "open", open_manifest)
+        monkeypatch.setattr(
+            dataframe_storage_manifest,
+            "tempfile",
+            SimpleNamespace(NamedTemporaryFile=temporary_file_getting_sigint),
+        )
     elif point == "manifest-written":
         write_manifest = dataframe_storage.write_manifest
 

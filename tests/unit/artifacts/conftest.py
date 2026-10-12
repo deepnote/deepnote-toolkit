@@ -47,6 +47,15 @@ def spark() -> Any:
 
 
 @pytest.fixture
+def spark_without_ansi_mode(spark: Any) -> Iterator[Any]:
+    """pandas-on-Spark refuses to run under ANSI mode, which Spark 4 enables."""
+    ansi_mode = spark.conf.get("spark.sql.ansi.enabled")
+    spark.conf.set("spark.sql.ansi.enabled", "false")
+    yield spark
+    spark.conf.set("spark.sql.ansi.enabled", ansi_mode)
+
+
+@pytest.fixture
 def arrow_sinks(monkeypatch: pytest.MonkeyPatch) -> List[Any]:
     """Every file object opened for writing a frame, in order."""
     sinks: List[Any] = []

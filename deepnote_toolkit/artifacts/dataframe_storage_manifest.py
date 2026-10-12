@@ -1,7 +1,10 @@
 """Reads and writes the manifest that names a stored DataFrame's current file."""
 
+import contextlib
 import json
+import os
 import re
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
@@ -64,11 +67,33 @@ def read_manifest(directory: Path) -> Optional[Manifest]:
 def write_manifest(
     directory: Path, new_file: str, previous: Optional[str], rows: int
 ) -> None:
-    """Point the manifest at `new_file`."""
+    """Point the manifest at `new_file`.
+
+    The manifest is written under a temporary name and renamed over the old one, so
+    a write that fails part-way leaves the old manifest in place.
+    """
     manifest: dict[str, Any] = {"version": MANIFEST_VERSION, "file": new_file}
     if previous is not None:
         manifest["previous"] = previous
     manifest["written_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     manifest["rows"] = rows
     manifest["toolkit_version"] = __version__
-    (directory / MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
+    # delete=False: s3fs uploads at close(), so the file must be closed before the
+    # rename, and deleting it only when the context ends needs Python 3.12's
+    # delete_on_close=False.
+    temporary = tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=directory,
+        prefix=f".{MANIFEST_NAME}.",
+        suffix=".tmp",
+        delete=False,
+    )
+    try:
+        with temporary:
+            temporary.write(json.dumps(manifest))
+        os.replace(temporary.name, directory / MANIFEST_NAME)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(temporary.name)
+        raise

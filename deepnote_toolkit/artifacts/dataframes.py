@@ -38,7 +38,9 @@ def store_dataframe(df: Any, name: str) -> Optional[str]:
         OSError: The write failed.
         Exception: `df` cannot be serialized to Arrow, as with `df.to_feather()`.
 
-    A failed call leaves the name's previous frame current.
+    A failed call leaves the name's previous frame current, unless it fails after
+    the manifest names the new frame: an interrupt held during the manifest update
+    is raised then, and so is a failure while deleting the frames it replaced.
     """
     _check_name(name)
     kind = dataframe_storage.classify_frame(df)
@@ -68,6 +70,8 @@ def delete_dataframe(name: str) -> bool:
 
     Raises:
         ValueError: `name` is not valid.
+        OSError: The delete failed, possibly part-way, leaving some of the name's
+            files. A symbolic link in place of the name's directory raises too.
     """
     _check_name(name)
     root = dataframe_storage.resolve_project_root()
@@ -77,5 +81,10 @@ def delete_dataframe(name: str) -> bool:
     directory = root / dataframe_storage.FRAMES_DIR / name
     if not directory.is_dir():
         return False
-    shutil.rmtree(directory)
+    try:
+        shutil.rmtree(directory)
+    except OSError as exc:
+        if exc.errno == errno.EROFS:
+            return False
+        raise
     return True

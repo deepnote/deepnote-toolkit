@@ -15,6 +15,8 @@ from typing import Optional, Union
 from deepnote_core.config.loader import ConfigurationLoader
 from deepnote_core.config.models import DeepnoteConfig
 
+from . import env
+
 
 @lru_cache(maxsize=128)
 def _load_config_cached(config_path: Optional[Path]) -> DeepnoteConfig:
@@ -63,3 +65,23 @@ def get_config(
 
     # Call the cached function
     return _load_config_cached(cfg_path)
+
+
+def resolve_notebook_root() -> Path:
+    """Return the project's root directory, which notebook paths are relative to.
+
+    Falls back to environment variables when the configuration cannot be loaded.
+    """
+    try:
+        cfg = get_config()
+        if cfg.paths.notebook_root:
+            return Path(cfg.paths.notebook_root)
+        if cfg.paths.home_dir:
+            return Path(cfg.paths.home_dir)
+        if cfg.runtime.dev_mode:
+            return Path("/work")
+        return Path(os.environ.get("HOME", str(Path.home()))) / "work"
+    except Exception:  # pylint: disable=broad-exception-caught
+        if env.get_env("DEEPNOTE_RUNNING_IN_DEV_MODE"):
+            return Path("/work")
+        return Path(os.environ.get("HOME", str(Path.home()))) / "work"

@@ -6,6 +6,7 @@ import types
 from pathlib import Path
 from unittest import mock
 
+from deepnote_toolkit import config as toolkit_config
 from deepnote_toolkit import env as dnenv
 from deepnote_toolkit.set_notebook_path import set_notebook_path
 
@@ -58,9 +59,12 @@ def test_set_notebook_path_updates_chdir_and_env(tmp_path, monkeypatch):
     monkeypatch.setattr(mod.requests, "get", recorder)
     notebook_root = tmp_path / "root"
     notebook_root.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(
-        mod, "get_config", lambda: _cfg(notebook_root=str(notebook_root))
-    )
+
+    def fake_config():
+        return _cfg(notebook_root=str(notebook_root))
+
+    monkeypatch.setattr(mod, "get_config", fake_config)
+    monkeypatch.setattr(toolkit_config, "get_config", fake_config)
 
     # Capture chdir target
     changedir = {"path": None}
