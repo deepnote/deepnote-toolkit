@@ -766,11 +766,16 @@ def test_failed_manifest_read_deletes_the_new_frame(
 ) -> None:
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
     frames = _arrow_files(root)
+    real_open = Path.open
 
-    def broken_read(*args: Any) -> Any:
-        raise OSError(errno.EIO, "Input/output error")
+    def open_failing_for_the_manifest(
+        self: Path, mode: str = "r", *args: Any, **kwargs: Any
+    ) -> Any:
+        if self.name == "manifest.json":
+            raise OSError(errno.EIO, "Input/output error")
+        return real_open(self, mode, *args, **kwargs)
 
-    monkeypatch.setattr(dataframe_storage, "read_manifest", broken_read)
+    monkeypatch.setattr(Path, "open", open_failing_for_the_manifest)
 
     with pytest.raises(OSError):
         artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
@@ -892,16 +897,23 @@ def test_failure_after_the_manifest_step_keeps_the_new_frame(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+    artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
+    replaced = _frame_dir(root) / _manifest(root)["previous"]
+    real_unlink = Path.unlink
 
-    def broken_cleanup(*args: Any) -> Any:
-        raise OSError(errno.EIO, "Input/output error")
+    def unlink_failing_for_the_replaced_frame(
+        self: Path, *args: Any, **kwargs: Any
+    ) -> None:
+        if self == replaced:
+            raise OSError(errno.EIO, "Input/output error")
+        real_unlink(self, *args, **kwargs)
 
-    monkeypatch.setattr(dataframe_storage, "_delete_replaced_frames", broken_cleanup)
+    monkeypatch.setattr(Path, "unlink", unlink_failing_for_the_replaced_frame)
 
     with pytest.raises(OSError):
-        artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
+        artifacts.store_dataframe(pd.DataFrame({"a": [3]}), NAME)
 
-    assert _stored_table(root).to_pydict() == {"a": [2]}
+    assert _stored_table(root).to_pydict() == {"a": [3]}
 
 
 def test_stray_pruned_by_another_writer_meanwhile_is_not_a_failure(
