@@ -1,0 +1,293 @@
+"""Tests for the manifest of a stored DataFrame and the cleanup of old frames."""
+
+import contextlib
+import json
+import os
+import threading
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, Dict, Iterator, List
+
+import pandas as pd
+import pyarrow as pa
+import pytest
+
+from deepnote_toolkit import artifacts
+from deepnote_toolkit.artifacts import dataframe_storage, dataframe_storage_manifest
+from tests.unit.helpers.dataframe_storage import (
+    DAY,
+    FRAME_A,
+    FRAME_B,
+    NAME,
+    arrow_files,
+    backdate,
+    entries_beside_the_frames,
+    frame_dir,
+    stored_manifest,
+    stored_table,
+)
+
+
+def test_second_write_keeps_one_previous_frame(root: Path) -> None:
+    artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+    first = stored_manifest(root)
+    artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
+    second = stored_manifest(root)
+    artifacts.store_dataframe(pd.DataFrame({"a": [3]}), NAME)
+    third = stored_manifest(root)
+
+    assert "previous" not in first
+    assert second["previous"] == first["file"]
+    assert third["previous"] == second["file"]
+    assert [path.name for path in arrow_files(root)] == sorted(
+        [second["file"], third["file"]]
+    )
+    assert stored_table(root).to_pydict() == {"a": [3]}
+    previous = pa.ipc.open_file(frame_dir(root) / third["previous"])
+    assert previous.read_all().to_pydict() == {"a": [2]}
+
+
+def test_unreferenced_frames_are_deleted_only_when_stale(root: Path) -> None:
+    artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+    directory = frame_dir(root)
+    replaced = directory / stored_manifest(root)["file"]
+    backdate(replaced, 2 * DAY)
+
+    def add(name: str, age_seconds: float) -> Path:
+        path = directory / name
+        path.write_bytes(b"unreferenced")
+        backdate(path, age_seconds)
+        return path
+
+    stale = add(FRAME_A, 2 * DAY)
+    almost_stale = add(FRAME_B, DAY - 3600)
+    fresh = add("99999999-8888-4777-8666-555555555555.arrow", 0)
+    not_a_frame = [
+        add("notes.arrow", 2 * DAY),
+        add("x.txt", 2 * DAY),
+        add(f"backup-{FRAME_A}", 2 * DAY),
+        add(f"{FRAME_A}.bak", 2 * DAY),
+    ]
+    outside = root / "outside.arrow"
+    outside.write_bytes(b"precious")
+    link = directory / "77777777-6666-4555-8444-333333333333.arrow"
+    link.symlink_to(outside)
+    backdate(link, 2 * DAY)
+
+    artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
+
+    assert not stale.exists()
+    assert almost_stale.exists()
+    assert fresh.exists()
+    assert all(path.exists() for path in not_a_frame)
+    assert link.is_symlink()
+    assert outside.read_bytes() == b"precious"
+    assert replaced.exists()
+
+
+def _manifest_bytes(**fields: Any) -> bytes:
+    return json.dumps({"version": 1, **fields}).encode()
+
+
+@pytest.mark.parametrize(
+    "manifest_bytes",
+    [
+        pytest.param(b"{not json", id="invalid-json"),
+        pytest.param(b"\x80\x81\x82", id="not-utf8"),
+        pytest.param(b"[]", id="not-an-object"),
+        pytest.param(_manifest_bytes(), id="no-file"),
+        pytest.param(_manifest_bytes(file="../../data/x.csv"), id="file-traversal"),
+        pytest.param(_manifest_bytes(file=7, previous=FRAME_B), id="file-not-a-string"),
+        pytest.param(
+            _manifest_bytes(file=FRAME_A, previous="../../data/x.csv"),
+            id="previous-traversal",
+        ),
+        pytest.param(_manifest_bytes(file=f"x{FRAME_A}"), id="file-prefixed"),
+        pytest.param(_manifest_bytes(file=f"{FRAME_A}.bak"), id="file-suffixed"),
+        pytest.param(
+            _manifest_bytes(file=f"{FRAME_A}/../../data/x.csv"),
+            id="file-valid-name-then-traversal",
+        ),
+        pytest.param(_manifest_bytes(file=f"../{FRAME_A}"), id="file-in-parent"),
+        pytest.param(
+            _manifest_bytes(file=FRAME_A, previous=f"x{FRAME_B}"),
+            id="previous-prefixed",
+        ),
+        pytest.param(
+            _manifest_bytes(file=FRAME_A, previous=f"{FRAME_B}.bak"),
+            id="previous-suffixed",
+        ),
+        pytest.param(
+            _manifest_bytes(file=FRAME_A, previous=f"{FRAME_B}/../../data/x.csv"),
+            id="previous-valid-name-then-traversal",
+        ),
+        pytest.param(
+            _manifest_bytes(file=FRAME_A, previous=f"../{FRAME_B}"),
+            id="previous-in-parent",
+        ),
+        pytest.param(
+            _manifest_bytes(file=FRAME_A, previous=FRAME_B, pad="x" * 5000),
+            id="oversized-truncated-mid-string",
+        ),
+        pytest.param(
+            _manifest_bytes(file=FRAME_A, previous=FRAME_B) + b" " * 5000,
+            id="oversized-valid-json-then-spaces",
+        ),
+    ],
+)
+def test_unusable_manifest_counts_as_no_manifest(
+    root: Path, manifest_bytes: bytes
+) -> None:
+    directory = frame_dir(root)
+    directory.mkdir(parents=True)
+    (directory / "manifest.json").write_bytes(manifest_bytes)
+    named = [directory / FRAME_A, directory / FRAME_B]
+    for path in named:
+        path.write_bytes(b"named by the hostile manifest")
+    sentinel = (directory / "../../data/x.csv").resolve()
+    sentinel.parent.mkdir(parents=True)
+    sentinel.write_text("keep")
+
+    artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+
+    manifest = stored_manifest(root)
+    assert "previous" not in manifest
+    assert manifest["file"] not in (FRAME_A, FRAME_B)
+    assert stored_table(root).to_pydict() == {"a": [1]}
+    assert sentinel.read_text() == "keep"
+    assert all(path.exists() for path in named)
+
+
+def test_manifest_of_exactly_4096_bytes_is_honoured(root: Path) -> None:
+    directory = frame_dir(root)
+    directory.mkdir(parents=True)
+    raw = _manifest_bytes(file=FRAME_A, previous=FRAME_B).ljust(4096)
+    assert len(raw) == 4096
+    (directory / "manifest.json").write_bytes(raw)
+    for name in (FRAME_A, FRAME_B):
+        (directory / name).write_bytes(b"named by the manifest")
+
+    artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+
+    assert stored_manifest(root)["previous"] == FRAME_A
+    assert (directory / FRAME_A).exists()
+    assert not (directory / FRAME_B).exists()
+
+
+def test_manifest_nested_too_deeply_to_parse_counts_as_no_manifest(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Before 3.12, json raises RecursionError on the nesting 4 KiB allows."""
+    artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+
+    def too_deep(raw: bytes) -> Any:
+        raise RecursionError(
+            "maximum recursion depth exceeded while decoding a JSON array"
+        )
+
+    monkeypatch.setattr(
+        dataframe_storage_manifest,
+        "json",
+        SimpleNamespace(loads=too_deep, dumps=json.dumps),
+    )
+
+    artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
+
+    assert "previous" not in stored_manifest(root)
+    assert stored_table(root).to_pydict() == {"a": [2]}
+
+
+def test_manifest_is_written_after_the_frame_file_is_complete(
+    root: Path, arrow_sinks: List[Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: List[Dict[str, Any]] = []
+    original = dataframe_storage.write_manifest
+
+    def spy(directory: Path, new_file: str, *args: Any) -> None:
+        table = pa.ipc.open_file(directory / new_file).read_all()
+        seen.append({"closed": arrow_sinks[0].closed, "rows": table.num_rows})
+        original(directory, new_file, *args)
+
+    monkeypatch.setattr(dataframe_storage, "write_manifest", spy)
+
+    artifacts.store_dataframe(pd.DataFrame({"a": [1, 2, 3]}), NAME)
+
+    assert seen == [{"closed": True, "rows": 3}]
+
+
+def test_concurrent_writers_leave_a_complete_current_frame(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    barrier = threading.Barrier(2, timeout=10)
+    original = dataframe_storage.read_manifest
+
+    def read_then_wait(directory: Path) -> Any:
+        manifest = original(directory)
+        barrier.wait()
+        return manifest
+
+    errors: List[BaseException] = []
+
+    def write(value: int) -> None:
+        try:
+            artifacts.store_dataframe(pd.DataFrame({"a": [value]}), NAME)
+        except BaseException as exc:
+            errors.append(exc)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(dataframe_storage, "read_manifest", read_then_wait)
+        threads = [threading.Thread(target=write, args=(value,)) for value in (1, 2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+
+    assert errors == []
+    files = arrow_files(root)
+    assert len(files) == 2
+    current = stored_manifest(root)["file"]
+    stray = next(path for path in files if path.name != current)
+    for path in files:
+        assert pa.ipc.open_file(path).read_all().num_rows == 1
+
+    backdate(stray, 2 * DAY)
+    artifacts.store_dataframe(pd.DataFrame({"a": [3]}), NAME)
+
+    assert not stray.exists()
+    assert (frame_dir(root) / current).exists()
+    assert stored_table(root).to_pydict() == {"a": [3]}
+
+
+def test_successful_write_leaves_only_the_manifest_beside_the_frames(
+    root: Path,
+) -> None:
+    artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+    artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
+
+    assert entries_beside_the_frames(root) == ["manifest.json"]
+
+
+def test_stray_pruned_by_another_writer_meanwhile_is_not_a_failure(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+    directory = frame_dir(root)
+    strays = [directory / FRAME_A, directory / FRAME_B]
+    for stray in strays:
+        stray.write_bytes(b"unreferenced")
+        backdate(stray, 2 * DAY)
+    real_scandir = os.scandir
+
+    @contextlib.contextmanager
+    def scandir_then_lose_a_stray(path: Any) -> Iterator[Any]:
+        with real_scandir(path) as entries:
+            listing = list(entries)
+        strays[0].unlink()
+        yield iter(listing)
+
+    monkeypatch.setattr(dataframe_storage.os, "scandir", scandir_then_lose_a_stray)
+
+    artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
+
+    assert not strays[1].exists()
+    assert stored_table(root).to_pydict() == {"a": [2]}
