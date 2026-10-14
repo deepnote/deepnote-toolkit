@@ -70,6 +70,7 @@ def find_widget_asset(kind: str, path: str) -> Optional[Path]:
 
 
 def _find_labextension_file(segments: List[str]) -> Optional[Path]:
+    """Find a file in the first installed copy of a JupyterLab extension."""
     module_length = 2 if segments[0].startswith("@") else 1
     module, file_segments = segments[:module_length], segments[module_length:]
     if not file_segments:
@@ -85,6 +86,7 @@ def _find_labextension_file(segments: List[str]) -> Optional[Path]:
 
 
 def _find_package_dir(name: str) -> Optional[Path]:
+    """Return the folder of an installed package without importing it."""
     try:
         spec = importlib.util.find_spec(name)
     except (ImportError, ValueError):
@@ -95,6 +97,7 @@ def _find_package_dir(name: str) -> Optional[Path]:
 
 
 def _resolve_inside(root: Path, segments: List[str]) -> Optional[Path]:
+    """Return the real path of a servable file inside ``root``, or None."""
     try:
         real_root = root.resolve(strict=True)
         candidate = real_root.joinpath(*segments).resolve(strict=True)

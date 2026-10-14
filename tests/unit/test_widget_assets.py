@@ -47,6 +47,7 @@ class TestLabextensions:
     """Finding files in JupyterLab extensions."""
 
     def test_finds_file_in_extension(self, data_dir: Path) -> None:
+        """A file in an installed extension is found."""
         module_dir = make_labextension(
             data_dir, "fake-matplotlib", {"static/remoteEntry.x.js": "entry"}
         )
@@ -58,6 +59,7 @@ class TestLabextensions:
         assert asset == (module_dir / "static" / "remoteEntry.x.js").resolve()
 
     def test_finds_file_in_scoped_extension(self, data_dir: Path) -> None:
+        """A scoped extension like ``@scope/name`` is found."""
         module_dir = make_labextension(data_dir, "@fake-scope/fake_bokeh", {})
 
         asset = find_widget_asset(
@@ -69,6 +71,7 @@ class TestLabextensions:
     def test_first_data_dir_with_extension_wins(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Only the first data folder that has the extension is used."""
         first, second = tmp_path / "a", tmp_path / "b"
         first_dir = make_labextension(first, "fake-widgets", {"x.js": "a"})
         make_labextension(second, "fake-widgets", {"x.js": "b", "only-b.js": "b"})
@@ -83,6 +86,7 @@ class TestLabextensions:
     def test_skips_extension_folder_without_package_json(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """A folder without package.json isn't treated as an extension."""
         first, second = tmp_path / "a", tmp_path / "b"
         (first / "labextensions" / "fake-widgets").mkdir(parents=True)
         (first / "labextensions" / "fake-widgets" / "x.js").write_text("a")
@@ -96,6 +100,7 @@ class TestLabextensions:
     def test_finds_extension_under_base_prefix(
         self, data_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Extensions under ``sys.base_prefix`` are found."""
         base_prefix = tmp_path / "base"
         module_dir = make_labextension(
             base_prefix / "share" / "jupyter", "fake-base-widgets", {"x.js": "x"}
@@ -109,6 +114,7 @@ class TestLabextensions:
     def test_serves_symlinked_extension_folder(
         self, data_dir: Path, tmp_path: Path
     ) -> None:
+        """A symlinked extension folder is followed."""
         target = make_labextension(tmp_path / "elsewhere", "fake-widgets", {"x.js": ""})
         (data_dir / "labextensions").mkdir()
         (data_dir / "labextensions" / "fake-widgets").symlink_to(target)
@@ -120,6 +126,7 @@ class TestLabextensions:
     def test_rejects_symlink_to_file_outside_extension(
         self, data_dir: Path, tmp_path: Path
     ) -> None:
+        """A symlink pointing outside the extension is refused."""
         module_dir = make_labextension(data_dir, "fake-widgets", {})
         secret = tmp_path / "secret.js"
         secret.write_text("secret")
@@ -152,6 +159,7 @@ class TestLabextensions:
         ],
     )
     def test_rejects_invalid_or_missing_file(self, data_dir: Path, path: str) -> None:
+        """Invalid paths, other file types and missing files return None."""
         names = [".hidden.js", "a~b.js", "a\\b.js", "a%2eb.js", "static/y.js", "x.js"]
         names += ["x.py", "x.txt", "x.svg", "x.mjs", "x.js.map"]
         make_labextension(data_dir, "fake-widgets", {name: "" for name in names})
@@ -160,6 +168,7 @@ class TestLabextensions:
         assert find_widget_asset("labextensions", path) is None
 
     def test_rejects_unknown_kind(self, data_dir: Path) -> None:
+        """Kinds other than labextensions, bokeh and panel return None."""
         make_labextension(data_dir, "fake-widgets", {"x.js": ""})
 
         assert find_widget_asset("nbextensions", "fake-widgets/x.js") is None
@@ -185,6 +194,7 @@ class TestPackageAssets:
     """Finding static files of the bokeh and panel packages."""
 
     def test_finds_bokeh_files_without_importing_it(self, site_dir: Path) -> None:
+        """Bokeh's static files are found without importing bokeh."""
         static = site_dir / "bokeh" / "server" / "static" / "js"
 
         assert (
@@ -198,12 +208,14 @@ class TestPackageAssets:
         assert "bokeh" not in sys.modules
 
     def test_finds_panel_files_without_importing_it(self, site_dir: Path) -> None:
+        """Panel's dist files are found without importing panel."""
         asset = find_widget_asset("panel", "panel.min.js")
 
         assert asset == (site_dir / "panel" / "dist" / "panel.min.js").resolve()
         assert "panel" not in sys.modules
 
     def test_rejects_symlink_out_of_static_folder(self, site_dir: Path) -> None:
+        """A symlink out of the static folder is refused."""
         package = site_dir / "bokeh"
         (package / "config.js").write_text("not a static file")
         (package / "server" / "static" / "js" / "config.js").symlink_to(
@@ -216,6 +228,7 @@ class TestPackageAssets:
     def test_returns_none_when_package_is_missing(
         self, kind: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """A package that isn't installed returns None."""
         monkeypatch.delitem(sys.modules, kind, raising=False)
         monkeypatch.setattr(sys, "path", [str(tmp_path)])
 
@@ -224,6 +237,7 @@ class TestPackageAssets:
     def test_returns_none_when_module_has_no_spec(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """A loaded module without a spec returns None."""
         module = ModuleType("bokeh")
         module.__spec__ = None
         monkeypatch.setitem(sys.modules, "bokeh", module)
@@ -236,9 +250,11 @@ class TestWidgetAssetHandler(AsyncHTTPTestCase):
 
     @pytest.fixture(autouse=True)
     def _labextension(self, data_dir: Path) -> None:
+        """Install a fake extension for every test."""
         make_labextension(data_dir, "fake-widgets", {"x.js": "console.log(1)"})
 
     def get_app(self) -> tornado.web.Application:
+        """Build an app with the route and token auth."""
         app = tornado.web.Application(
             identity_provider=IdentityProvider(token="secret"),
             cookie_secret=b"test",
@@ -249,22 +265,26 @@ class TestWidgetAssetHandler(AsyncHTTPTestCase):
         return app
 
     def fetch_asset(self, path: str, token: str = "") -> HTTPResponse:
+        """Request an asset, with a Bearer token if one is given."""
         headers = {"Authorization": f"Bearer {token}"} if token else {}
         return self.fetch(
             f"/deepnote/widget-assets/{path}", headers=headers, follow_redirects=False
         )
 
     def test_rejects_request_without_token(self) -> None:
+        """No token gets 403, not a redirect to login."""
         response = self.fetch_asset("labextensions/fake-widgets/x.js")
 
         assert response.code == 403
 
     def test_rejects_wrong_token(self) -> None:
+        """A wrong token gets 403."""
         response = self.fetch_asset("labextensions/fake-widgets/x.js", token="wrong")
 
         assert response.code == 403
 
     def test_serves_file_with_token(self) -> None:
+        """The right token gets the file with its content type."""
         response = self.fetch_asset("labextensions/fake-widgets/x.js", token="secret")
 
         assert response.code == 200
@@ -272,6 +292,7 @@ class TestWidgetAssetHandler(AsyncHTTPTestCase):
         assert response.headers["Content-Type"] == "text/javascript; charset=utf-8"
 
     def test_returns_404_for_encoded_parent_segments(self) -> None:
+        """Encoded ``..`` segments get 404."""
         response = self.fetch_asset(
             "labextensions/fake-widgets/%2e%2e/fake-widgets/x.js", token="secret"
         )
@@ -280,6 +301,7 @@ class TestWidgetAssetHandler(AsyncHTTPTestCase):
 
 
 def test_jupyter_config_enables_extension() -> None:
+    """The Jupyter config turns the extension on."""
     config_dir = Path(__file__).parents[2] / "deepnote_core" / "resources" / "jupyter"
     loader = PyFileConfigLoader("jupyter_server_config.py", path=str(config_dir))
 
