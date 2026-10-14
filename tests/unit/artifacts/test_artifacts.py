@@ -64,11 +64,29 @@ def _backdate(path: Path, age_seconds: float) -> None:
 
 
 def _read_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        dataframe_storage.os,
-        "statvfs",
-        lambda path: SimpleNamespace(f_flag=os.ST_RDONLY),
-    )
+    """Fail Path.open writes, mkdir and deletes with EROFS, like a read-only mount."""
+
+    def refuse(*args: Any, **kwargs: Any) -> Any:
+        raise OSError(errno.EROFS, "Read-only file system")
+
+    real_open = Path.open
+
+    def open_for_reading(self: Path, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        if mode.strip("rbt"):
+            refuse()
+        return real_open(self, mode, *args, **kwargs)
+
+    # The kernel reports EEXIST before EROFS, so an existing directory passes.
+    def mkdir(
+        self: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False
+    ) -> None:
+        if not (exist_ok and self.is_dir()):
+            refuse()
+
+    monkeypatch.setattr(Path, "open", open_for_reading)
+    monkeypatch.setattr(Path, "mkdir", mkdir)
+    monkeypatch.setattr(os, "unlink", refuse)
+    monkeypatch.setattr(os, "rmdir", refuse)
 
 
 def test_stores_pandas_frame_and_manifest(root: Path) -> None:
@@ -893,8 +911,9 @@ def test_rename_failing_after_the_copy_keeps_the_frame_it_put_in_place(
     assert _stored_table(root).to_pydict() == {"a": [2]}
 
 
+@pytest.mark.parametrize("error", [errno.EIO, errno.EROFS], ids=["EIO", "EROFS"])
 def test_failure_after_the_manifest_step_keeps_the_new_frame(
-    root: Path, monkeypatch: pytest.MonkeyPatch
+    root: Path, monkeypatch: pytest.MonkeyPatch, error: int
 ) -> None:
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
     artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
@@ -905,7 +924,7 @@ def test_failure_after_the_manifest_step_keeps_the_new_frame(
         self: Path, *args: Any, **kwargs: Any
     ) -> None:
         if self == replaced:
-            raise OSError(errno.EIO, "Input/output error")
+            raise OSError(error, os.strerror(error))
         real_unlink(self, *args, **kwargs)
 
     monkeypatch.setattr(Path, "unlink", unlink_failing_for_the_replaced_frame)
@@ -953,6 +972,33 @@ def test_read_only_mount_stores_nothing_and_does_not_convert(
     assert result is None
     write.assert_not_called()
     assert list(root.iterdir()) == []
+
+
+def test_read_only_mount_keeps_the_stored_frame_and_does_not_convert(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+    manifest_bytes = (_frame_dir(root) / "manifest.json").read_bytes()
+    _read_only(monkeypatch)
+
+    with mock.patch.object(feather, "write_feather", autospec=True) as write:
+        result = artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
+
+    assert result is None
+    write.assert_not_called()
+    assert (_frame_dir(root) / "manifest.json").read_bytes() == manifest_bytes
+    assert _stored_table(root).to_pydict() == {"a": [1]}
+
+
+def test_store_creates_a_missing_project_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "work"
+    monkeypatch.setattr(dataframe_storage, "resolve_project_root", lambda: project)
+
+    reference_id = artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+
+    assert _manifest(project)["file"] == f"{reference_id}.arrow"
 
 
 def test_erofs_from_the_write_stores_nothing(
@@ -1078,6 +1124,16 @@ def test_delete_removes_the_frames_of_the_name_only(root: Path) -> None:
 def test_delete_returns_false_when_there_is_nothing_to_delete(root: Path) -> None:
     assert artifacts.delete_dataframe(NAME) is False
     assert list(root.iterdir()) == []
+
+
+def test_delete_returns_false_when_the_project_root_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "work"
+    monkeypatch.setattr(dataframe_storage, "resolve_project_root", lambda: project)
+
+    assert artifacts.delete_dataframe(NAME) is False
+    assert not project.exists()
 
 
 def test_delete_twice_returns_false_the_second_time(root: Path) -> None:

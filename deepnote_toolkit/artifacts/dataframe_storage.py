@@ -1,6 +1,7 @@
 """Writes named DataFrames into the project's filesystem as Arrow files."""
 
 import contextlib
+import errno
 import os
 import re
 import time
@@ -54,11 +55,6 @@ def classify_frame(value: object) -> Optional[FrameKind]:
 def resolve_project_root() -> Path:
     """Return the project's root directory, the one set_notebook_path() uses."""
     return resolve_notebook_root()
-
-
-def is_read_only(root: Path) -> bool:
-    """Return whether the project's filesystem is mounted read-only."""
-    return bool(os.statvfs(root).f_flag & os.ST_RDONLY)
 
 
 def _select_compression() -> str:
@@ -127,19 +123,24 @@ def _delete_replaced_frames(
                     (directory / entry.name).unlink()
 
 
-def store_frame(frame: Any, kind: FrameKind, name: str, root: Path) -> str:
-    """Store the frame as the current one under `name` and return its reference ID."""
-    directory = root / FRAMES_DIR / name
-    directory.mkdir(parents=True, exist_ok=True)
+def store_frame(frame: Any, kind: FrameKind, name: str, root: Path) -> Optional[str]:
+    """Store the frame as the current one under `name` and return its reference ID.
 
+    Returns None, having stored nothing, if the filesystem is read-only. EROFS from
+    the manifest step on raises like any other error: the new frame may be current.
+    """
+    directory = root / FRAMES_DIR / name
     reference_id = str(uuid.uuid4())
     new_file = f"{reference_id}.arrow"
     try:
+        directory.mkdir(parents=True, exist_ok=True)
         _write_frame_file(frame, kind, directory / new_file, _select_compression())
         old = read_manifest(directory)
-    except BaseException:
+    except BaseException as exc:
         with contextlib.suppress(OSError):
             (directory / new_file).unlink(missing_ok=True)
+        if isinstance(exc, OSError) and exc.errno == errno.EROFS:
+            return None
         raise
     # A failure from here on keeps the new frame: an s3fs rename can put the new
     # manifest in place and still fail.

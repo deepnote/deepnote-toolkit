@@ -48,14 +48,7 @@ def store_dataframe(df: Any, name: str) -> Optional[str]:
         )
 
     root = dataframe_storage.resolve_project_root()
-    if dataframe_storage.is_read_only(root):
-        return None
-    try:
-        return dataframe_storage.store_frame(df, kind, name, root)
-    except OSError as exc:
-        if exc.errno == errno.EROFS:
-            return None
-        raise
+    return dataframe_storage.store_frame(df, kind, name, root)
 
 
 def delete_dataframe(name: str) -> bool:
@@ -72,9 +65,6 @@ def delete_dataframe(name: str) -> bool:
     """
     _check_name(name)
     root = dataframe_storage.resolve_project_root()
-    if dataframe_storage.is_read_only(root):
-        return False
-
     directory = root / dataframe_storage.FRAMES_DIR / name
     if not directory.is_dir():
         return False
