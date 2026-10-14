@@ -603,6 +603,45 @@ def test_polars_batch_size_is_passed_to_polars_from_1_37(
     assert _stored_table(root).to_pydict() == {"a": [1, 2, 3]}
 
 
+def test_polars_strings_are_stored_without_view_types(root: Path) -> None:
+    artifacts.store_dataframe(
+        pl.DataFrame(
+            {
+                "s": ["a", "a string longer than twelve bytes"],
+                "b": [b"x", b"y"],
+                "ls": [["a"], ["b", "c"]],
+            }
+        ),
+        NAME,
+    )
+
+    assert _stored_table(root).schema.types == [
+        pa.large_string(),
+        pa.large_binary(),
+        pa.large_list(pa.large_string()),
+    ]
+
+
+@pytest.mark.parametrize(
+    "polars_version, passed",
+    [("1.2.0", False), ("1.2.1", True)],
+    ids=["before-1.2.1", "from-1.2.1"],
+)
+def test_polars_compat_level_is_passed_to_polars_from_1_2_1(
+    root: Path, monkeypatch: pytest.MonkeyPatch, polars_version: str, passed: bool
+) -> None:
+    monkeypatch.setattr(pl, "__version__", polars_version)
+    original = pl.DataFrame.write_ipc
+
+    with mock.patch.object(
+        pl.DataFrame, "write_ipc", autospec=True, side_effect=original
+    ) as write_ipc:
+        artifacts.store_dataframe(pl.DataFrame({"a": ["x"]}), NAME)
+
+    assert ("compat_level" in write_ipc.call_args.kwargs) is passed
+    assert _stored_table(root).to_pydict() == {"a": ["x"]}
+
+
 def _store_bad_frame_after_a_good_one(
     root: Path, make_frame: Callable[[], Any], expected_error: Optional[type]
 ) -> Dict[str, Any]:
