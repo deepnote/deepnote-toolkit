@@ -20,6 +20,7 @@ import pandas as pd
 import polars as pl
 import pyarrow as pa
 import pytest
+from pyarrow import feather
 
 import deepnote_toolkit
 from deepnote_toolkit import artifacts
@@ -63,11 +64,29 @@ def _backdate(path: Path, age_seconds: float) -> None:
 
 
 def _read_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        dataframe_storage.os,
-        "statvfs",
-        lambda path: SimpleNamespace(f_flag=os.ST_RDONLY),
-    )
+    """Fail Path.open writes, mkdir and deletes with EROFS, like a read-only mount."""
+
+    def refuse(*args: Any, **kwargs: Any) -> Any:
+        raise OSError(errno.EROFS, "Read-only file system")
+
+    real_open = Path.open
+
+    def open_for_reading(self: Path, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        if mode.strip("rbt"):
+            refuse()
+        return real_open(self, mode, *args, **kwargs)
+
+    # The kernel reports EEXIST before EROFS, so an existing directory passes.
+    def mkdir(
+        self: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False
+    ) -> None:
+        if not (exist_ok and self.is_dir()):
+            refuse()
+
+    monkeypatch.setattr(Path, "open", open_for_reading)
+    monkeypatch.setattr(Path, "mkdir", mkdir)
+    monkeypatch.setattr(os, "unlink", refuse)
+    monkeypatch.setattr(os, "rmdir", refuse)
 
 
 def test_stores_pandas_frame_and_manifest(root: Path) -> None:
@@ -116,6 +135,24 @@ def test_writing_does_not_change_the_callers_frame(root: Path) -> None:
 
     assert len(_arrow_files(root)) == 1
     pd.testing.assert_frame_equal(frame, before)
+
+
+def test_filtered_frame_is_stored_with_its_row_labels(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(self: pd.DataFrame, *args: Any, **kwargs: Any) -> None:
+        raise ValueError("feather does not support serializing a non-default index")
+
+    # pandas >= 2.1 accepts this frame, so make to_feather refuse it as < 2.1 does.
+    monkeypatch.setattr(pd.DataFrame, "to_feather", refuse)
+    frame = pd.DataFrame({"a": [5, 6, 7, 8]})
+
+    artifacts.store_dataframe(frame[frame.a != 7], NAME)
+
+    assert _stored_table(root).to_pydict() == {
+        "a": [5, 6, 8],
+        "__index_level_0__": [0, 1, 3],
+    }
 
 
 def test_groupby_keys_are_stored_after_the_data_columns(root: Path) -> None:
@@ -184,11 +221,11 @@ INVALID_NAMES = [
 
 @pytest.mark.parametrize("name", INVALID_NAMES)
 def test_invalid_name_raises_before_anything_is_written(root: Path, name: Any) -> None:
-    with mock.patch.object(pd.DataFrame, "to_feather", autospec=True) as to_feather:
+    with mock.patch.object(feather, "write_feather", autospec=True) as write:
         with pytest.raises(ValueError):
             artifacts.store_dataframe(pd.DataFrame({"a": [1]}), name)
 
-    to_feather.assert_not_called()
+    write.assert_not_called()
     assert list(root.iterdir()) == []
 
 
@@ -218,6 +255,9 @@ UNSUPPORTED_VALUES = [
     pytest.param(lambda: pd.Series([1, 2]), id="series"),
     pytest.param(lambda: {"a": [1]}, id="dict"),
     pytest.param(lambda: pl.DataFrame({"a": [1]}).lazy(), id="lazyframe"),
+]
+
+QUERY_PREVIEWS = [
     pytest.param(_query_preview, id="query-preview"),
     pytest.param(_cleared_query_preview, id="cleared-query-preview"),
     pytest.param(lambda: _query_preview().copy(), id="copied-query-preview"),
@@ -234,7 +274,17 @@ def test_unsupported_value_raises_type_error(
     assert list(root.iterdir()) == []
 
 
-@pytest.mark.parametrize("make_value", UNSUPPORTED_VALUES)
+@pytest.mark.parametrize("make_preview", QUERY_PREVIEWS)
+def test_query_preview_raises_type_error(
+    root: Path, make_preview: Callable[[], Any]
+) -> None:
+    with pytest.raises(TypeError, match="SQL query preview"):
+        artifacts.store_dataframe(make_preview(), NAME)
+
+    assert list(root.iterdir()) == []
+
+
+@pytest.mark.parametrize("make_value", UNSUPPORTED_VALUES + QUERY_PREVIEWS)
 def test_unsupported_value_raises_type_error_on_a_read_only_mount(
     root: Path, monkeypatch: pytest.MonkeyPatch, make_value: Callable[[], Any]
 ) -> None:
@@ -663,10 +713,10 @@ def _store_bad_frame_after_a_good_one(
 def test_unserializable_frame_raises_and_keeps_the_previous_frame(
     root: Path, make_frame: Callable[[], Any]
 ) -> None:
-    raised_by_pandas = probe_failure(make_frame())
-    assert raised_by_pandas is not None, "pandas is expected to refuse this frame"
+    raised_by_pyarrow = probe_failure(make_frame())
+    assert raised_by_pyarrow is not None, "pyarrow is expected to refuse this frame"
 
-    left = _store_bad_frame_after_a_good_one(root, make_frame, raised_by_pandas)
+    left = _store_bad_frame_after_a_good_one(root, make_frame, raised_by_pyarrow)
 
     assert (_frame_dir(root) / "manifest.json").read_bytes() == left["manifest_bytes"]
     assert left["listing"] == sorted(["manifest.json", _manifest(root)["file"]])
@@ -674,14 +724,14 @@ def test_unserializable_frame_raises_and_keeps_the_previous_frame(
 
 
 @pytest.mark.parametrize("make_frame, rows", VERSION_DEPENDENT)
-def test_frames_pandas_may_refuse_follow_what_pandas_does(
+def test_frames_pyarrow_may_refuse_follow_what_pyarrow_does(
     root: Path, make_frame: Callable[[], Any], rows: int
 ) -> None:
-    raised_by_pandas = probe_failure(make_frame())
+    raised_by_pyarrow = probe_failure(make_frame())
 
-    left = _store_bad_frame_after_a_good_one(root, make_frame, raised_by_pandas)
+    left = _store_bad_frame_after_a_good_one(root, make_frame, raised_by_pyarrow)
 
-    if raised_by_pandas is None:
+    if raised_by_pyarrow is None:
         assert _stored_table(root).num_rows == rows
         return
     assert (_frame_dir(root) / "manifest.json").read_bytes() == left["manifest_bytes"]
@@ -704,11 +754,11 @@ def test_polars_object_column_raises_and_keeps_the_previous_frame(root: Path) ->
 def test_partial_file_is_deleted_when_the_write_fails(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def write_some_then_fail(self: pd.DataFrame, sink: Any, **kwargs: Any) -> None:
+    def write_some_then_fail(frame: pd.DataFrame, sink: Any, **kwargs: Any) -> None:
         sink.write(b"ARROW1 partial")
         raise OSError(errno.EIO, "Input/output error")
 
-    monkeypatch.setattr(pd.DataFrame, "to_feather", write_some_then_fail)
+    monkeypatch.setattr(feather, "write_feather", write_some_then_fail)
 
     with pytest.raises(OSError) as raised:
         artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
@@ -747,11 +797,16 @@ def test_failed_manifest_read_deletes_the_new_frame(
 ) -> None:
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
     frames = _arrow_files(root)
+    real_open = Path.open
 
-    def broken_read(*args: Any) -> Any:
-        raise OSError(errno.EIO, "Input/output error")
+    def open_failing_for_the_manifest(
+        self: Path, mode: str = "r", *args: Any, **kwargs: Any
+    ) -> Any:
+        if self.name == "manifest.json":
+            raise OSError(errno.EIO, "Input/output error")
+        return real_open(self, mode, *args, **kwargs)
 
-    monkeypatch.setattr(dataframe_storage, "read_manifest", broken_read)
+    monkeypatch.setattr(Path, "open", open_failing_for_the_manifest)
 
     with pytest.raises(OSError):
         artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
@@ -869,20 +924,28 @@ def test_rename_failing_after_the_copy_keeps_the_frame_it_put_in_place(
     assert _stored_table(root).to_pydict() == {"a": [2]}
 
 
+@pytest.mark.parametrize("error", [errno.EIO, errno.EROFS], ids=["EIO", "EROFS"])
 def test_failure_after_the_manifest_step_keeps_the_new_frame(
-    root: Path, monkeypatch: pytest.MonkeyPatch
+    root: Path, monkeypatch: pytest.MonkeyPatch, error: int
 ) -> None:
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+    artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
+    replaced = _frame_dir(root) / _manifest(root)["previous"]
+    real_unlink = Path.unlink
 
-    def broken_cleanup(*args: Any) -> Any:
-        raise OSError(errno.EIO, "Input/output error")
+    def unlink_failing_for_the_replaced_frame(
+        self: Path, *args: Any, **kwargs: Any
+    ) -> None:
+        if self == replaced:
+            raise OSError(error, os.strerror(error))
+        real_unlink(self, *args, **kwargs)
 
-    monkeypatch.setattr(dataframe_storage, "_delete_replaced_frames", broken_cleanup)
+    monkeypatch.setattr(Path, "unlink", unlink_failing_for_the_replaced_frame)
 
     with pytest.raises(OSError):
-        artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
+        artifacts.store_dataframe(pd.DataFrame({"a": [3]}), NAME)
 
-    assert _stored_table(root).to_pydict() == {"a": [2]}
+    assert _stored_table(root).to_pydict() == {"a": [3]}
 
 
 def test_stray_pruned_by_another_writer_meanwhile_is_not_a_failure(
@@ -916,21 +979,48 @@ def test_read_only_mount_stores_nothing_and_does_not_convert(
 ) -> None:
     _read_only(monkeypatch)
 
-    with mock.patch.object(pd.DataFrame, "to_feather", autospec=True) as to_feather:
+    with mock.patch.object(feather, "write_feather", autospec=True) as write:
         result = artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
     assert result is None
-    to_feather.assert_not_called()
+    write.assert_not_called()
     assert list(root.iterdir()) == []
+
+
+def test_read_only_mount_keeps_the_stored_frame_and_does_not_convert(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+    manifest_bytes = (_frame_dir(root) / "manifest.json").read_bytes()
+    _read_only(monkeypatch)
+
+    with mock.patch.object(feather, "write_feather", autospec=True) as write:
+        result = artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
+
+    assert result is None
+    write.assert_not_called()
+    assert (_frame_dir(root) / "manifest.json").read_bytes() == manifest_bytes
+    assert _stored_table(root).to_pydict() == {"a": [1]}
+
+
+def test_store_creates_a_missing_project_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "work"
+    monkeypatch.setattr(dataframe_storage, "resolve_project_root", lambda: project)
+
+    reference_id = artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+
+    assert _manifest(project)["file"] == f"{reference_id}.arrow"
 
 
 def test_erofs_from_the_write_stores_nothing(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def refuse(self: pd.DataFrame, sink: Any, **kwargs: Any) -> None:
+    def refuse(frame: pd.DataFrame, sink: Any, **kwargs: Any) -> None:
         raise OSError(errno.EROFS, "Read-only file system")
 
-    monkeypatch.setattr(pd.DataFrame, "to_feather", refuse)
+    monkeypatch.setattr(feather, "write_feather", refuse)
 
     result = artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
@@ -941,13 +1031,15 @@ def test_erofs_from_the_write_stores_nothing(
 def test_interrupt_during_the_write_raises_and_keeps_the_previous_frame(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def write_some_then_interrupt(self: pd.DataFrame, sink: Any, **kwargs: Any) -> None:
+    def write_some_then_interrupt(
+        frame: pd.DataFrame, sink: Any, **kwargs: Any
+    ) -> None:
         sink.write(b"ARROW1 partial")
         raise KeyboardInterrupt
 
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
     manifest_bytes = (_frame_dir(root) / "manifest.json").read_bytes()
-    monkeypatch.setattr(pd.DataFrame, "to_feather", write_some_then_interrupt)
+    monkeypatch.setattr(feather, "write_feather", write_some_then_interrupt)
 
     with pytest.raises(KeyboardInterrupt):
         artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
@@ -1045,6 +1137,16 @@ def test_delete_removes_the_frames_of_the_name_only(root: Path) -> None:
 def test_delete_returns_false_when_there_is_nothing_to_delete(root: Path) -> None:
     assert artifacts.delete_dataframe(NAME) is False
     assert list(root.iterdir()) == []
+
+
+def test_delete_returns_false_when_the_project_root_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "work"
+    monkeypatch.setattr(dataframe_storage, "resolve_project_root", lambda: project)
+
+    assert artifacts.delete_dataframe(NAME) is False
+    assert not project.exists()
 
 
 def test_delete_twice_returns_false_the_second_time(root: Path) -> None:

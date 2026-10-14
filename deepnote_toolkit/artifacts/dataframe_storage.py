@@ -44,12 +44,8 @@ STALE_FRAME_AGE_SECONDS = 24 * 60 * 60
 REPORT_TYPE = "TOOLKIT_RUNTIME_ERROR"
 REPORT_CODE = "DATAFRAME_STORAGE_WRITE_FAILED"
 REPORT_TIMEOUT_SECONDS = 2
-# Each record batch is one page of the read endpoint; to_feather already writes
-# 64k-row batches.
 POLARS_BATCH_ROWS = 65_536
 POLARS_BATCH_MIN_VERSION = Version("1.37")
-# From 1.0 polars writes strings and binaries as views, which pyarrow before 15 and
-# apache-arrow before 21.2 can't read; `pl.CompatLevel` is public from 1.2.1.
 POLARS_COMPAT_LEVEL_MIN_VERSION = Version("1.2.1")
 
 FrameKind = Literal["pandas", "polars"]
@@ -89,11 +85,6 @@ def resolve_project_root() -> Path:
     return resolve_notebook_root()
 
 
-def is_read_only(root: Path) -> bool:
-    """Return whether the project's filesystem is mounted read-only."""
-    return bool(os.statvfs(root).f_flag & os.ST_RDONLY)
-
-
 def _select_compression() -> str:
     """Return the best codec this pyarrow build has: zstd, lz4, else uncompressed."""
     import pyarrow as pa
@@ -107,21 +98,27 @@ def _select_compression() -> str:
 def _write_frame_file(
     frame: Any, kind: FrameKind, path: Path, compression: str
 ) -> None:
-    """Write the frame to `path` as an Arrow IPC file, with the library's own call.
+    """Write the frame to `path` as an Arrow IPC file.
 
     Going through a Python file object makes `close()` raise upload errors, which
     s3fs only surfaces there.
     """
     with path.open("wb") as sink:
         if kind == "pandas":
-            frame.to_feather(sink, compression=compression)
+            from pyarrow import feather
+
+            # pandas < 2.1's to_feather needs a default index and string column names.
+            feather.write_feather(frame, sink, compression=compression)
         else:
             import polars
 
-            options = {}
-            if Version(polars.__version__) >= POLARS_BATCH_MIN_VERSION:
+            polars_version = Version(polars.__version__)
+            options: dict[str, Any] = {}
+            # Cap batches like write_feather so a page read stays cheap.
+            if polars_version >= POLARS_BATCH_MIN_VERSION:
                 options["record_batch_size"] = POLARS_BATCH_ROWS
-            if Version(polars.__version__) >= POLARS_COMPAT_LEVEL_MIN_VERSION:
+            # pyarrow < 15, apache-arrow < 21.2 can't read 1.0+'s string/binary views.
+            if polars_version >= POLARS_COMPAT_LEVEL_MIN_VERSION:
                 options["compat_level"] = polars.CompatLevel.oldest()
             frame.write_ipc(sink, compression=compression, **options)
 
@@ -160,19 +157,24 @@ def store_frame(
     name: str,
     root: Path,
     block_id: Optional[str] = None,
-) -> str:
-    """Store the frame as the current one under `name` and return its reference ID."""
-    directory = root / FRAMES_DIR / name
-    directory.mkdir(parents=True, exist_ok=True)
+) -> Optional[str]:
+    """Store the frame as the current one under `name` and return its reference ID.
 
+    Returns None, having stored nothing, if the filesystem is read-only. EROFS from
+    the manifest step on raises like any other error: the new frame may be current.
+    """
+    directory = root / FRAMES_DIR / name
     reference_id = str(uuid.uuid4())
     new_file = f"{reference_id}.arrow"
     try:
+        directory.mkdir(parents=True, exist_ok=True)
         _write_frame_file(frame, kind, directory / new_file, _select_compression())
         old = read_manifest(directory)
-    except BaseException:
+    except BaseException as exc:
         with contextlib.suppress(OSError):
             (directory / new_file).unlink(missing_ok=True)
+        if isinstance(exc, OSError) and exc.errno == errno.EROFS:
+            return None
         raise
     # A failure from here on keeps the new frame: an s3fs rename can put the new
     # manifest in place and still fail.

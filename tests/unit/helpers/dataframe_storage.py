@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pytest
+from pyarrow import feather
 
 NAME = "revenue"
 BLOCK_ID = "blk1"
@@ -15,9 +16,9 @@ REPORT_URL = "http://userpod/toolkit/errors"
 
 
 def probe_failure(frame: Any) -> Optional[type]:
-    """The exception type pandas itself raises for this frame, if any."""
+    """The exception type pyarrow itself raises for this frame, if any."""
     try:
-        frame.to_feather(io.BytesIO())
+        feather.write_feather(frame, io.BytesIO())
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return type(exc)
     return None
