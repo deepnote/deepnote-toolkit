@@ -15,7 +15,11 @@ import pyarrow as pa
 import pytest
 from pyarrow import feather
 
+from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
+
 NAME = "revenue"
+BLOCK_ID = "blk1"
+REPORT_URL = "http://userpod/toolkit/errors"
 DAY = 24 * 60 * 60
 FRAME_A = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.arrow"
 FRAME_B = "11111111-2222-4333-8444-555555555555.arrow"
@@ -105,3 +109,24 @@ VERSION_DEPENDENT = [
     pytest.param(lambda: pd.DataFrame({"a": [uuid.UUID(int=1)]}), 1, id="uuid"),
     pytest.param(dictionary_concat, 4, id="dictionary-concat"),
 ]
+
+
+def query_preview() -> DeepnoteQueryPreview:
+    return DeepnoteQueryPreview({"a": [1]}, deepnote_query="select 1")
+
+
+def cleared_query_preview() -> DeepnoteQueryPreview:
+    preview = query_preview()
+    preview["b"] = 2
+    return preview
+
+
+def storage_request(**overrides: Any) -> Dict[str, Any]:
+    """Return the request message that asks the kernel to store a block's result."""
+    return {
+        "metadata": {
+            "deepnote": {
+                "dataframeStorage": {"name": NAME, "blockId": BLOCK_ID, **overrides}
+            }
+        }
+    }
