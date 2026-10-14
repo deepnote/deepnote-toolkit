@@ -26,12 +26,8 @@ from .dataframe_storage_manifest import (
 
 FRAMES_DIR = Path("deepnote_dataframes")
 STALE_FRAME_AGE_SECONDS = 24 * 60 * 60
-# Each record batch is one page of the read endpoint; to_feather already writes
-# 64k-row batches.
 POLARS_BATCH_ROWS = 65_536
 POLARS_BATCH_MIN_VERSION = Version("1.37")
-# From 1.0 polars writes strings and binaries as views, which pyarrow before 15 and
-# apache-arrow before 21.2 can't read; `pl.CompatLevel` is public from 1.2.1.
 POLARS_COMPAT_LEVEL_MIN_VERSION = Version("1.2.1")
 
 FrameKind = Literal["pandas", "polars"]
@@ -89,10 +85,13 @@ def _write_frame_file(
         else:
             import polars
 
-            options = {}
-            if Version(polars.__version__) >= POLARS_BATCH_MIN_VERSION:
+            polars_version = Version(polars.__version__)
+            options: dict[str, Any] = {}
+            # Cap batches like write_feather so a page read stays cheap.
+            if polars_version >= POLARS_BATCH_MIN_VERSION:
                 options["record_batch_size"] = POLARS_BATCH_ROWS
-            if Version(polars.__version__) >= POLARS_COMPAT_LEVEL_MIN_VERSION:
+            # pyarrow < 15, apache-arrow < 21.2 can't read 1.0+'s string/binary views.
+            if polars_version >= POLARS_COMPAT_LEVEL_MIN_VERSION:
                 options["compat_level"] = polars.CompatLevel.oldest()
             frame.write_ipc(sink, compression=compression, **options)
 
