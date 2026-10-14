@@ -1,12 +1,81 @@
 """Fixtures for the DataFrame storage tests."""
 
+import builtins
+import json
+import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, Iterator, List, Optional
 
 import pytest
+import responses
+from IPython.core.interactiveshell import InteractiveShell
+from traitlets.config import Config
 
 from deepnote_toolkit.artifacts import dataframe_storage
+from deepnote_toolkit.artifacts.dataframe_storage import register_dataframe_storage
+from tests.unit.helpers.dataframe_storage import REPORT_URL, storage_request
+
+
+@pytest.fixture
+def parent() -> Dict[str, Any]:
+    """The execute_request the fake kernel reports; tests mutate it in place."""
+    return storage_request()
+
+
+@pytest.fixture
+def reports(monkeypatch: pytest.MonkeyPatch) -> Iterator[SimpleNamespace]:
+    """Replace the webapp transport; `bodies` holds each posted JSON body.
+
+    The writer remembers what it already reported in module state, so it is
+    cleared around every test.
+    """
+    transport = SimpleNamespace(bodies=[], calls=[], mock=None)
+
+    def record(request: Any) -> Any:
+        transport.calls.append(request)
+        transport.bodies.append(json.loads(request.body))
+        return 200, {}, ""
+
+    monkeypatch.setattr(
+        dataframe_storage,
+        "get_absolute_userpod_api_url",
+        lambda path: f"http://userpod/{path}",
+    )
+    dataframe_storage._reported.clear()
+    with responses.RequestsMock(assert_all_requests_are_fired=False) as mock:
+        mock.add_callback(responses.POST, REPORT_URL, callback=record)
+        transport.mock = mock
+        yield transport
+    dataframe_storage._reported.clear()
+
+
+@pytest.fixture
+def shell(
+    parent: Dict[str, Any],
+    reports: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[InteractiveShell]:
+    """A shell whose kernel reports `parent`, with the hook registered and enabled."""
+    monkeypatch.setenv(dataframe_storage.ENABLED_ENV_VAR, "true")
+    # A shell swaps in its own __main__ and adds builtins; leave both as found
+    monkeypatch.setitem(sys.modules, "__main__", sys.modules["__main__"])
+    builtins_before = set(vars(builtins))
+    # No history: it would write a sqlite file into the user's profile, and its
+    # sqlite3 usage raises a DeprecationWarning on Python 3.12+
+    config = Config()
+    config.HistoryManager.enabled = False
+    InteractiveShell.clear_instance()
+    shell = InteractiveShell.instance(config=config)
+    shell.ast_node_interactivity = "all"
+    shell.kernel = SimpleNamespace(get_parent=lambda channel=None: parent)
+    register_dataframe_storage()
+    yield shell
+    shell.events.unregister("post_run_cell", dataframe_storage._on_post_run_cell)
+    InteractiveShell.clear_instance()
+    for name in set(vars(builtins)) - builtins_before:
+        delattr(builtins, name)
 
 
 @pytest.fixture

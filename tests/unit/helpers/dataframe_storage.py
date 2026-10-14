@@ -1,13 +1,17 @@
-"""Frames shared by the DataFrame storage tests."""
+"""Frames and execute requests shared by the DataFrame storage tests."""
 
 import io
 import uuid
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pytest
+
+NAME = "revenue"
+BLOCK_ID = "blk1"
+REPORT_URL = "http://userpod/toolkit/errors"
 
 
 def probe_failure(frame: Any) -> Optional[type]:
@@ -39,3 +43,17 @@ VERSION_DEPENDENT = [
     pytest.param(lambda: pd.DataFrame({"a": [uuid.UUID(int=1)]}), 1, id="uuid"),
     pytest.param(dictionary_concat, 4, id="dictionary-concat"),
 ]
+
+
+def storage_request(**overrides: Any) -> Dict[str, Any]:
+    """Return the request message that asks the kernel to store a block's result.
+
+    `overrides` replace fields of `deepnote.dataframeStorage`.
+    """
+    return {
+        "metadata": {
+            "deepnote": {
+                "dataframeStorage": {"name": NAME, "blockId": BLOCK_ID, **overrides}
+            }
+        }
+    }
