@@ -255,6 +255,9 @@ UNSUPPORTED_VALUES = [
     pytest.param(lambda: pd.Series([1, 2]), id="series"),
     pytest.param(lambda: {"a": [1]}, id="dict"),
     pytest.param(lambda: pl.DataFrame({"a": [1]}).lazy(), id="lazyframe"),
+]
+
+QUERY_PREVIEWS = [
     pytest.param(_query_preview, id="query-preview"),
     pytest.param(_cleared_query_preview, id="cleared-query-preview"),
     pytest.param(lambda: _query_preview().copy(), id="copied-query-preview"),
@@ -271,7 +274,17 @@ def test_unsupported_value_raises_type_error(
     assert list(root.iterdir()) == []
 
 
-@pytest.mark.parametrize("make_value", UNSUPPORTED_VALUES)
+@pytest.mark.parametrize("make_preview", QUERY_PREVIEWS)
+def test_query_preview_raises_type_error(
+    root: Path, make_preview: Callable[[], Any]
+) -> None:
+    with pytest.raises(TypeError, match="SQL query preview"):
+        artifacts.store_dataframe(make_preview(), NAME)
+
+    assert list(root.iterdir()) == []
+
+
+@pytest.mark.parametrize("make_value", UNSUPPORTED_VALUES + QUERY_PREVIEWS)
 def test_unsupported_value_raises_type_error_on_a_read_only_mount(
     root: Path, monkeypatch: pytest.MonkeyPatch, make_value: Callable[[], Any]
 ) -> None:

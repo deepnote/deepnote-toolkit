@@ -4,6 +4,8 @@ import errno
 import shutil
 from typing import Any, Optional
 
+from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
+
 from . import dataframe_storage
 
 
@@ -28,8 +30,9 @@ def store_dataframe(df: Any, name: str) -> Optional[str]:
 
     Raises:
         ValueError: `name` is not valid.
-        TypeError: `df` is not a pandas or polars DataFrame. That includes PySpark
-            and pandas-on-Spark DataFrames, polars LazyFrames and SQL query previews.
+        TypeError: `df` is a SQL query preview or a frame derived from one, or is
+            not a pandas or polars DataFrame. That includes PySpark and
+            pandas-on-Spark DataFrames and polars LazyFrames.
         OSError: The write failed.
         Exception: `df` cannot be serialized to Arrow: whatever pyarrow's
             `write_feather()` or polars' `df.write_ipc()` raises.
@@ -42,6 +45,13 @@ def store_dataframe(df: Any, name: str) -> Optional[str]:
     _check_name(name)
     kind = dataframe_storage.classify_frame(df)
     if kind is None:
+        if isinstance(df, DeepnoteQueryPreview):
+            raise TypeError(
+                "store_dataframe refuses a SQL query preview or a frame derived from "
+                "one, which holds at most 100 rows of the query's result. Set the SQL "
+                "block's output mode to DataFrame, or pass pd.DataFrame(df) to store "
+                "these rows"
+            )
         raise TypeError(
             "store_dataframe needs a pandas or polars DataFrame, "
             f"got {type(df).__qualname__}"
