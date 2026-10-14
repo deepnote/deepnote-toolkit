@@ -1,11 +1,13 @@
-"""Frames, execute requests and a read-only mount for the DataFrame storage tests."""
+"""Helpers and frames shared by the DataFrame storage tests."""
 
 import errno
 import io
+import json
 import os
+import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -16,6 +18,64 @@ from pyarrow import feather
 NAME = "revenue"
 BLOCK_ID = "blk1"
 REPORT_URL = "http://userpod/toolkit/errors"
+DAY = 24 * 60 * 60
+FRAME_A = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.arrow"
+FRAME_B = "11111111-2222-4333-8444-555555555555.arrow"
+
+
+def frame_dir(root: Path, name: str = NAME) -> Path:
+    return root / "deepnote_dataframes" / name
+
+
+def arrow_files(root: Path, name: str = NAME) -> List[Path]:
+    return sorted(frame_dir(root, name).glob("*.arrow"))
+
+
+def stored_manifest(root: Path, name: str = NAME) -> Dict[str, Any]:
+    return json.loads((frame_dir(root, name) / "manifest.json").read_text())
+
+
+def stored_table(root: Path, name: str = NAME) -> pa.Table:
+    """The frame the name's manifest currently names."""
+    path = frame_dir(root, name) / stored_manifest(root, name)["file"]
+    return pa.ipc.open_file(path).read_all()
+
+
+def backdate(path: Path, age_seconds: float) -> None:
+    mtime = time.time() - age_seconds
+    os.utime(path, (mtime, mtime), follow_symlinks=False)
+
+
+def read_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail Path.open writes, mkdir and deletes with EROFS, like a read-only mount."""
+
+    def refuse(*args: Any, **kwargs: Any) -> Any:
+        raise OSError(errno.EROFS, "Read-only file system")
+
+    real_open = Path.open
+
+    def open_for_reading(self: Path, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        if mode.strip("rbt"):
+            refuse()
+        return real_open(self, mode, *args, **kwargs)
+
+    # The kernel reports EEXIST before EROFS, so an existing directory passes.
+    def mkdir(
+        self: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False
+    ) -> None:
+        if not (exist_ok and self.is_dir()):
+            refuse()
+
+    monkeypatch.setattr(Path, "open", open_for_reading)
+    monkeypatch.setattr(Path, "mkdir", mkdir)
+    monkeypatch.setattr(os, "unlink", refuse)
+    monkeypatch.setattr(os, "rmdir", refuse)
+
+
+def entries_beside_the_frames(root: Path) -> List[str]:
+    return sorted(
+        path.name for path in frame_dir(root).iterdir() if path.suffix != ".arrow"
+    )
 
 
 def probe_failure(frame: Any) -> Optional[type]:
@@ -58,29 +118,3 @@ def storage_request(**overrides: Any) -> Dict[str, Any]:
             }
         }
     }
-
-
-def read_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fail Path.open writes, mkdir and deletes with EROFS, like a read-only mount."""
-
-    def refuse(*args: Any, **kwargs: Any) -> Any:
-        raise OSError(errno.EROFS, "Read-only file system")
-
-    real_open = Path.open
-
-    def open_for_reading(self: Path, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
-        if mode.strip("rbt"):
-            refuse()
-        return real_open(self, mode, *args, **kwargs)
-
-    # The kernel reports EEXIST before EROFS, so an existing directory passes.
-    def mkdir(
-        self: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False
-    ) -> None:
-        if not (exist_ok and self.is_dir()):
-            refuse()
-
-    monkeypatch.setattr(Path, "open", open_for_reading)
-    monkeypatch.setattr(Path, "mkdir", mkdir)
-    monkeypatch.setattr(os, "unlink", refuse)
-    monkeypatch.setattr(os, "rmdir", refuse)
