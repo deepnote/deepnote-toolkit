@@ -15,6 +15,8 @@ import pyarrow as pa
 import pytest
 from pyarrow import feather
 
+from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
+
 NAME = "revenue"
 BLOCK_ID = "blk1"
 REPORT_URL = "http://userpod/toolkit/errors"
@@ -107,6 +109,16 @@ VERSION_DEPENDENT = [
     pytest.param(lambda: pd.DataFrame({"a": [uuid.UUID(int=1)]}), 1, id="uuid"),
     pytest.param(dictionary_concat, 4, id="dictionary-concat"),
 ]
+
+
+def query_preview() -> DeepnoteQueryPreview:
+    return DeepnoteQueryPreview({"a": [1]}, deepnote_query="select 1")
+
+
+def cleared_query_preview() -> DeepnoteQueryPreview:
+    preview = query_preview()
+    preview["b"] = 2
+    return preview
 
 
 def storage_request(**overrides: Any) -> Dict[str, Any]:

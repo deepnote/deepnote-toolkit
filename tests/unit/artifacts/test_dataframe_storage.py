@@ -1,7 +1,6 @@
 """Tests for the post_run_cell hook that stores a block's DataFrame result."""
 
 import errno
-import json
 import re
 import warnings
 from pathlib import Path
@@ -11,7 +10,6 @@ from unittest import mock
 
 import pandas as pd
 import polars as pl
-import pyarrow as pa
 import pytest
 import requests
 import responses
@@ -28,30 +26,19 @@ from tests.unit.helpers.dataframe_storage import (
     NAME,
     REPORT_URL,
     VERSION_DEPENDENT,
+    arrow_files,
+    cleared_query_preview,
+    frame_dir,
     probe_failure,
+    query_preview,
     read_only,
     storage_request,
+    stored_manifest,
+    stored_table,
 )
 
 REPORT_TYPE = "TOOLKIT_RUNTIME_ERROR"
 REPORT_CODE = "DATAFRAME_STORAGE_WRITE_FAILED"
-
-
-def _frame_dir(root: Path) -> Path:
-    return root / "deepnote_dataframes" / NAME
-
-
-def _arrow_files(root: Path) -> List[Path]:
-    return sorted(_frame_dir(root).glob("*.arrow"))
-
-
-def _manifest(root: Path) -> Dict[str, Any]:
-    return json.loads((_frame_dir(root) / "manifest.json").read_text())
-
-
-def _stored_table(root: Path) -> pa.Table:
-    """The frame the name's manifest currently names."""
-    return pa.ipc.open_file(_frame_dir(root) / _manifest(root)["file"]).read_all()
 
 
 def _assert_nothing_stored(root: Path, reports: SimpleNamespace) -> None:
@@ -69,8 +56,8 @@ def _run(
 def test_stores_polars_frame(shell: InteractiveShell, root: Path) -> None:
     _run(shell, pl.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]}))
 
-    assert _stored_table(root).to_pydict() == {"a": [1, 2, 3], "b": ["x", "y", "z"]}
-    assert _manifest(root)["rows"] == 3
+    assert stored_table(root).to_pydict() == {"a": [1, 2, 3], "b": ["x", "y", "z"]}
+    assert stored_manifest(root)["rows"] == 3
 
 
 @pytest.mark.parametrize(
@@ -103,7 +90,7 @@ def test_calls_store_frames_with_the_flag_off(
 
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
-    assert _stored_table(root).to_pydict() == {"a": [1]}
+    assert stored_table(root).to_pydict() == {"a": [1]}
 
 
 @pytest.mark.parametrize("env_value", ["1", "true", "TRUE", " yes ", "on"])
@@ -117,7 +104,7 @@ def test_env_var_on_writes_the_frame(
 
     _run(shell, pd.DataFrame({"a": [1]}))
 
-    assert _stored_table(root).to_pydict() == {"a": [1]}
+    assert stored_table(root).to_pydict() == {"a": [1]}
 
 
 def test_shell_without_kernel_writes_nothing(
@@ -184,22 +171,12 @@ def test_cell_ending_in_semicolon_writes_nothing(
     _assert_nothing_stored(root, reports)
 
 
-def _query_preview() -> DeepnoteQueryPreview:
-    return DeepnoteQueryPreview({"a": [1]}, deepnote_query="select 1")
-
-
-def _cleared_query_preview() -> DeepnoteQueryPreview:
-    preview = _query_preview()
-    preview["b"] = 2
-    return preview
-
-
 @pytest.mark.parametrize(
     "make_preview",
     [
-        _query_preview,
-        _cleared_query_preview,
-        lambda: _query_preview().copy(),
+        query_preview,
+        cleared_query_preview,
+        lambda: query_preview().copy(),
     ],
     ids=["preview", "cleared-query", "copy"],
 )
@@ -276,7 +253,7 @@ def _failing_frame_runs(
 ) -> Dict[str, Any]:
     """Store a good frame, then run a bad one twice; return what was left behind."""
     _run(shell, pd.DataFrame({"ok": [1]}))
-    block = _frame_dir(root)
+    block = frame_dir(root)
     manifest_bytes = (block / "manifest.json").read_bytes()
     first = _run(shell, make_frame())
     reported_after_first = len(reports.bodies)
@@ -302,8 +279,8 @@ def test_unserializable_frame_is_not_stored_and_reported_once(
     left = _failing_frame_runs(shell, root, reports, make_frame)
 
     assert all(result.success for result in left["results"])
-    assert (_frame_dir(root) / "manifest.json").read_bytes() == left["manifest_bytes"]
-    assert left["listing"] == sorted(["manifest.json", _manifest(root)["file"]])
+    assert (frame_dir(root) / "manifest.json").read_bytes() == left["manifest_bytes"]
+    assert left["listing"] == sorted(["manifest.json", stored_manifest(root)["file"]])
     assert left["reported_after_first"] == 1
     assert len(reports.bodies) == 1
     assert reports.bodies[0]["type"] == REPORT_TYPE
@@ -329,10 +306,10 @@ def test_frames_pyarrow_may_refuse_follow_what_pyarrow_does(
     assert all(result.success for result in left["results"])
     if probed is None:
         assert reports.bodies == []
-        assert _stored_table(root).num_rows == rows
+        assert stored_table(root).num_rows == rows
         return
-    assert (_frame_dir(root) / "manifest.json").read_bytes() == left["manifest_bytes"]
-    assert left["listing"] == sorted(["manifest.json", _manifest(root)["file"]])
+    assert (frame_dir(root) / "manifest.json").read_bytes() == left["manifest_bytes"]
+    assert left["listing"] == sorted(["manifest.json", stored_manifest(root)["file"]])
     assert [body["context"]["exception_type"] for body in reports.bodies] == [
         _qualified(probed)
     ]
@@ -379,13 +356,13 @@ def test_polars_object_column_is_not_stored_and_reported(
     shell: InteractiveShell, root: Path, reports: SimpleNamespace
 ) -> None:
     _run(shell, pl.DataFrame({"ok": [1]}))
-    manifest_bytes = (_frame_dir(root) / "manifest.json").read_bytes()
+    manifest_bytes = (frame_dir(root) / "manifest.json").read_bytes()
 
     result = _run(shell, pl.DataFrame({"a": pl.Series([object()], dtype=pl.Object)}))
 
     assert result.success
-    assert (_frame_dir(root) / "manifest.json").read_bytes() == manifest_bytes
-    assert len(_arrow_files(root)) == 1
+    assert (frame_dir(root) / "manifest.json").read_bytes() == manifest_bytes
+    assert len(arrow_files(root)) == 1
     assert [body["context"] for body in reports.bodies] == [
         {"kind": "error", "exception_type": "polars.exceptions.ComputeError"}
     ]
@@ -589,7 +566,7 @@ def test_partial_file_is_deleted_when_the_write_fails(
     result = _run(shell, pd.DataFrame({"a": [1]}))
 
     assert result.success
-    assert _arrow_files(root) == []
+    assert arrow_files(root) == []
     assert len(reports.bodies) == 1
 
 
@@ -609,7 +586,7 @@ def test_failure_after_the_manifest_step_keeps_the_new_frame(
     result = _run(shell, pd.DataFrame({"a": [2]}))
 
     assert result.success
-    assert _stored_table(root).to_pydict() == {"a": [2]}
+    assert stored_table(root).to_pydict() == {"a": [2]}
     assert [body["context"] for body in reports.bodies] == [
         {"kind": "io", "errno": "EIO", "exception_type": "builtins.OSError"}
     ]
@@ -655,7 +632,7 @@ def test_erofs_from_the_write_is_silent(
 
     assert result.success
     assert reports.bodies == []
-    assert _arrow_files(root) == []
+    assert arrow_files(root) == []
     assert _displayed(capsys) == expected_output
 
 
@@ -670,7 +647,7 @@ def test_erofs_after_the_manifest_step_is_silent(
     expected_output = _output_without_storage(shell, frame, capsys, monkeypatch)
     _run(shell, pd.DataFrame({"a": [1]}))
     _run(shell, pd.DataFrame({"a": [2]}))
-    replaced = _frame_dir(root) / _manifest(root)["previous"]
+    replaced = frame_dir(root) / stored_manifest(root)["previous"]
     real_unlink = Path.unlink
 
     def unlink_refused_for_the_replaced_frame(
@@ -686,7 +663,7 @@ def test_erofs_after_the_manifest_step_is_silent(
     result = _run(shell, frame)
 
     assert result.success
-    assert _stored_table(root).to_pydict() == {"a": [3]}
+    assert stored_table(root).to_pydict() == {"a": [3]}
     assert replaced.exists()
     assert reports.bodies == []
     assert _displayed(capsys) == expected_output
@@ -706,7 +683,7 @@ def test_interrupt_during_the_write_fails_the_execution(
         raise KeyboardInterrupt
 
     _run(shell, pd.DataFrame({"a": [1]}))
-    manifest_bytes = (_frame_dir(root) / "manifest.json").read_bytes()
+    manifest_bytes = (frame_dir(root) / "manifest.json").read_bytes()
     monkeypatch.setattr(feather, "write_feather", write_some_then_interrupt)
     capsys.readouterr()
 
@@ -716,8 +693,8 @@ def test_interrupt_during_the_write_fails_the_execution(
     assert not result.success
     assert "KeyboardInterrupt" in _displayed(capsys)
     assert reports.bodies == []
-    assert (_frame_dir(root) / "manifest.json").read_bytes() == manifest_bytes
-    assert len(_arrow_files(root)) == 1
+    assert (frame_dir(root) / "manifest.json").read_bytes() == manifest_bytes
+    assert len(arrow_files(root)) == 1
 
 
 def test_interrupt_while_reporting_a_failure_fails_the_execution(
@@ -747,8 +724,8 @@ def test_stores_the_result_under_the_requested_name(
     result = _run(shell, pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]}))
 
     assert result.success
-    assert _stored_table(root).to_pydict() == {"a": [1, 2, 3], "b": ["x", "y", "z"]}
-    manifest = _manifest(root)
+    assert stored_table(root).to_pydict() == {"a": [1, 2, 3], "b": ["x", "y", "z"]}
+    manifest = stored_manifest(root)
     assert set(manifest) == {
         "version",
         "file",
@@ -776,19 +753,19 @@ def test_block_frames_and_calls_share_one_name(
     shell: InteractiveShell, root: Path, parent: Dict[str, Any]
 ) -> None:
     _run(shell, pd.DataFrame({"a": [1]}))
-    first = _manifest(root)
+    first = stored_manifest(root)
     parent.update(storage_request(blockId="blk2"))
     _run(shell, pd.DataFrame({"a": [2]}))
-    second = _manifest(root)
+    second = stored_manifest(root)
     artifacts.store_dataframe(pd.DataFrame({"a": [3]}), NAME)
-    third = _manifest(root)
+    third = stored_manifest(root)
 
     assert first["block_id"] == BLOCK_ID
     assert second["block_id"] == "blk2"
     assert second["previous"] == first["file"]
     assert "block_id" not in third
     assert third["previous"] == second["file"]
-    assert _stored_table(root).to_pydict() == {"a": [3]}
+    assert stored_table(root).to_pydict() == {"a": [3]}
 
 
 @pytest.mark.parametrize(
