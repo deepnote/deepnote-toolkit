@@ -26,9 +26,6 @@ def dictionary_concat() -> pd.DataFrame:
     return pd.concat([first, second])
 
 
-# Frames the RFC lists as failing on every supported pyarrow. The UUID column and the
-# dictionary concatenation only fail on some versions, so for them whether the frame
-# is stored is decided by asking pandas directly.
 ALWAYS_FAILING = [
     pytest.param(lambda: pd.DataFrame({"a": [1, "two"]}), id="mixed-types"),
     pytest.param(

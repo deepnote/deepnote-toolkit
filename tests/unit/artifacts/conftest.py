@@ -1,7 +1,4 @@
-"""Fixtures for the DataFrame storage tests.
-
-Kept out of tests/unit/conftest.py because the names are generic.
-"""
+"""Fixtures for the DataFrame storage tests."""
 
 import time
 from pathlib import Path

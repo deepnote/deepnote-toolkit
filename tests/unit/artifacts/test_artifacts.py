@@ -288,8 +288,8 @@ def test_second_write_keeps_one_previous_frame(root: Path) -> None:
 def test_unreferenced_frames_are_deleted_only_when_stale(root: Path) -> None:
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
     directory = _frame_dir(root)
-    current = directory / _manifest(root)["file"]
-    _backdate(current, 2 * DAY)
+    replaced = directory / _manifest(root)["file"]
+    _backdate(replaced, 2 * DAY)
 
     def add(name: str, age_seconds: float) -> Path:
         path = directory / name
@@ -320,8 +320,7 @@ def test_unreferenced_frames_are_deleted_only_when_stale(root: Path) -> None:
     assert all(path.exists() for path in not_a_frame)
     assert link.is_symlink()
     assert outside.read_bytes() == b"precious"
-    # the frame the replaced manifest named stays as `previous`, however old it is
-    assert current.exists()
+    assert replaced.exists()
 
 
 def _manifest_bytes(**fields: Any) -> bytes:
@@ -394,7 +393,6 @@ def test_unusable_manifest_counts_as_no_manifest(
     assert manifest["file"] not in (FRAME_A, FRAME_B)
     assert _stored_table(root).to_pydict() == {"a": [1]}
     assert sentinel.read_text() == "keep"
-    # a manifest that counts as absent names nothing, so nothing it names is deleted
     assert all(path.exists() for path in named)
 
 
@@ -417,7 +415,7 @@ def test_manifest_of_exactly_4096_bytes_is_honoured(root: Path) -> None:
 def test_manifest_nested_too_deeply_to_parse_counts_as_no_manifest(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Python before 3.13 raises RecursionError for the nesting a 4 KiB manifest allows."""
+    """Before 3.12, json raises RecursionError on the nesting 4 KiB allows."""
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
     def too_deep(raw: bytes) -> Any:
@@ -471,7 +469,7 @@ def test_concurrent_writers_leave_a_complete_current_frame(
     def write(value: int) -> None:
         try:
             artifacts.store_dataframe(pd.DataFrame({"a": [value]}), NAME)
-        except BaseException as exc:  # surfaced by the assertion below
+        except BaseException as exc:
             errors.append(exc)
 
     with monkeypatch.context() as patch:
@@ -643,7 +641,10 @@ def test_polars_compat_level_is_passed_to_polars_from_1_2_1(
 def _store_bad_frame_after_a_good_one(
     root: Path, make_frame: Callable[[], Any], expected_error: Optional[type]
 ) -> Dict[str, Any]:
-    """Store a good frame, then a bad one; return what the bad call left behind."""
+    """Store a good frame, then a bad one.
+
+    Return the good call's manifest bytes and the directory listing after the bad call.
+    """
     artifacts.store_dataframe(pd.DataFrame({"ok": [1]}), NAME)
     directory = _frame_dir(root)
     manifest_bytes = (directory / "manifest.json").read_bytes()
@@ -779,7 +780,6 @@ def test_failure_in_the_manifest_step_deletes_nothing(
         artifacts.store_dataframe(pd.DataFrame({"a": [3]}), NAME)
 
     assert (directory / "manifest.json").read_bytes() == manifest_bytes
-    # the new frame stays, because a failed update may already have named it
     entries = {path.name for path in directory.iterdir()}
     assert set(listing) <= entries and len(entries - set(listing)) == 1
     assert _stored_table(root).to_pydict() == {"a": [2]}
@@ -801,8 +801,7 @@ def test_successful_write_leaves_only_the_manifest_beside_the_frames(
 
 
 class _FailingManifestHandle:
-    """A temporary manifest that fails or is interrupted in write(), or fails in
-    close() like s3fs's upload."""
+    """A temporary manifest whose write() fails or is interrupted, or close() fails."""
 
     def __init__(self, handle: Any, failing: str) -> None:
         self._handle = handle
@@ -1109,7 +1108,6 @@ def test_delete_on_a_read_only_mount_deletes_nothing(
 def test_delete_returns_false_when_the_filesystem_refuses_with_erofs(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """store_dataframe() returns None for the same error."""
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
     def refuse(path: Any) -> None:

@@ -36,9 +36,8 @@ def is_frame_name(name: str) -> bool:
 def read_manifest(directory: Path) -> Optional[Manifest]:
     """Return the files the manifest names, or None if there is no usable one.
 
-    Any code in the project can write the manifest, so a manifest that is too big,
-    is not JSON or names anything but `<uuid>.arrow` counts as absent: the writer
-    then overwrites it and never deletes a path it supplied.
+    Any code in the project can write the manifest, so a malformed one counts as
+    absent.
     """
     try:
         with (directory / MANIFEST_NAME).open("rb") as handle:
@@ -69,9 +68,8 @@ def write_manifest(
 ) -> None:
     """Point the manifest at `new_file`.
 
-    The manifest is written under a temporary name and renamed over the old one, so
-    a write that fails part-way leaves the old manifest in place, unless an s3fs
-    rename fails after copying the new one over it.
+    On s3fs a rename is a copy and then a delete, so a failed rename may already
+    have replaced the manifest.
     """
     manifest: dict[str, Any] = {"version": MANIFEST_VERSION, "file": new_file}
     if previous is not None:

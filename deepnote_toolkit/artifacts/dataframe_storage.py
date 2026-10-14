@@ -1,4 +1,4 @@
-"""Writes DataFrames into the project's filesystem as named Arrow files."""
+"""Writes named DataFrames into the project's filesystem as Arrow files."""
 
 import contextlib
 import os
@@ -26,8 +26,8 @@ from .dataframe_storage_manifest import (
 
 FRAMES_DIR = Path("deepnote_dataframes")
 STALE_FRAME_AGE_SECONDS = 24 * 60 * 60
-# Each record batch is one page of the read endpoint; pandas already writes 64k-row
-# batches, and polars only honours a batch size from 1.37.
+# Each record batch is one page of the read endpoint; to_feather already writes
+# 64k-row batches.
 POLARS_BATCH_ROWS = 65_536
 POLARS_BATCH_MIN_VERSION = Version("1.37")
 # From 1.0 polars writes strings and binaries as views, which pyarrow before 15 and
@@ -40,22 +40,12 @@ _SAFE_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 
 def is_safe_id(value: object) -> bool:
-    """Return whether `value` can be used as a single path segment.
-
-    Frame names become directory names, so they must not be able to leave
-    `FRAMES_DIR`.
-    """
+    """Return whether `value` can be used as a single path segment."""
     return isinstance(value, str) and _SAFE_ID.fullmatch(value) is not None
 
 
 def classify_frame(value: object) -> Optional[FrameKind]:
-    """Return "pandas" or "polars" for a frame worth storing, else None.
-
-    PySpark and pandas-on-Spark frames are neither, so they are skipped.
-    """
-    # A query preview holds at most 100 rows, so storing it would pass off a
-    # truncated frame as the result. isinstance, not the cleared-query marker,
-    # because mutating a preview clears the marker but leaves it a preview.
+    """Return "pandas" or "polars" for a frame worth storing, else None."""
     if isinstance(value, DeepnoteQueryPreview):
         return None
     if is_pandas_dataframe(value):
@@ -66,11 +56,7 @@ def classify_frame(value: object) -> Optional[FrameKind]:
 
 
 def resolve_project_root() -> Path:
-    """Return the project's root directory, the one set_notebook_path() uses.
-
-    The working directory cannot be used: set_notebook_path() moves it into the
-    notebook's directory.
-    """
+    """Return the project's root directory, the one set_notebook_path() uses."""
     return resolve_notebook_root()
 
 
@@ -80,7 +66,7 @@ def is_read_only(root: Path) -> bool:
 
 
 def _select_compression() -> str:
-    """Return the best Arrow codec this pyarrow build has: zstd, lz4, else none."""
+    """Return the best codec this pyarrow build has: zstd, lz4, else uncompressed."""
     import pyarrow as pa
 
     for codec in ("zstd", "lz4"):
@@ -116,9 +102,8 @@ def _delete_replaced_frames(
 ) -> None:
     """Delete the frame the replaced manifest called `previous`, and stale strays.
 
-    A stray is a `<uuid>.arrow` that no manifest names, left by a writer that lost
-    a race or crashed. It must be a day old so that a write still in progress is
-    never mistaken for one.
+    Another kernel may still be writing an unnamed frame here, so a stray must be a
+    day old before it is deleted.
     """
     named = {new_file}
     if old is not None:
@@ -131,7 +116,6 @@ def _delete_replaced_frames(
         for entry in entries:
             if entry.name in named or not is_frame_name(entry.name):
                 continue
-            # another writer may prune the same stray first
             with contextlib.suppress(FileNotFoundError):
                 if (
                     entry.is_file(follow_symlinks=False)

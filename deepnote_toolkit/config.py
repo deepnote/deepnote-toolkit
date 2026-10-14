@@ -68,10 +68,7 @@ def get_config(
 
 
 def resolve_notebook_root() -> Path:
-    """Return the project's root directory, which notebook paths are relative to.
-
-    Falls back to environment variables when the configuration cannot be loaded.
-    """
+    """Return the project's root directory, which notebook paths are relative to."""
     try:
         cfg = get_config()
         if cfg.paths.notebook_root:

@@ -1,9 +1,4 @@
-"""Stores and deletes named DataFrames in the project's filesystem.
-
-A stored frame is an ordinary file under `deepnote_dataframes/<name>/`, so anyone
-who can edit the notebook could write it by hand. It holds the DataFrame last stored
-under its name, whichever notebook or execution stored it.
-"""
+"""Stores and deletes named DataFrames in the project's filesystem."""
 
 import errno
 import shutil
@@ -24,8 +19,8 @@ def store_dataframe(df: Any, name: str) -> Optional[str]:
 
     Args:
         df: A pandas or polars DataFrame, written whole with no row or size limit.
-        name: The frame's name, unique within the project. Must match
-            `[A-Za-z0-9_-]{1,128}`.
+        name: The frame's name, unique within the project, and its directory
+            under `deepnote_dataframes/`. Must match `[A-Za-z0-9_-]{1,128}`.
 
     Returns:
         The new frame's reference ID, or None if the project's filesystem is
@@ -36,7 +31,8 @@ def store_dataframe(df: Any, name: str) -> Optional[str]:
         TypeError: `df` is not a pandas or polars DataFrame. That includes PySpark
             and pandas-on-Spark DataFrames, polars LazyFrames and SQL query previews.
         OSError: The write failed.
-        Exception: `df` cannot be serialized to Arrow, as with `df.to_feather()`.
+        Exception: `df` cannot be serialized to Arrow: whatever `df.to_feather()`
+            or polars' `df.write_ipc()` raises.
 
     A failed or interrupted call leaves the name's previous frame current, unless
     it stops after the manifest names the new frame: an interrupt can arrive then,

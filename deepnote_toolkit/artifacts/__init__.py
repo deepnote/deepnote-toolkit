@@ -1,7 +1,4 @@
-"""Stores and deletes named DataFrames in the project's filesystem.
-
-Only the names in __all__ are supported public API.
-"""
+"""Stores and deletes named DataFrames in the project's filesystem."""
 
 from .dataframes import delete_dataframe, store_dataframe
 
