@@ -46,10 +46,7 @@ VERSION_DEPENDENT = [
 
 
 def storage_request(**overrides: Any) -> Dict[str, Any]:
-    """Return the request message that asks the kernel to store a block's result.
-
-    `overrides` replace fields of `deepnote.dataframeStorage`.
-    """
+    """Return the request message that asks the kernel to store a block's result."""
     return {
         "metadata": {
             "deepnote": {

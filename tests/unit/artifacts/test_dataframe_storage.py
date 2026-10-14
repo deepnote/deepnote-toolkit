@@ -1,4 +1,4 @@
-"""Tests for the hook that stores the DataFrame a block with a storage setting returns."""
+"""Tests for the post_run_cell hook that stores a block's DataFrame result."""
 
 import errno
 import json
@@ -32,8 +32,6 @@ from tests.unit.helpers.dataframe_storage import (
     storage_request,
 )
 
-# the only runtime type the webapp's toolkit/errors endpoint accepts; its Sentry
-# fingerprint comes from `code`
 REPORT_TYPE = "TOOLKIT_RUNTIME_ERROR"
 REPORT_CODE = "DATAFRAME_STORAGE_WRITE_FAILED"
 
@@ -475,8 +473,6 @@ def test_report_that_cannot_be_delivered_is_silent(
 
     assert result.success
     assert _displayed(capsys) == expected_output
-    # IPython prints root-logger warnings into the cell, so the failure must only
-    # go to the file logger, and as the exception type alone
     assert caplog.records == []
     assert [args[1:] for args in logged] == [(logged_type,)]
 
@@ -758,7 +754,6 @@ def test_block_frames_and_calls_share_one_name(
     assert first["block_id"] == BLOCK_ID
     assert second["block_id"] == "blk2"
     assert second["previous"] == first["file"]
-    # a frame that code stored last belongs to no block
     assert "block_id" not in third
     assert third["previous"] == second["file"]
     assert _stored_table(root).to_pydict() == {"a": [3]}

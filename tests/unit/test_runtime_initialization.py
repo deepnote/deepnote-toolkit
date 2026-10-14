@@ -21,11 +21,7 @@ STEPS = (
 
 @pytest.fixture
 def steps() -> Iterator[SimpleNamespace]:
-    """Replace every startup step so the test sees only the wiring.
-
-    The logger is replaced too: a real `logger.error` reports to the webapp over
-    HTTP, with retries.
-    """
+    """Replace every startup step so the test sees only the wiring."""
     with (
         mock.patch.multiple(
             "deepnote_toolkit.runtime_initialization",

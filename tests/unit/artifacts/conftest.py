@@ -26,11 +26,7 @@ def parent() -> Dict[str, Any]:
 
 @pytest.fixture
 def reports(monkeypatch: pytest.MonkeyPatch) -> Iterator[SimpleNamespace]:
-    """Replace the webapp transport; `bodies` holds each posted JSON body.
-
-    The writer remembers what it already reported in module state, so it is
-    cleared around every test.
-    """
+    """Replace the webapp transport; `bodies` holds each posted JSON body."""
     transport = SimpleNamespace(bodies=[], calls=[], mock=None)
 
     def record(request: Any) -> Any:

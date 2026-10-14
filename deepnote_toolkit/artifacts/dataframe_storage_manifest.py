@@ -70,7 +70,7 @@ def write_manifest(
     rows: int,
     block_id: Optional[str] = None,
 ) -> None:
-    """Point the manifest at `new_file`, recording the block that wrote it, if any.
+    """Point the manifest at `new_file`, recording `block_id` if given.
 
     On s3fs a rename is a copy and then a delete, so a failed rename may already
     have replaced the manifest.

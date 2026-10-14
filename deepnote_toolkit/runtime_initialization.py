@@ -53,7 +53,6 @@ def init_deepnote_runtime():
     except Exception as e:  # pylint: disable=broad-exception-caught
         logger.error("Failed to add output middleware with a error: %s", e)
 
-    # Store flagged blocks' full DataFrames
     try:
         logger.debug("Registering DataFrame storage hook.")
         register_dataframe_storage()
