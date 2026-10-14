@@ -1,7 +1,10 @@
-"""Frames and execute requests shared by the DataFrame storage tests."""
+"""Frames, execute requests and a read-only mount for the DataFrame storage tests."""
 
+import errno
 import io
+import os
 import uuid
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -55,3 +58,29 @@ def storage_request(**overrides: Any) -> Dict[str, Any]:
             }
         }
     }
+
+
+def read_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail Path.open writes, mkdir and deletes with EROFS, like a read-only mount."""
+
+    def refuse(*args: Any, **kwargs: Any) -> Any:
+        raise OSError(errno.EROFS, "Read-only file system")
+
+    real_open = Path.open
+
+    def open_for_reading(self: Path, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+        if mode.strip("rbt"):
+            refuse()
+        return real_open(self, mode, *args, **kwargs)
+
+    # The kernel reports EEXIST before EROFS, so an existing directory passes.
+    def mkdir(
+        self: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False
+    ) -> None:
+        if not (exist_ok and self.is_dir()):
+            refuse()
+
+    monkeypatch.setattr(Path, "open", open_for_reading)
+    monkeypatch.setattr(Path, "mkdir", mkdir)
+    monkeypatch.setattr(os, "unlink", refuse)
+    monkeypatch.setattr(os, "rmdir", refuse)

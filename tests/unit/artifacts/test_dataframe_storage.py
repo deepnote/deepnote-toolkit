@@ -2,7 +2,6 @@
 
 import errno
 import json
-import os
 import re
 import warnings
 from pathlib import Path
@@ -17,6 +16,7 @@ import pytest
 import requests
 import responses
 from IPython.core.interactiveshell import ExecutionResult, InteractiveShell
+from pyarrow import feather
 
 from deepnote_toolkit import artifacts
 from deepnote_toolkit.artifacts import dataframe_storage
@@ -29,6 +29,7 @@ from tests.unit.helpers.dataframe_storage import (
     REPORT_URL,
     VERSION_DEPENDENT,
     probe_failure,
+    read_only,
     storage_request,
 )
 
@@ -296,7 +297,7 @@ def test_unserializable_frame_is_not_stored_and_reported_once(
     make_frame: Callable[[], Any],
 ) -> None:
     probed = probe_failure(make_frame())
-    assert probed is not None, "pandas is expected to refuse this frame"
+    assert probed is not None, "pyarrow is expected to refuse this frame"
 
     left = _failing_frame_runs(shell, root, reports, make_frame)
 
@@ -314,7 +315,7 @@ def test_unserializable_frame_is_not_stored_and_reported_once(
 
 
 @pytest.mark.parametrize("make_frame, rows", VERSION_DEPENDENT)
-def test_frames_pandas_may_refuse_follow_what_pandas_does(
+def test_frames_pyarrow_may_refuse_follow_what_pyarrow_does(
     shell: InteractiveShell,
     root: Path,
     reports: SimpleNamespace,
@@ -487,13 +488,13 @@ def test_writer_adds_nothing_to_the_cell(
 ) -> None:
     frame = pd.DataFrame({"a": [1, "two"]})
     expected_output = _output_without_storage(shell, frame, capsys, monkeypatch)
-    original = pd.DataFrame.to_feather
+    original = feather.write_feather
 
-    def noisy_to_feather(self: pd.DataFrame, *args: Any, **kwargs: Any) -> Any:
+    def noisy_write_feather(frame: pd.DataFrame, *args: Any, **kwargs: Any) -> Any:
         warnings.warn("noisy", UserWarning)
-        return original(self, *args, **kwargs)
+        return original(frame, *args, **kwargs)
 
-    monkeypatch.setattr(pd.DataFrame, "to_feather", noisy_to_feather)
+    monkeypatch.setattr(feather, "write_feather", noisy_write_feather)
 
     with warnings.catch_warnings(record=True) as recorded:
         warnings.simplefilter("always")
@@ -579,11 +580,11 @@ def test_partial_file_is_deleted_when_the_write_fails(
     reports: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def write_some_then_fail(self: pd.DataFrame, sink: Any, **kwargs: Any) -> None:
+    def write_some_then_fail(frame: pd.DataFrame, sink: Any, **kwargs: Any) -> None:
         sink.write(b"ARROW1 partial")
         raise OSError(errno.EIO, "Input/output error")
 
-    monkeypatch.setattr(pd.DataFrame, "to_feather", write_some_then_fail)
+    monkeypatch.setattr(feather, "write_feather", write_some_then_fail)
 
     result = _run(shell, pd.DataFrame({"a": [1]}))
 
@@ -623,17 +624,13 @@ def test_read_only_mount_is_skipped_before_converting(
 ) -> None:
     frame = pd.DataFrame({"a": [1]})
     expected_output = _output_without_storage(shell, frame, capsys, monkeypatch)
-    monkeypatch.setattr(
-        dataframe_storage.os,
-        "statvfs",
-        lambda path: SimpleNamespace(f_flag=os.ST_RDONLY),
-    )
+    read_only(monkeypatch)
 
-    with mock.patch.object(pd.DataFrame, "to_feather", autospec=True) as to_feather:
+    with mock.patch.object(feather, "write_feather", autospec=True) as write:
         result = _run(shell, frame)
 
     assert result.success
-    to_feather.assert_not_called()
+    write.assert_not_called()
     assert not (root / "deepnote_dataframes").exists()
     assert reports.bodies == []
     assert _displayed(capsys) == expected_output
@@ -649,16 +646,49 @@ def test_erofs_from_the_write_is_silent(
     frame = pd.DataFrame({"a": [1]})
     expected_output = _output_without_storage(shell, frame, capsys, monkeypatch)
 
-    def refuse(self: pd.DataFrame, sink: Any, **kwargs: Any) -> None:
+    def refuse(frame: pd.DataFrame, sink: Any, **kwargs: Any) -> None:
         raise OSError(errno.EROFS, "Read-only file system")
 
-    monkeypatch.setattr(pd.DataFrame, "to_feather", refuse)
+    monkeypatch.setattr(feather, "write_feather", refuse)
 
     result = _run(shell, frame)
 
     assert result.success
     assert reports.bodies == []
     assert _arrow_files(root) == []
+    assert _displayed(capsys) == expected_output
+
+
+def test_erofs_after_the_manifest_step_is_silent(
+    shell: InteractiveShell,
+    root: Path,
+    reports: SimpleNamespace,
+    capsys: pytest.CaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    frame = pd.DataFrame({"a": [3]})
+    expected_output = _output_without_storage(shell, frame, capsys, monkeypatch)
+    _run(shell, pd.DataFrame({"a": [1]}))
+    _run(shell, pd.DataFrame({"a": [2]}))
+    replaced = _frame_dir(root) / _manifest(root)["previous"]
+    real_unlink = Path.unlink
+
+    def unlink_refused_for_the_replaced_frame(
+        self: Path, *args: Any, **kwargs: Any
+    ) -> None:
+        if self == replaced:
+            raise OSError(errno.EROFS, "Read-only file system")
+        real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", unlink_refused_for_the_replaced_frame)
+    capsys.readouterr()
+
+    result = _run(shell, frame)
+
+    assert result.success
+    assert _stored_table(root).to_pydict() == {"a": [3]}
+    assert replaced.exists()
+    assert reports.bodies == []
     assert _displayed(capsys) == expected_output
 
 
@@ -669,13 +699,15 @@ def test_interrupt_during_the_write_fails_the_execution(
     capsys: pytest.CaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def write_some_then_interrupt(self: pd.DataFrame, sink: Any, **kwargs: Any) -> None:
+    def write_some_then_interrupt(
+        frame: pd.DataFrame, sink: Any, **kwargs: Any
+    ) -> None:
         sink.write(b"ARROW1 partial")
         raise KeyboardInterrupt
 
     _run(shell, pd.DataFrame({"a": [1]}))
     manifest_bytes = (_frame_dir(root) / "manifest.json").read_bytes()
-    monkeypatch.setattr(pd.DataFrame, "to_feather", write_some_then_interrupt)
+    monkeypatch.setattr(feather, "write_feather", write_some_then_interrupt)
     capsys.readouterr()
 
     result = _run(shell, pd.DataFrame({"a": [2]}))

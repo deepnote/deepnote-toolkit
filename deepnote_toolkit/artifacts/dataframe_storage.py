@@ -272,8 +272,6 @@ def _store_result_frame(result: ExecutionResult) -> None:
         if kind is None:
             return
         root = resolve_project_root()
-        if is_read_only(root):
-            return
         store_frame(result.result, kind, target.name, root, target.block_id)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         if isinstance(exc, OSError) and exc.errno == errno.EROFS:

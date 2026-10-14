@@ -31,6 +31,7 @@ from tests.unit.helpers.dataframe_storage import (
     ALWAYS_FAILING,
     VERSION_DEPENDENT,
     probe_failure,
+    read_only,
 )
 
 NAME = "revenue"
@@ -61,32 +62,6 @@ def _stored_table(root: Path, name: str = NAME) -> pa.Table:
 def _backdate(path: Path, age_seconds: float) -> None:
     mtime = time.time() - age_seconds
     os.utime(path, (mtime, mtime), follow_symlinks=False)
-
-
-def _read_only(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Fail Path.open writes, mkdir and deletes with EROFS, like a read-only mount."""
-
-    def refuse(*args: Any, **kwargs: Any) -> Any:
-        raise OSError(errno.EROFS, "Read-only file system")
-
-    real_open = Path.open
-
-    def open_for_reading(self: Path, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
-        if mode.strip("rbt"):
-            refuse()
-        return real_open(self, mode, *args, **kwargs)
-
-    # The kernel reports EEXIST before EROFS, so an existing directory passes.
-    def mkdir(
-        self: Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False
-    ) -> None:
-        if not (exist_ok and self.is_dir()):
-            refuse()
-
-    monkeypatch.setattr(Path, "open", open_for_reading)
-    monkeypatch.setattr(Path, "mkdir", mkdir)
-    monkeypatch.setattr(os, "unlink", refuse)
-    monkeypatch.setattr(os, "rmdir", refuse)
 
 
 def test_stores_pandas_frame_and_manifest(root: Path) -> None:
@@ -233,7 +208,7 @@ def test_invalid_name_raises_before_anything_is_written(root: Path, name: Any) -
 def test_invalid_name_raises_on_a_read_only_mount(
     root: Path, monkeypatch: pytest.MonkeyPatch, name: Any
 ) -> None:
-    _read_only(monkeypatch)
+    read_only(monkeypatch)
 
     with pytest.raises(ValueError):
         artifacts.store_dataframe(pd.DataFrame({"a": [1]}), name)
@@ -288,7 +263,7 @@ def test_query_preview_raises_type_error(
 def test_unsupported_value_raises_type_error_on_a_read_only_mount(
     root: Path, monkeypatch: pytest.MonkeyPatch, make_value: Callable[[], Any]
 ) -> None:
-    _read_only(monkeypatch)
+    read_only(monkeypatch)
 
     with pytest.raises(TypeError):
         artifacts.store_dataframe(make_value(), NAME)
@@ -977,7 +952,7 @@ def test_stray_pruned_by_another_writer_meanwhile_is_not_a_failure(
 def test_read_only_mount_stores_nothing_and_does_not_convert(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    _read_only(monkeypatch)
+    read_only(monkeypatch)
 
     with mock.patch.object(feather, "write_feather", autospec=True) as write:
         result = artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
@@ -992,7 +967,7 @@ def test_read_only_mount_keeps_the_stored_frame_and_does_not_convert(
 ) -> None:
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
     manifest_bytes = (_frame_dir(root) / "manifest.json").read_bytes()
-    _read_only(monkeypatch)
+    read_only(monkeypatch)
 
     with mock.patch.object(feather, "write_feather", autospec=True) as write:
         result = artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
@@ -1200,7 +1175,7 @@ def test_delete_on_a_read_only_mount_deletes_nothing(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
-    _read_only(monkeypatch)
+    read_only(monkeypatch)
 
     assert artifacts.delete_dataframe(NAME) is False
 
