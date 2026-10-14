@@ -20,6 +20,7 @@ import pandas as pd
 import polars as pl
 import pyarrow as pa
 import pytest
+from pyarrow import feather
 
 import deepnote_toolkit
 from deepnote_toolkit import artifacts
@@ -118,6 +119,24 @@ def test_writing_does_not_change_the_callers_frame(root: Path) -> None:
     pd.testing.assert_frame_equal(frame, before)
 
 
+def test_filtered_frame_is_stored_with_its_row_labels(
+    root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(self: pd.DataFrame, *args: Any, **kwargs: Any) -> None:
+        raise ValueError("feather does not support serializing a non-default index")
+
+    # pandas >= 2.1 accepts this frame, so make to_feather refuse it as < 2.1 does.
+    monkeypatch.setattr(pd.DataFrame, "to_feather", refuse)
+    frame = pd.DataFrame({"a": [5, 6, 7, 8]})
+
+    artifacts.store_dataframe(frame[frame.a != 7], NAME)
+
+    assert _stored_table(root).to_pydict() == {
+        "a": [5, 6, 8],
+        "__index_level_0__": [0, 1, 3],
+    }
+
+
 def test_groupby_keys_are_stored_after_the_data_columns(root: Path) -> None:
     frame = pd.DataFrame({"k": ["a", "a", "b"], "v": [1, 2, 3]}).groupby("k").sum()
 
@@ -184,11 +203,11 @@ INVALID_NAMES = [
 
 @pytest.mark.parametrize("name", INVALID_NAMES)
 def test_invalid_name_raises_before_anything_is_written(root: Path, name: Any) -> None:
-    with mock.patch.object(pd.DataFrame, "to_feather", autospec=True) as to_feather:
+    with mock.patch.object(feather, "write_feather", autospec=True) as write:
         with pytest.raises(ValueError):
             artifacts.store_dataframe(pd.DataFrame({"a": [1]}), name)
 
-    to_feather.assert_not_called()
+    write.assert_not_called()
     assert list(root.iterdir()) == []
 
 
@@ -663,10 +682,10 @@ def _store_bad_frame_after_a_good_one(
 def test_unserializable_frame_raises_and_keeps_the_previous_frame(
     root: Path, make_frame: Callable[[], Any]
 ) -> None:
-    raised_by_pandas = probe_failure(make_frame())
-    assert raised_by_pandas is not None, "pandas is expected to refuse this frame"
+    raised_by_pyarrow = probe_failure(make_frame())
+    assert raised_by_pyarrow is not None, "pyarrow is expected to refuse this frame"
 
-    left = _store_bad_frame_after_a_good_one(root, make_frame, raised_by_pandas)
+    left = _store_bad_frame_after_a_good_one(root, make_frame, raised_by_pyarrow)
 
     assert (_frame_dir(root) / "manifest.json").read_bytes() == left["manifest_bytes"]
     assert left["listing"] == sorted(["manifest.json", _manifest(root)["file"]])
@@ -674,14 +693,14 @@ def test_unserializable_frame_raises_and_keeps_the_previous_frame(
 
 
 @pytest.mark.parametrize("make_frame, rows", VERSION_DEPENDENT)
-def test_frames_pandas_may_refuse_follow_what_pandas_does(
+def test_frames_pyarrow_may_refuse_follow_what_pyarrow_does(
     root: Path, make_frame: Callable[[], Any], rows: int
 ) -> None:
-    raised_by_pandas = probe_failure(make_frame())
+    raised_by_pyarrow = probe_failure(make_frame())
 
-    left = _store_bad_frame_after_a_good_one(root, make_frame, raised_by_pandas)
+    left = _store_bad_frame_after_a_good_one(root, make_frame, raised_by_pyarrow)
 
-    if raised_by_pandas is None:
+    if raised_by_pyarrow is None:
         assert _stored_table(root).num_rows == rows
         return
     assert (_frame_dir(root) / "manifest.json").read_bytes() == left["manifest_bytes"]
@@ -704,11 +723,11 @@ def test_polars_object_column_raises_and_keeps_the_previous_frame(root: Path) ->
 def test_partial_file_is_deleted_when_the_write_fails(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def write_some_then_fail(self: pd.DataFrame, sink: Any, **kwargs: Any) -> None:
+    def write_some_then_fail(frame: pd.DataFrame, sink: Any, **kwargs: Any) -> None:
         sink.write(b"ARROW1 partial")
         raise OSError(errno.EIO, "Input/output error")
 
-    monkeypatch.setattr(pd.DataFrame, "to_feather", write_some_then_fail)
+    monkeypatch.setattr(feather, "write_feather", write_some_then_fail)
 
     with pytest.raises(OSError) as raised:
         artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
@@ -916,21 +935,21 @@ def test_read_only_mount_stores_nothing_and_does_not_convert(
 ) -> None:
     _read_only(monkeypatch)
 
-    with mock.patch.object(pd.DataFrame, "to_feather", autospec=True) as to_feather:
+    with mock.patch.object(feather, "write_feather", autospec=True) as write:
         result = artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
     assert result is None
-    to_feather.assert_not_called()
+    write.assert_not_called()
     assert list(root.iterdir()) == []
 
 
 def test_erofs_from_the_write_stores_nothing(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def refuse(self: pd.DataFrame, sink: Any, **kwargs: Any) -> None:
+    def refuse(frame: pd.DataFrame, sink: Any, **kwargs: Any) -> None:
         raise OSError(errno.EROFS, "Read-only file system")
 
-    monkeypatch.setattr(pd.DataFrame, "to_feather", refuse)
+    monkeypatch.setattr(feather, "write_feather", refuse)
 
     result = artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
@@ -941,13 +960,15 @@ def test_erofs_from_the_write_stores_nothing(
 def test_interrupt_during_the_write_raises_and_keeps_the_previous_frame(
     root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def write_some_then_interrupt(self: pd.DataFrame, sink: Any, **kwargs: Any) -> None:
+    def write_some_then_interrupt(
+        frame: pd.DataFrame, sink: Any, **kwargs: Any
+    ) -> None:
         sink.write(b"ARROW1 partial")
         raise KeyboardInterrupt
 
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
     manifest_bytes = (_frame_dir(root) / "manifest.json").read_bytes()
-    monkeypatch.setattr(pd.DataFrame, "to_feather", write_some_then_interrupt)
+    monkeypatch.setattr(feather, "write_feather", write_some_then_interrupt)
 
     with pytest.raises(KeyboardInterrupt):
         artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)

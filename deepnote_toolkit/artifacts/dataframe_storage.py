@@ -74,14 +74,17 @@ def _select_compression() -> str:
 def _write_frame_file(
     frame: Any, kind: FrameKind, path: Path, compression: str
 ) -> None:
-    """Write the frame to `path` as an Arrow IPC file, with the library's own call.
+    """Write the frame to `path` as an Arrow IPC file.
 
     Going through a Python file object makes `close()` raise upload errors, which
     s3fs only surfaces there.
     """
     with path.open("wb") as sink:
         if kind == "pandas":
-            frame.to_feather(sink, compression=compression)
+            from pyarrow import feather
+
+            # pandas < 2.1's to_feather needs a default index and string column names.
+            feather.write_feather(frame, sink, compression=compression)
         else:
             import polars
 

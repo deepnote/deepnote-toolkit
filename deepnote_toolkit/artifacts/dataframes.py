@@ -31,8 +31,8 @@ def store_dataframe(df: Any, name: str) -> Optional[str]:
         TypeError: `df` is not a pandas or polars DataFrame. That includes PySpark
             and pandas-on-Spark DataFrames, polars LazyFrames and SQL query previews.
         OSError: The write failed.
-        Exception: `df` cannot be serialized to Arrow: whatever `df.to_feather()`
-            or polars' `df.write_ipc()` raises.
+        Exception: `df` cannot be serialized to Arrow: whatever pyarrow's
+            `write_feather()` or polars' `df.write_ipc()` raises.
 
     A failed or interrupted call leaves the name's previous frame current, unless
     it stops after the manifest names the new frame: an interrupt can arrive then,
