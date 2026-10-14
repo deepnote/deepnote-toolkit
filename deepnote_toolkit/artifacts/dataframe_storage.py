@@ -3,11 +3,10 @@
 import contextlib
 import os
 import re
-import signal
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Callable, Iterator, Literal, Optional
+from typing import Any, Literal, Optional
 
 from packaging.version import Version
 
@@ -73,40 +72,6 @@ def resolve_project_root() -> Path:
     notebook's directory.
     """
     return resolve_notebook_root()
-
-
-@contextlib.contextmanager
-def _sigint_handled_by(handler: Callable[..., Any]) -> Iterator[None]:
-    """Install `handler` for SIGINT, then restore the previous one.
-
-    Off the main thread signal handlers cannot be set, and nothing needs to be.
-    """
-    try:
-        previous = signal.signal(signal.SIGINT, handler)
-    except ValueError:
-        yield
-        return
-    try:
-        yield
-    finally:
-        if previous is not None:
-            signal.signal(signal.SIGINT, previous)
-
-
-@contextlib.contextmanager
-def _sigint_deferred() -> Iterator[None]:
-    """Hold SIGINT back until the block ends, then raise it as KeyboardInterrupt.
-
-    It is raised even when the block fails, chained to that failure, so that an
-    error never swallows Stop.
-    """
-    interrupted: list[bool] = []
-    try:
-        with _sigint_handled_by(lambda *_: interrupted.append(True)):
-            yield
-    finally:
-        if interrupted:
-            raise KeyboardInterrupt
 
 
 def is_read_only(root: Path) -> bool:
@@ -177,29 +142,21 @@ def _delete_replaced_frames(
 
 
 def store_frame(frame: Any, kind: FrameKind, name: str, root: Path) -> str:
-    """Store the frame as the current one under `name` and return its reference ID.
-
-    The order matters because S3 replaces the manifest in one step: the frame is
-    complete before the manifest names it, and nothing is deleted before then.
-    An interrupt stops everything but the manifest update, which finishes first:
-    one after the manifest is renamed into place would delete the frame it now names.
-    """
+    """Store the frame as the current one under `name` and return its reference ID."""
     directory = root / FRAMES_DIR / name
     directory.mkdir(parents=True, exist_ok=True)
 
     reference_id = str(uuid.uuid4())
     new_file = f"{reference_id}.arrow"
-    committed = False
     try:
         _write_frame_file(frame, kind, directory / new_file, _select_compression())
-        with _sigint_deferred():
-            old = read_manifest(directory)
-            write_manifest(directory, new_file, old.file if old else None, len(frame))
-            committed = True
+        old = read_manifest(directory)
     except BaseException:
-        if not committed:
-            with contextlib.suppress(OSError):
-                (directory / new_file).unlink(missing_ok=True)
+        with contextlib.suppress(OSError):
+            (directory / new_file).unlink(missing_ok=True)
         raise
+    # A failure from here on keeps the new frame: an s3fs rename can put the new
+    # manifest in place and still fail.
+    write_manifest(directory, new_file, old.file if old else None, len(frame))
     _delete_replaced_frames(directory, old, new_file)
     return reference_id

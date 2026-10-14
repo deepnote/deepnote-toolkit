@@ -1,18 +1,13 @@
-"""Frames and interrupts shared by the DataFrame storage tests."""
+"""Frames shared by the DataFrame storage tests."""
 
 import io
-import signal
-import tempfile
 import uuid
-from types import SimpleNamespace
 from typing import Any, Optional
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pytest
-
-from deepnote_toolkit.artifacts import dataframe_storage, dataframe_storage_manifest
 
 
 def probe_failure(frame: Any) -> Optional[type]:
@@ -47,58 +42,3 @@ VERSION_DEPENDENT = [
     pytest.param(lambda: pd.DataFrame({"a": [uuid.UUID(int=1)]}), 1, id="uuid"),
     pytest.param(dictionary_concat, 4, id="dictionary-concat"),
 ]
-
-
-class SigintBeforeWrite:
-    """A handle that gets SIGINT after the file was opened, before it is written."""
-
-    def __init__(self, handle: Any) -> None:
-        self._handle = handle
-
-    def write(self, data: str) -> int:
-        signal.raise_signal(signal.SIGINT)
-        return self._handle.write(data)
-
-    def __enter__(self) -> "SigintBeforeWrite":
-        return self
-
-    def __exit__(self, *exc_info: Any) -> None:
-        self._handle.close()
-
-    def __getattr__(self, name: str) -> Any:
-        return getattr(self._handle, name)
-
-
-def interrupt_at(point: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make the next write receive SIGINT at the named point after its frame file."""
-    if point == "manifest-being-written":
-        real_temporary_file = tempfile.NamedTemporaryFile
-
-        def temporary_file_getting_sigint(*args: Any, **kwargs: Any) -> Any:
-            return SigintBeforeWrite(real_temporary_file(*args, **kwargs))
-
-        monkeypatch.setattr(
-            dataframe_storage_manifest,
-            "tempfile",
-            SimpleNamespace(NamedTemporaryFile=temporary_file_getting_sigint),
-        )
-    elif point == "manifest-written":
-        write_manifest = dataframe_storage.write_manifest
-
-        def write_manifest_then_interrupt(*args: Any, **kwargs: Any) -> None:
-            write_manifest(*args, **kwargs)
-            signal.raise_signal(signal.SIGINT)
-
-        monkeypatch.setattr(
-            dataframe_storage, "write_manifest", write_manifest_then_interrupt
-        )
-    else:
-        delete_replaced_frames = dataframe_storage._delete_replaced_frames
-
-        def interrupt_then_delete(*args: Any, **kwargs: Any) -> None:
-            signal.raise_signal(signal.SIGINT)
-            delete_replaced_frames(*args, **kwargs)
-
-        monkeypatch.setattr(
-            dataframe_storage, "_delete_replaced_frames", interrupt_then_delete
-        )

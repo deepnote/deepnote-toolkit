@@ -70,7 +70,8 @@ def write_manifest(
     """Point the manifest at `new_file`.
 
     The manifest is written under a temporary name and renamed over the old one, so
-    a write that fails part-way leaves the old manifest in place.
+    a write that fails part-way leaves the old manifest in place, unless an s3fs
+    rename fails after copying the new one over it.
     """
     manifest: dict[str, Any] = {"version": MANIFEST_VERSION, "file": new_file}
     if previous is not None:

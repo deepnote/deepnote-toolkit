@@ -38,9 +38,10 @@ def store_dataframe(df: Any, name: str) -> Optional[str]:
         OSError: The write failed.
         Exception: `df` cannot be serialized to Arrow, as with `df.to_feather()`.
 
-    A failed call leaves the name's previous frame current, unless it fails after
-    the manifest names the new frame: an interrupt held during the manifest update
-    is raised then, and so is a failure while deleting the frames it replaced.
+    A failed or interrupted call leaves the name's previous frame current, unless
+    it stops after the manifest names the new frame: an interrupt can arrive then,
+    deleting the frames it replaced can fail, and so can an s3fs rename that has
+    already put the new manifest in place.
     """
     _check_name(name)
     kind = dataframe_storage.classify_frame(df)
