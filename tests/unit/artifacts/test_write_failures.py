@@ -31,25 +31,32 @@ from tests.unit.helpers.dataframe_storage import (
 )
 
 
+def _store_a_good_frame(tmp_project_root: Path) -> bytes:
+    artifacts.store_dataframe(pd.DataFrame({"ok": [1]}), NAME)
+    return (frame_dir(tmp_project_root) / "manifest.json").read_bytes()
+
+
+def _store_frame_after_a_good_one(
+    tmp_project_root: Path, make_frame: Callable[[], Any]
+) -> None:
+    _store_a_good_frame(tmp_project_root)
+    artifacts.store_dataframe(make_frame(), NAME)
+
+
 def _store_bad_frame_after_a_good_one(
-    tmp_project_root: Path, make_frame: Callable[[], Any], expected_error: Optional[type]
+    tmp_project_root: Path, make_frame: Callable[[], Any], expected_error: type
 ) -> Dict[str, Any]:
     """Store a good frame, then a bad one.
 
     Return the good call's manifest bytes and the directory listing after the bad call.
     """
-    artifacts.store_dataframe(pd.DataFrame({"ok": [1]}), NAME)
-    directory = frame_dir(tmp_project_root)
-    manifest_bytes = (directory / "manifest.json").read_bytes()
-    if expected_error is None:
+    manifest_bytes = _store_a_good_frame(tmp_project_root)
+    with pytest.raises(expected_error) as raised:
         artifacts.store_dataframe(make_frame(), NAME)
-    else:
-        with pytest.raises(expected_error) as raised:
-            artifacts.store_dataframe(make_frame(), NAME)
-        assert raised.type is expected_error
+    assert raised.type is expected_error
     return {
         "manifest_bytes": manifest_bytes,
-        "listing": sorted(path.name for path in directory.iterdir()),
+        "listing": sorted(path.name for path in frame_dir(tmp_project_root).iterdir()),
     }
 
 
@@ -79,13 +86,14 @@ def test_frames_pyarrow_may_refuse_follow_what_pyarrow_does(
 ) -> None:
     raised_by_pyarrow = probe_failure(make_frame())
 
+    if raised_by_pyarrow is None:
+        _store_frame_after_a_good_one(tmp_project_root, make_frame)
+        assert stored_table(tmp_project_root).num_rows == rows
+        return
     left = _store_bad_frame_after_a_good_one(
         tmp_project_root, make_frame, raised_by_pyarrow
     )
 
-    if raised_by_pyarrow is None:
-        assert stored_table(tmp_project_root).num_rows == rows
-        return
     assert (frame_dir(tmp_project_root) / "manifest.json").read_bytes() == left[
         "manifest_bytes"
     ]
