@@ -32,14 +32,14 @@ from tests.unit.helpers.dataframe_storage import (
 
 
 def _store_bad_frame_after_a_good_one(
-    root: Path, make_frame: Callable[[], Any], expected_error: Optional[type]
+    tmp_project_root: Path, make_frame: Callable[[], Any], expected_error: Optional[type]
 ) -> Dict[str, Any]:
     """Store a good frame, then a bad one.
 
     Return the good call's manifest bytes and the directory listing after the bad call.
     """
     artifacts.store_dataframe(pd.DataFrame({"ok": [1]}), NAME)
-    directory = frame_dir(root)
+    directory = frame_dir(tmp_project_root)
     manifest_bytes = (directory / "manifest.json").read_bytes()
     if expected_error is None:
         artifacts.store_dataframe(make_frame(), NAME)
