@@ -44,8 +44,9 @@ def _store_bad_frame_after_a_good_one(
     if expected_error is None:
         artifacts.store_dataframe(make_frame(), NAME)
     else:
-        with pytest.raises(expected_error):
+        with pytest.raises(expected_error) as raised:
             artifacts.store_dataframe(make_frame(), NAME)
+        assert raised.type is expected_error
     return {
         "manifest_bytes": manifest_bytes,
         "listing": sorted(path.name for path in directory.iterdir()),
@@ -99,11 +100,12 @@ def test_polars_object_column_raises_and_keeps_the_previous_frame(
     artifacts.store_dataframe(pl.DataFrame({"ok": [1]}), NAME)
     manifest_bytes = (frame_dir(tmp_project_root) / "manifest.json").read_bytes()
 
-    with pytest.raises(pl.exceptions.ComputeError):
+    with pytest.raises(pl.exceptions.ComputeError) as raised:
         artifacts.store_dataframe(
             pl.DataFrame({"a": pl.Series([object()], dtype=pl.Object)}), NAME
         )
 
+    raised.match("'Object' datatype")
     assert (
         frame_dir(tmp_project_root) / "manifest.json"
     ).read_bytes() == manifest_bytes
@@ -167,9 +169,10 @@ def test_failed_manifest_read_deletes_the_new_frame(
 
     monkeypatch.setattr(Path, "open", open_failing_for_the_manifest)
 
-    with pytest.raises(OSError):
+    with pytest.raises(OSError) as raised:
         artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
 
+    assert raised.value.errno == errno.EIO
     assert arrow_files(tmp_project_root) == frames
 
 
@@ -190,9 +193,10 @@ def test_failure_in_the_manifest_step_deletes_nothing(
 
     monkeypatch.setattr(dataframe_storage, "write_manifest", broken_manifest)
 
-    with pytest.raises(OSError):
+    with pytest.raises(OSError) as raised:
         artifacts.store_dataframe(pd.DataFrame({"a": [3]}), NAME)
 
+    assert raised.value.errno == errno.EIO
     assert (directory / "manifest.json").read_bytes() == manifest_bytes
     entries = {path.name for path in directory.iterdir()}
     assert set(listing) <= entries and len(entries - set(listing)) == 1
@@ -200,17 +204,16 @@ def test_failure_in_the_manifest_step_deletes_nothing(
 
 
 class _FailingManifestHandle:
-    """A temporary manifest whose write() fails or is interrupted, or close() fails."""
+    """A temporary manifest whose write() or close() raises `error`."""
 
-    def __init__(self, handle: Any, failing: str) -> None:
+    def __init__(self, handle: Any, failing: str, error: BaseException) -> None:
         self._handle = handle
         self._failing = failing
+        self._error = error
 
     def write(self, data: str) -> int:
         if self._failing == "write":
-            raise OSError(errno.ENOSPC, "No space left on device")
-        if self._failing == "interrupt":
-            raise KeyboardInterrupt
+            raise self._error
         return self._handle.write(data)
 
     def __enter__(self) -> "_FailingManifestHandle":
@@ -219,22 +222,34 @@ class _FailingManifestHandle:
     def __exit__(self, *exc_info: Any) -> None:
         self._handle.close()
         if self._failing == "close":
-            raise OSError(errno.EIO, "Input/output error")
+            raise self._error
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._handle, name)
 
 
-@pytest.mark.parametrize("failing", ["write", "close", "interrupt"])
+@pytest.mark.parametrize(
+    "failing, error",
+    [
+        ("write", OSError(errno.ENOSPC, "No space left on device")),
+        ("close", OSError(errno.EIO, "Input/output error")),
+        ("write", KeyboardInterrupt()),
+    ],
+    ids=["write", "close", "interrupt"],
+)
 def test_failed_manifest_write_keeps_the_previous_frame(
-    tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch, failing: str
+    tmp_project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failing: str,
+    error: BaseException,
 ) -> None:
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
     manifest_bytes = (frame_dir(tmp_project_root) / "manifest.json").read_bytes()
     real_temporary_file = tempfile.NamedTemporaryFile
 
     def failing_temporary_file(*args: Any, **kwargs: Any) -> Any:
-        return _FailingManifestHandle(real_temporary_file(*args, **kwargs), failing)
+        handle = real_temporary_file(*args, **kwargs)
+        return _FailingManifestHandle(handle, failing, error)
 
     monkeypatch.setattr(
         dataframe_storage_manifest,
@@ -242,9 +257,10 @@ def test_failed_manifest_write_keeps_the_previous_frame(
         SimpleNamespace(NamedTemporaryFile=failing_temporary_file),
     )
 
-    with pytest.raises(KeyboardInterrupt if failing == "interrupt" else OSError):
+    with pytest.raises(type(error)) as raised:
         artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
 
+    assert raised.value is error
     assert (
         frame_dir(tmp_project_root) / "manifest.json"
     ).read_bytes() == manifest_bytes
@@ -264,9 +280,10 @@ def test_rename_failing_after_the_copy_keeps_the_frame_it_put_in_place(
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
     monkeypatch.setattr(dataframe_storage_manifest.os, "replace", _copy_then_fail)
 
-    with pytest.raises(OSError):
+    with pytest.raises(OSError) as raised:
         artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
 
+    assert raised.value.errno == errno.EIO
     assert stored_table(tmp_project_root).to_pydict() == {"a": [2]}
 
 
@@ -290,28 +307,32 @@ def test_failure_after_the_manifest_step_keeps_the_new_frame(
 
     monkeypatch.setattr(Path, "unlink", unlink_failing_for_the_replaced_frame)
 
-    with pytest.raises(OSError):
+    with pytest.raises(OSError) as raised:
         artifacts.store_dataframe(pd.DataFrame({"a": [3]}), NAME)
 
+    assert raised.value.errno == error
     assert stored_table(tmp_project_root).to_pydict() == {"a": [3]}
 
 
 def test_interrupt_during_the_write_raises_and_keeps_the_previous_frame(
     tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    interrupt = KeyboardInterrupt()
+
     def write_some_then_interrupt(
         frame: pd.DataFrame, sink: Any, **kwargs: Any
     ) -> None:
         sink.write(b"ARROW1 partial")
-        raise KeyboardInterrupt
+        raise interrupt
 
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
     manifest_bytes = (frame_dir(tmp_project_root) / "manifest.json").read_bytes()
     monkeypatch.setattr(feather, "write_feather", write_some_then_interrupt)
 
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(KeyboardInterrupt) as raised:
         artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
 
+    assert raised.value is interrupt
     assert (
         frame_dir(tmp_project_root) / "manifest.json"
     ).read_bytes() == manifest_bytes

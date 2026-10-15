@@ -68,7 +68,10 @@ def test_delete_does_not_follow_a_link_out_of_the_frames_directory(
         outside, target_is_directory=True
     )
 
-    with pytest.raises(OSError):
+    with pytest.raises(OSError) as raised:
         artifacts.delete_dataframe(NAME)
 
+    # Not match=: newer Pythons (3.12.x and up) set this error's filename, and str()
+    # then shows "[Errno None] None: <path>" instead of the message.
+    assert raised.value.args == ("Cannot call rmtree on a symbolic link",)
     assert (outside / "keep.txt").read_text() == "keep"
