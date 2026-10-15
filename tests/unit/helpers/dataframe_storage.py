@@ -7,13 +7,16 @@ import os
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pytest
 from pyarrow import feather
+
+from deepnote_core.pydantic_compat_helpers import model_validate_compat
+from deepnote_toolkit.artifacts.dataframe_storage_manifest import Manifest
 
 NAME = "revenue"
 DAY = 24 * 60 * 60
@@ -29,13 +32,14 @@ def arrow_files(root: Path, name: str = NAME) -> List[Path]:
     return sorted(frame_dir(root, name).glob("*.arrow"))
 
 
-def stored_manifest(root: Path, name: str = NAME) -> Dict[str, Any]:
-    return json.loads((frame_dir(root, name) / "manifest.json").read_text())
+def stored_manifest(root: Path, name: str = NAME) -> Manifest:
+    raw = json.loads((frame_dir(root, name) / "manifest.json").read_text())
+    return model_validate_compat(Manifest, raw)
 
 
 def stored_table(root: Path, name: str = NAME) -> pa.Table:
     """The frame the name's manifest currently names."""
-    path = frame_dir(root, name) / stored_manifest(root, name)["file"]
+    path = frame_dir(root, name) / stored_manifest(root, name).file
     return pa.ipc.open_file(path).read_all()
 
 

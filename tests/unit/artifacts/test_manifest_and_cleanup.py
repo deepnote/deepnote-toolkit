@@ -36,14 +36,14 @@ def test_second_write_keeps_one_previous_frame(tmp_project_root: Path) -> None:
     artifacts.store_dataframe(pd.DataFrame({"a": [3]}), NAME)
     third = stored_manifest(tmp_project_root)
 
-    assert "previous" not in first
-    assert second["previous"] == first["file"]
-    assert third["previous"] == second["file"]
+    assert first.previous is None
+    assert second.previous == first.file
+    assert third.previous == second.file
     assert [path.name for path in arrow_files(tmp_project_root)] == sorted(
-        [second["file"], third["file"]]
+        [second.file, third.file]
     )
     assert stored_table(tmp_project_root).to_pydict() == {"a": [3]}
-    previous = pa.ipc.open_file(frame_dir(tmp_project_root) / third["previous"])
+    previous = pa.ipc.open_file(frame_dir(tmp_project_root) / third.previous)
     assert previous.read_all().to_pydict() == {"a": [2]}
 
 
@@ -52,7 +52,7 @@ def test_unreferenced_frames_are_deleted_only_when_stale(
 ) -> None:
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
     directory = frame_dir(tmp_project_root)
-    replaced = directory / stored_manifest(tmp_project_root)["file"]
+    replaced = directory / stored_manifest(tmp_project_root).file
     backdate(replaced, 2 * DAY)
 
     def add(name: str, age_seconds: float) -> Path:
@@ -175,8 +175,8 @@ def test_unusable_manifest_counts_as_no_manifest(
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
     manifest = stored_manifest(tmp_project_root)
-    assert "previous" not in manifest
-    assert manifest["file"] not in (FRAME_A, FRAME_B)
+    assert manifest.previous is None
+    assert manifest.file not in (FRAME_A, FRAME_B)
     assert stored_table(tmp_project_root).to_pydict() == {"a": [1]}
     assert sentinel.read_text() == "keep"
     assert all(path.exists() for path in named)
@@ -206,7 +206,7 @@ def test_usable_manifest_is_honoured(
 
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
-    assert stored_manifest(tmp_project_root)["previous"] == FRAME_A
+    assert stored_manifest(tmp_project_root).previous == FRAME_A
     assert (directory / FRAME_A).exists()
     assert not (directory / FRAME_B).exists()
 
@@ -230,7 +230,7 @@ def test_manifest_nested_too_deeply_to_parse_counts_as_no_manifest(
 
     artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
 
-    assert "previous" not in stored_manifest(tmp_project_root)
+    assert stored_manifest(tmp_project_root).previous is None
     assert stored_table(tmp_project_root).to_pydict() == {"a": [2]}
 
 
@@ -282,7 +282,7 @@ def test_concurrent_writers_leave_a_complete_current_frame(
     assert errors == []
     files = arrow_files(tmp_project_root)
     assert len(files) == 2
-    current = stored_manifest(tmp_project_root)["file"]
+    current = stored_manifest(tmp_project_root).file
     stray = next(path for path in files if path.name != current)
     for path in files:
         assert pa.ipc.open_file(path).read_all().num_rows == 1

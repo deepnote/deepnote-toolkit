@@ -1,6 +1,7 @@
 """Tests for what the artifacts API writes when it stores a named DataFrame."""
 
 import copy
+import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,6 +16,7 @@ from deepnote_toolkit import artifacts
 from tests.unit.helpers.dataframe_storage import (
     NAME,
     arrow_files,
+    frame_dir,
     stored_manifest,
     stored_table,
 )
@@ -36,13 +38,15 @@ def test_stores_pandas_frame_and_manifest(tmp_project_root: Path) -> None:
         "a": [1, 2, 3],
         "b": ["x", "y", "z"],
     }
+    # Manifest ignores unknown keys and defaults previous, so the keys are checked raw.
+    written = json.loads((frame_dir(tmp_project_root) / "manifest.json").read_text())
+    assert set(written) == {"version", "file", "written_at", "rows", "toolkit_version"}
     manifest = stored_manifest(tmp_project_root)
-    assert set(manifest) == {"version", "file", "written_at", "rows", "toolkit_version"}
-    assert manifest["version"] == 1
-    assert manifest["file"] == f"{reference_id}.arrow"
-    assert manifest["rows"] == 3
-    assert manifest["toolkit_version"] == deepnote_toolkit.__version__
-    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", manifest["written_at"])
+    assert manifest.version == 1
+    assert manifest.file == f"{reference_id}.arrow"
+    assert manifest.rows == 3
+    assert manifest.toolkit_version == deepnote_toolkit.__version__
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", manifest.written_at)
 
 
 @pytest.mark.usefixtures("tokyo_time")
@@ -52,7 +56,7 @@ def test_manifest_time_is_utc(tmp_project_root: Path) -> None:
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
     written = datetime.strptime(
-        stored_manifest(tmp_project_root)["written_at"], "%Y-%m-%dT%H:%M:%SZ"
+        stored_manifest(tmp_project_root).written_at, "%Y-%m-%dT%H:%M:%SZ"
     )
     assert abs((written.replace(tzinfo=timezone.utc) - before).total_seconds()) < 60
 
@@ -62,12 +66,12 @@ def test_stores_polars_frame(tmp_project_root: Path) -> None:
         pl.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]}), NAME
     )
 
-    assert stored_manifest(tmp_project_root)["file"] == f"{reference_id}.arrow"
+    assert stored_manifest(tmp_project_root).file == f"{reference_id}.arrow"
     assert stored_table(tmp_project_root).to_pydict() == {
         "a": [1, 2, 3],
         "b": ["x", "y", "z"],
     }
-    assert stored_manifest(tmp_project_root)["rows"] == 3
+    assert stored_manifest(tmp_project_root).rows == 3
 
 
 def test_writing_does_not_change_the_callers_frame(tmp_project_root: Path) -> None:
@@ -125,7 +129,7 @@ def test_empty_frame_is_stored(tmp_project_root: Path, frame: Any) -> None:
     artifacts.store_dataframe(frame, NAME)
 
     assert stored_table(tmp_project_root).num_rows == 0
-    assert stored_manifest(tmp_project_root)["rows"] == 0
+    assert stored_manifest(tmp_project_root).rows == 0
 
 
 def test_names_are_stored_apart(tmp_project_root: Path) -> None:

@@ -53,7 +53,7 @@ def test_a_name_can_be_stored_again_after_it_was_deleted(
 
     artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
 
-    assert "previous" not in stored_manifest(tmp_project_root)
+    assert stored_manifest(tmp_project_root).previous is None
     assert stored_table(tmp_project_root).to_pydict() == {"a": [2]}
 
 

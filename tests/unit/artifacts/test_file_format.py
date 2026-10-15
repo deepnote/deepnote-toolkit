@@ -25,7 +25,7 @@ from tests.unit.helpers.dataframe_storage import (
 def test_frames_are_compressed(tmp_project_root: Path, make_frame: Any) -> None:
     artifacts.store_dataframe(make_frame({"a": ["x" * 100] * 10_000}), NAME)
 
-    stored = frame_dir(tmp_project_root) / stored_manifest(tmp_project_root)["file"]
+    stored = frame_dir(tmp_project_root) / stored_manifest(tmp_project_root).file
     assert 0 < stored.stat().st_size < 100_000
 
 
@@ -72,7 +72,7 @@ def test_frame_is_stored_uncompressed_when_no_codec_is_available(
 
     artifacts.store_dataframe(make_frame({"a": ["x" * 100] * 10_000}), NAME)
 
-    stored = frame_dir(tmp_project_root) / stored_manifest(tmp_project_root)["file"]
+    stored = frame_dir(tmp_project_root) / stored_manifest(tmp_project_root).file
     assert pa.ipc.open_file(stored).read_all().num_rows == 10_000
     assert stored.stat().st_size > 1_000_000
 
@@ -81,7 +81,7 @@ def test_pandas_frame_is_written_in_64k_row_batches(tmp_project_root: Path) -> N
     artifacts.store_dataframe(pd.DataFrame({"a": range(70_000)}), NAME)
 
     reader = pa.ipc.open_file(
-        frame_dir(tmp_project_root) / stored_manifest(tmp_project_root)["file"]
+        frame_dir(tmp_project_root) / stored_manifest(tmp_project_root).file
     )
     assert reader.num_record_batches == 2
     assert reader.read_all().num_rows == 70_000
@@ -91,7 +91,7 @@ def test_polars_frame_is_written_in_64k_row_batches(tmp_project_root: Path) -> N
     artifacts.store_dataframe(pl.DataFrame({"a": range(200_000)}), NAME)
 
     reader = pa.ipc.open_file(
-        frame_dir(tmp_project_root) / stored_manifest(tmp_project_root)["file"]
+        frame_dir(tmp_project_root) / stored_manifest(tmp_project_root).file
     )
     assert reader.num_record_batches == 4
     assert reader.read_all().num_rows == 200_000

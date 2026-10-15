@@ -75,7 +75,7 @@ def test_unserializable_frame_raises_and_keeps_the_previous_frame(
         "manifest_bytes"
     ]
     assert left["listing"] == sorted(
-        ["manifest.json", stored_manifest(tmp_project_root)["file"]]
+        ["manifest.json", stored_manifest(tmp_project_root).file]
     )
     assert stored_table(tmp_project_root).to_pydict() == {"ok": [1]}
 
@@ -98,7 +98,7 @@ def test_frames_pyarrow_may_refuse_follow_what_pyarrow_does(
         "manifest_bytes"
     ]
     assert left["listing"] == sorted(
-        ["manifest.json", stored_manifest(tmp_project_root)["file"]]
+        ["manifest.json", stored_manifest(tmp_project_root).file]
     )
 
 
@@ -301,9 +301,9 @@ def test_failure_after_the_manifest_step_keeps_the_new_frame(
 ) -> None:
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
     artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
-    replaced = (
-        frame_dir(tmp_project_root) / stored_manifest(tmp_project_root)["previous"]
-    )
+    previous = stored_manifest(tmp_project_root).previous
+    assert previous is not None
+    replaced = frame_dir(tmp_project_root) / previous
     real_unlink = Path.unlink
 
     def unlink_failing_for_the_replaced_frame(

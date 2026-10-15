@@ -20,7 +20,7 @@ def test_store_creates_a_missing_project_root(
 
     reference_id = artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
-    assert stored_manifest(project)["file"] == f"{reference_id}.arrow"
+    assert stored_manifest(project).file == f"{reference_id}.arrow"
 
 
 def _broken_config() -> Any:
