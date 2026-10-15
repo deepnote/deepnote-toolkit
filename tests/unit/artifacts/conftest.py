@@ -5,12 +5,13 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
 import pytest
+from pyspark.sql import SparkSession
 
 from deepnote_toolkit.artifacts import dataframe_storage
 
 
 @pytest.fixture
-def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def tmp_project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """The project root, a fresh directory."""
     project_root = tmp_path / "project"
     project_root.mkdir()
@@ -32,11 +33,11 @@ def tokyo_time() -> Iterator[None]:
 
 
 @pytest.fixture(scope="module")
-def spark() -> Any:
+def spark() -> SparkSession:
     from pyspark.sql import SparkSession
 
     return (
-        SparkSession.builder.master("local")  # type: ignore
+        SparkSession.builder.master("local")
         .appName("Toolkit")
         .config("spark.driver.memory", "4g")
         .getOrCreate()
@@ -44,7 +45,7 @@ def spark() -> Any:
 
 
 @pytest.fixture
-def spark_without_ansi_mode(spark: Any) -> Iterator[Any]:
+def spark_without_ansi_mode(spark: SparkSession) -> Iterator[SparkSession]:
     """pandas-on-Spark refuses to run under ANSI mode, which Spark 4 enables."""
     ansi_mode = spark.conf.get("spark.sql.ansi.enabled")
     spark.conf.set("spark.sql.ansi.enabled", "false")
@@ -68,7 +69,7 @@ def arrow_sinks(monkeypatch: pytest.MonkeyPatch) -> List[Any]:
     return sinks
 
 
-class _FailingClose:
+class _FailingCloseS3Upload:
     """A write handle whose close() really closes, then fails like s3fs's upload."""
 
     def __init__(self, handle: Any, error: OSError) -> None:
@@ -79,7 +80,7 @@ class _FailingClose:
         self._handle.close()
         raise self._error
 
-    def __enter__(self) -> "_FailingClose":
+    def __enter__(self) -> "_FailingCloseS3Upload":
         return self
 
     def __exit__(self, *exc_info: Any) -> None:
@@ -102,7 +103,7 @@ def close_error(monkeypatch: pytest.MonkeyPatch) -> Dict[str, Optional[OSError]]
         error = state["error"]
         if error is None or self.suffix != ".arrow" or "w" not in mode:
             return handle
-        return _FailingClose(handle, error)
+        return _FailingCloseS3Upload(handle, error)
 
     monkeypatch.setattr(Path, "open", open_failing_on_close)
     return state

@@ -15,7 +15,7 @@ MANIFEST_NAME = "manifest.json"
 MANIFEST_VERSION = 1
 MANIFEST_MAX_BYTES = 4096
 
-_FRAME_NAME = re.compile(
+_FRAME_NAME_REGEX = re.compile(
     r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.arrow",
     re.IGNORECASE,
 )
@@ -30,7 +30,7 @@ class Manifest(NamedTuple):
 
 def is_frame_name(name: str) -> bool:
     """Return whether `name` is `<uuid>.arrow`, the only form of frame file name."""
-    return _FRAME_NAME.fullmatch(name) is not None
+    return _FRAME_NAME_REGEX.fullmatch(name) is not None
 
 
 def read_manifest(directory: Path) -> Optional[Manifest]:

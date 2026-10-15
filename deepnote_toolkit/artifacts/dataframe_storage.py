@@ -33,12 +33,12 @@ POLARS_COMPAT_LEVEL_MIN_VERSION = Version("1.2.1")
 
 FrameKind = Literal["pandas", "polars"]
 
-_SAFE_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
+_SAFE_ID_REGEX = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 
 def is_safe_id(value: object) -> bool:
     """Return whether `value` can be used as a single path segment."""
-    return isinstance(value, str) and _SAFE_ID.fullmatch(value) is not None
+    return isinstance(value, str) and _SAFE_ID_REGEX.fullmatch(value) is not None
 
 
 def classify_frame(value: object) -> Optional[FrameKind]:
@@ -142,8 +142,7 @@ def store_frame(frame: Any, kind: FrameKind, name: str, root: Path) -> Optional[
         if isinstance(exc, OSError) and exc.errno == errno.EROFS:
             return None
         raise
-    # A failure from here on keeps the new frame: an s3fs rename can put the new
-    # manifest in place and still fail.
+
     write_manifest(directory, new_file, old.file if old else None, len(frame))
     _delete_replaced_frames(directory, old, new_file)
     return reference_id
