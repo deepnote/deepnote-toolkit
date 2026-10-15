@@ -73,6 +73,7 @@ def _query_preview() -> DeepnoteQueryPreview:
 
 def _cleared_query_preview() -> DeepnoteQueryPreview:
     preview = _query_preview()
+    # Mutating the frame clears its attached SQL query metadata.
     preview["b"] = 2
     return preview
 
