@@ -7,8 +7,15 @@ import re
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, NamedTuple, Optional
+from typing import Optional
 
+from pydantic import BaseModel, StrictInt, StrictStr, ValidationError
+
+from deepnote_core.pydantic_compat_helpers import (
+    _model_dump_compat,
+    _model_fields_compat,
+    model_validate_compat,
+)
 from deepnote_toolkit import __version__
 
 MANIFEST_NAME = "manifest.json"
@@ -21,20 +28,27 @@ _FRAME_NAME_REGEX = re.compile(
 )
 
 
-class Manifest(NamedTuple):
-    """The frames a manifest names; `previous` is the one `file` replaced."""
-
-    file: str
-    previous: Optional[str]
-
-
 def is_frame_name(name: str) -> bool:
     """Return whether `name` is `<uuid>.arrow`, the only form of frame file name."""
     return _FRAME_NAME_REGEX.fullmatch(name) is not None
 
 
+class Manifest(BaseModel):
+    """The manifest file; `previous` is the frame `file` replaced.
+
+    Unknown keys are ignored.
+    """
+
+    version: StrictInt
+    file: StrictStr
+    previous: Optional[StrictStr] = None
+    written_at: StrictStr
+    rows: StrictInt
+    toolkit_version: StrictStr
+
+
 def read_manifest(directory: Path) -> Optional[Manifest]:
-    """Return the files the manifest names, or None if there is no usable one.
+    """Return the directory's manifest, or None if there is no usable one.
 
     Any code in the project can write the manifest, so a malformed one counts as
     absent.
@@ -50,17 +64,25 @@ def read_manifest(directory: Path) -> Optional[Manifest]:
         data = json.loads(raw)
     except (ValueError, RecursionError):
         return None
+    # pydantic v1 would turn a list of pairs into a dict.
     if not isinstance(data, dict):
         return None
+    # pydantic v1 passes every key to __init__, where __pydantic_self__ collides
+    # with its first parameter and raises TypeError.
+    fields = _model_fields_compat(Manifest)
+    known = {key: value for key, value in data.items() if key in fields}
+    try:
+        manifest = model_validate_compat(Manifest, known)
+    except ValidationError:
+        return None
 
-    file, previous = data.get("file"), data.get("previous")
-    if not isinstance(file, str) or not is_frame_name(file):
+    if manifest.version != MANIFEST_VERSION or manifest.rows < 0:
         return None
-    if previous is not None and not (
-        isinstance(previous, str) and is_frame_name(previous)
-    ):
+    if not is_frame_name(manifest.file):
         return None
-    return Manifest(file=file, previous=previous)
+    if manifest.previous is not None and not is_frame_name(manifest.previous):
+        return None
+    return manifest
 
 
 def write_manifest(
@@ -71,12 +93,14 @@ def write_manifest(
     On s3fs a rename is a copy and then a delete, so a failed rename may already
     have replaced the manifest.
     """
-    manifest: dict[str, Any] = {"version": MANIFEST_VERSION, "file": new_file}
-    if previous is not None:
-        manifest["previous"] = previous
-    manifest["written_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    manifest["rows"] = rows
-    manifest["toolkit_version"] = __version__
+    manifest = Manifest(
+        version=MANIFEST_VERSION,
+        file=new_file,
+        previous=previous,
+        written_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        rows=rows,
+        toolkit_version=__version__,
+    )
     # delete=False: s3fs uploads at close(), so the file must be closed before the
     # rename, and deleting it only when the context ends needs Python 3.12's
     # delete_on_close=False.
@@ -90,7 +114,7 @@ def write_manifest(
     )
     try:
         with temporary:
-            temporary.write(json.dumps(manifest))
+            temporary.write(json.dumps(_model_dump_compat(manifest)))
         os.replace(temporary.name, directory / MANIFEST_NAME)
     except BaseException:
         with contextlib.suppress(OSError):

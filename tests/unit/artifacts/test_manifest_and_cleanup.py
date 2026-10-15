@@ -87,8 +87,20 @@ def test_unreferenced_frames_are_deleted_only_when_stale(
     assert replaced.exists()
 
 
-def _manifest_bytes(**fields: Any) -> bytes:
-    return json.dumps({"version": 1, **fields}).encode()
+_VALID_MANIFEST: Dict[str, Any] = {
+    "version": 1,
+    "file": FRAME_A,
+    "previous": FRAME_B,
+    "written_at": "2026-10-15T09:30:00Z",
+    "rows": 1,
+    "toolkit_version": "1.0.0",
+}
+
+
+def _manifest_bytes(without: str = "", **fields: Any) -> bytes:
+    manifest = {**_VALID_MANIFEST, **fields}
+    manifest.pop(without, None)
+    return json.dumps(manifest).encode()
 
 
 @pytest.mark.parametrize(
@@ -96,13 +108,18 @@ def _manifest_bytes(**fields: Any) -> bytes:
     [
         pytest.param(b"{not json", id="invalid-json"),
         pytest.param(b"\x80\x81\x82", id="not-utf8"),
-        pytest.param(b"[]", id="not-an-object"),
-        pytest.param(_manifest_bytes(), id="no-file"),
-        pytest.param(_manifest_bytes(file="../../data/x.csv"), id="file-traversal"),
-        pytest.param(_manifest_bytes(file=7, previous=FRAME_B), id="file-not-a-string"),
         pytest.param(
-            _manifest_bytes(file=FRAME_A, previous="../../data/x.csv"),
-            id="previous-traversal",
+            json.dumps(list(_VALID_MANIFEST.items())).encode(), id="not-an-object"
+        ),
+        pytest.param(_manifest_bytes(without="version"), id="no-version"),
+        pytest.param(_manifest_bytes(version=2), id="unsupported-version"),
+        pytest.param(_manifest_bytes(version="1"), id="version-a-string"),
+        pytest.param(_manifest_bytes(version=True), id="version-a-bool"),
+        pytest.param(_manifest_bytes(without="file"), id="no-file"),
+        pytest.param(_manifest_bytes(file="../../data/x.csv"), id="file-traversal"),
+        pytest.param(_manifest_bytes(file=7), id="file-not-a-string"),
+        pytest.param(
+            _manifest_bytes(previous="../../data/x.csv"), id="previous-traversal"
         ),
         pytest.param(_manifest_bytes(file=f"x{FRAME_A}"), id="file-prefixed"),
         pytest.param(_manifest_bytes(file=f"{FRAME_A}.bak"), id="file-suffixed"),
@@ -111,29 +128,34 @@ def _manifest_bytes(**fields: Any) -> bytes:
             id="file-valid-name-then-traversal",
         ),
         pytest.param(_manifest_bytes(file=f"../{FRAME_A}"), id="file-in-parent"),
+        pytest.param(_manifest_bytes(previous=f"x{FRAME_B}"), id="previous-prefixed"),
         pytest.param(
-            _manifest_bytes(file=FRAME_A, previous=f"x{FRAME_B}"),
-            id="previous-prefixed",
+            _manifest_bytes(previous=f"{FRAME_B}.bak"), id="previous-suffixed"
         ),
         pytest.param(
-            _manifest_bytes(file=FRAME_A, previous=f"{FRAME_B}.bak"),
-            id="previous-suffixed",
-        ),
-        pytest.param(
-            _manifest_bytes(file=FRAME_A, previous=f"{FRAME_B}/../../data/x.csv"),
+            _manifest_bytes(previous=f"{FRAME_B}/../../data/x.csv"),
             id="previous-valid-name-then-traversal",
         ),
         pytest.param(
-            _manifest_bytes(file=FRAME_A, previous=f"../{FRAME_B}"),
-            id="previous-in-parent",
+            _manifest_bytes(previous=f"../{FRAME_B}"), id="previous-in-parent"
+        ),
+        pytest.param(_manifest_bytes(without="written_at"), id="no-written-at"),
+        pytest.param(_manifest_bytes(written_at=7), id="written-at-not-a-string"),
+        pytest.param(_manifest_bytes(without="rows"), id="no-rows"),
+        pytest.param(_manifest_bytes(rows="1"), id="rows-a-string"),
+        pytest.param(_manifest_bytes(rows=1.5), id="rows-not-whole"),
+        pytest.param(_manifest_bytes(rows=-1), id="rows-negative"),
+        pytest.param(
+            _manifest_bytes(without="toolkit_version"), id="no-toolkit-version"
         ),
         pytest.param(
-            _manifest_bytes(file=FRAME_A, previous=FRAME_B, pad="x" * 5000),
-            id="oversized-truncated-mid-string",
+            _manifest_bytes(toolkit_version=7), id="toolkit-version-not-a-string"
         ),
         pytest.param(
-            _manifest_bytes(file=FRAME_A, previous=FRAME_B) + b" " * 5000,
-            id="oversized-valid-json-then-spaces",
+            _manifest_bytes(pad="x" * 5000), id="oversized-truncated-mid-string"
+        ),
+        pytest.param(
+            _manifest_bytes() + b" " * 5000, id="oversized-valid-json-then-spaces"
         ),
     ],
 )
@@ -160,12 +182,25 @@ def test_unusable_manifest_counts_as_no_manifest(
     assert all(path.exists() for path in named)
 
 
-def test_manifest_of_exactly_4096_bytes_is_honoured(tmp_project_root: Path) -> None:
+@pytest.mark.parametrize(
+    "manifest_bytes",
+    [
+        pytest.param(_manifest_bytes().ljust(4096), id="exactly-4096-bytes"),
+        pytest.param(
+            _manifest_bytes(written_by_a_newer_toolkit=True), id="unknown-key"
+        ),
+        pytest.param(
+            _manifest_bytes(__pydantic_self__=1), id="unknown-key-named-like-self"
+        ),
+    ],
+)
+def test_usable_manifest_is_honoured(
+    tmp_project_root: Path, manifest_bytes: bytes
+) -> None:
     directory = frame_dir(tmp_project_root)
     directory.mkdir(parents=True)
-    raw = _manifest_bytes(file=FRAME_A, previous=FRAME_B).ljust(4096)
-    assert len(raw) == 4096
-    (directory / "manifest.json").write_bytes(raw)
+    assert len(manifest_bytes) <= 4096
+    (directory / "manifest.json").write_bytes(manifest_bytes)
     for name in (FRAME_A, FRAME_B):
         (directory / name).write_bytes(b"named by the manifest")
 
