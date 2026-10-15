@@ -88,7 +88,9 @@ def test_frames_pyarrow_may_refuse_follow_what_pyarrow_does(
 
     if raised_by_pyarrow is None:
         _store_frame_after_a_good_one(tmp_project_root, make_frame)
-        assert stored_table(tmp_project_root).num_rows == rows
+        stored = stored_table(tmp_project_root)
+        assert stored.column_names != ["ok"]
+        assert stored.num_rows == rows
         return
     left = _store_bad_frame_after_a_good_one(
         tmp_project_root, make_frame, raised_by_pyarrow
