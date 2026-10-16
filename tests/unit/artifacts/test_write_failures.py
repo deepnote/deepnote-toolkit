@@ -295,6 +295,7 @@ def test_rename_failing_after_the_copy_keeps_the_frame_it_put_in_place(
 
     assert raised.value.errno == errno.EIO
     assert stored_table(tmp_project_root).to_pydict() == {"a": [2]}
+    assert entries_beside_the_frames(tmp_project_root) == ["manifest.json"]
 
 
 @pytest.mark.parametrize("error", [errno.EIO, errno.EROFS], ids=["EIO", "EROFS"])
