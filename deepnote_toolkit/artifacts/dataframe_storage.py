@@ -7,16 +7,14 @@ import re
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Optional, Union
 
+import pandas as pd
 from packaging.version import Version
+from typing_extensions import TypeAlias, assert_never
 
 from deepnote_toolkit.config import resolve_notebook_root
-from deepnote_toolkit.ocelots.utils import (
-    is_pandas_dataframe,
-    is_polars_eager_dataframe,
-)
-from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
+from deepnote_toolkit.ocelots.types import PandasDF, PolarsEagerDF
 
 from .dataframe_storage_manifest import (
     Manifest,
@@ -31,7 +29,7 @@ POLARS_BATCH_ROWS = 65_536
 POLARS_BATCH_MIN_VERSION = Version("1.37")
 POLARS_COMPAT_LEVEL_MIN_VERSION = Version("1.2.1")
 
-FrameKind = Literal["pandas", "polars"]
+StorableFrame: TypeAlias = Union[PandasDF, PolarsEagerDF]
 
 _SAFE_ID_REGEX = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
@@ -39,17 +37,6 @@ _SAFE_ID_REGEX = re.compile(r"[A-Za-z0-9_-]{1,128}")
 def is_safe_id(value: object) -> bool:
     """Return whether `value` can be used as a single path segment."""
     return isinstance(value, str) and _SAFE_ID_REGEX.fullmatch(value) is not None
-
-
-def classify_frame(value: object) -> Optional[FrameKind]:
-    """Return "pandas" or "polars" for a frame worth storing, else None."""
-    if isinstance(value, DeepnoteQueryPreview):
-        return None
-    if is_pandas_dataframe(value):
-        return "pandas"
-    if is_polars_eager_dataframe(value):
-        return "polars"
-    return None
 
 
 def resolve_project_root() -> Path:
@@ -67,23 +54,24 @@ def _select_compression() -> str:
     return "uncompressed"
 
 
-def _write_frame_file(
-    frame: Any, kind: FrameKind, path: Path, compression: str
-) -> None:
+def _write_frame_file(frame: StorableFrame, path: Path, compression: str) -> None:
     """Write the frame to `path` as an Arrow IPC file.
 
     Going through a Python file object makes `close()` raise upload errors, which
     s3fs only surfaces there.
     """
     with path.open("wb") as sink:
-        if kind == "pandas":
+        if isinstance(frame, pd.DataFrame):
             from pyarrow import feather
 
             # pandas < 2.1's to_feather needs a default index and string column names.
             feather.write_feather(frame, sink, compression=compression)
-        else:
-            import polars
+            return
 
+        # polars is an optional dependency, so import it only for a non-pandas frame.
+        import polars
+
+        if isinstance(frame, polars.DataFrame):
             polars_version = Version(polars.__version__)
             options: dict[str, Any] = {}
             # Cap batches like write_feather so a page read stays cheap.
@@ -93,6 +81,9 @@ def _write_frame_file(
             if polars_version >= POLARS_COMPAT_LEVEL_MIN_VERSION:
                 options["compat_level"] = polars.CompatLevel.oldest()
             frame.write_ipc(sink, compression=compression, **options)
+            return
+
+        assert_never(frame)
 
 
 def _delete_replaced_frames(
@@ -123,7 +114,7 @@ def _delete_replaced_frames(
                     (directory / entry.name).unlink()
 
 
-def store_frame(frame: Any, kind: FrameKind, name: str, root: Path) -> Optional[str]:
+def store_frame(frame: StorableFrame, name: str, root: Path) -> Optional[str]:
     """Store the frame as the current one under `name` and return its reference ID.
 
     Returns None, having stored nothing, if the filesystem is read-only. EROFS from
@@ -134,7 +125,7 @@ def store_frame(frame: Any, kind: FrameKind, name: str, root: Path) -> Optional[
     new_file = f"{reference_id}.arrow"
     try:
         directory.mkdir(parents=True, exist_ok=True)
-        _write_frame_file(frame, kind, directory / new_file, _select_compression())
+        _write_frame_file(frame, directory / new_file, _select_compression())
         old = read_manifest(directory)
     except BaseException as exc:
         with contextlib.suppress(OSError):
