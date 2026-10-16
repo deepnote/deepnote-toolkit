@@ -23,8 +23,8 @@ from tests.unit.helpers.dataframe_storage import (
     VERSION_DEPENDENT,
     arrow_files,
     backdate,
-    entries_beside_the_frames,
     frame_dir,
+    non_arrow_files,
     probe_failure,
     stored_manifest,
     stored_table,
@@ -275,7 +275,7 @@ def test_failed_manifest_write_keeps_the_previous_frame(
         frame_dir(tmp_project_root) / "manifest.json"
     ).read_bytes() == manifest_bytes
     assert stored_table(tmp_project_root).to_pydict() == {"a": [1]}
-    assert entries_beside_the_frames(tmp_project_root) == ["manifest.json"]
+    assert non_arrow_files(tmp_project_root) == ["manifest.json"]
 
 
 def _copy_then_fail(source: str, destination: Path) -> None:
@@ -295,7 +295,7 @@ def test_rename_failing_after_the_copy_keeps_the_frame_it_put_in_place(
 
     assert raised.value.errno == errno.EIO
     assert stored_table(tmp_project_root).to_pydict() == {"a": [2]}
-    assert entries_beside_the_frames(tmp_project_root) == ["manifest.json"]
+    assert non_arrow_files(tmp_project_root) == ["manifest.json"]
 
 
 @pytest.mark.parametrize("error", [errno.EIO, errno.EROFS], ids=["EIO", "EROFS"])

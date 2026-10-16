@@ -21,8 +21,8 @@ from tests.unit.helpers.dataframe_storage import (
     NAME,
     arrow_files,
     backdate,
-    entries_beside_the_frames,
     frame_dir,
+    non_arrow_files,
     stored_manifest,
     stored_table,
 )
@@ -301,7 +301,7 @@ def test_successful_write_leaves_only_the_manifest_beside_the_frames(
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
     artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
 
-    assert entries_beside_the_frames(tmp_project_root) == ["manifest.json"]
+    assert non_arrow_files(tmp_project_root) == ["manifest.json"]
 
 
 def test_stray_pruned_by_another_writer_meanwhile_is_not_a_failure(

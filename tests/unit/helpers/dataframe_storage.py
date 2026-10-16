@@ -31,6 +31,10 @@ def frame_dir(root: Path, name: str = NAME) -> Path:
 def arrow_files(root: Path, name: str = NAME) -> List[Path]:
     return sorted(frame_dir(root, name).glob("*.arrow"))
 
+def non_arrow_files(root: Path) -> List[str]:
+    return sorted(
+        path.name for path in frame_dir(root).iterdir() if path.suffix != ".arrow"
+    )
 
 def stored_manifest(root: Path, name: str = NAME) -> Manifest:
     raw = json.loads((frame_dir(root, name) / "manifest.json").read_text())
@@ -72,12 +76,6 @@ def read_only(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(Path, "mkdir", mkdir)
     monkeypatch.setattr(os, "unlink", refuse)
     monkeypatch.setattr(os, "rmdir", refuse)
-
-
-def entries_beside_the_frames(root: Path) -> List[str]:
-    return sorted(
-        path.name for path in frame_dir(root).iterdir() if path.suffix != ".arrow"
-    )
 
 
 def probe_failure(frame: Any) -> Optional[type]:
