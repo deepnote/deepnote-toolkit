@@ -38,6 +38,7 @@ _IMPORT_MAPPINGS = [
     (".variable_explorer", "deepnote_get_data_preview_json"),
     (".variable_explorer", "get_var_list"),
     (".ocelots", None),
+    (".artifacts", None),
 ]
 
 # Perform safe imports
