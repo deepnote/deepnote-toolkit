@@ -2,7 +2,7 @@
 
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import IO, Any, Dict, Iterator, List, Optional
 
 import pytest
 from pyspark.sql import SparkSession
@@ -69,10 +69,10 @@ def arrow_sinks(monkeypatch: pytest.MonkeyPatch) -> List[Any]:
     return sinks
 
 
-class _FailingCloseS3Upload:
+class _FailingCloseS3UploadFileHandle:
     """A write handle whose close() really closes, then fails like s3fs's upload."""
 
-    def __init__(self, handle: Any, error: OSError) -> None:
+    def __init__(self, handle: IO[Any], error: OSError) -> None:
         self._handle = handle
         self._error = error
 
@@ -80,7 +80,7 @@ class _FailingCloseS3Upload:
         self._handle.close()
         raise self._error
 
-    def __enter__(self) -> "_FailingCloseS3Upload":
+    def __enter__(self) -> "_FailingCloseS3UploadFileHandle":
         return self
 
     def __exit__(self, *exc_info: Any) -> None:
@@ -91,7 +91,7 @@ class _FailingCloseS3Upload:
 
 
 @pytest.fixture
-def close_error(monkeypatch: pytest.MonkeyPatch) -> Dict[str, Optional[OSError]]:
+def close_upload_error(monkeypatch: pytest.MonkeyPatch) -> Dict[str, Optional[OSError]]:
     """Set `["error"]` to make closing a frame file fail with that error."""
     state: Dict[str, Optional[OSError]] = {"error": None}
     real_open = Path.open
@@ -103,7 +103,7 @@ def close_error(monkeypatch: pytest.MonkeyPatch) -> Dict[str, Optional[OSError]]
         error = state["error"]
         if error is None or self.suffix != ".arrow" or "w" not in mode:
             return handle
-        return _FailingCloseS3Upload(handle, error)
+        return _FailingCloseS3UploadFileHandle(handle, error)
 
     monkeypatch.setattr(Path, "open", open_failing_on_close)
     return state

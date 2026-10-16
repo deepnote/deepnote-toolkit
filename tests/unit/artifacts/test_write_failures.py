@@ -150,10 +150,12 @@ def test_partial_file_is_deleted_when_the_write_fails(
     ids=["EPERM", "EACCES", "EIO", "ENOSPC"],
 )
 def test_error_from_close_raises_and_stores_nothing(
-    tmp_project_root: Path, close_error: Dict[str, Optional[OSError]], error: OSError
+    tmp_project_root: Path,
+    close_upload_error: Dict[str, Optional[OSError]],
+    error: OSError,
 ) -> None:
     """s3fs surfaces a failed upload only when the file is closed."""
-    close_error["error"] = error
+    close_upload_error["error"] = error
 
     with pytest.raises(OSError) as raised:
         artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
