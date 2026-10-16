@@ -1,11 +1,3 @@
 {
-  "recommendations": [
-    "ms-python.python",
-    "ms-python.vscode-python-envs",
-    "ms-python.debugpy",
-    "ms-python.vscode-pylance",
-    "ms-python.isort",
-    "ms-python.black-formatter",
-    "redhat.vscode-yaml"
-  ]
+  "recommendations": ["ms-python.isort"]
 }
