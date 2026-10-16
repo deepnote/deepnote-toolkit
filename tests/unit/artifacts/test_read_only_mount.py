@@ -63,6 +63,7 @@ def test_erofs_from_the_write_stores_nothing(
 
     assert result is None
     assert arrow_files(tmp_project_root) == []
+    assert not (frame_dir(tmp_project_root) / "manifest.json").exists()
 
 
 def test_delete_on_a_read_only_mount_deletes_nothing(
