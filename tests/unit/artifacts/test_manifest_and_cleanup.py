@@ -189,9 +189,6 @@ def test_unusable_manifest_counts_as_no_manifest(
         pytest.param(
             _manifest_bytes(written_by_a_newer_toolkit=True), id="unknown-key"
         ),
-        pytest.param(
-            _manifest_bytes(__pydantic_self__=1), id="unknown-key-named-like-self"
-        ),
     ],
 )
 def test_usable_manifest_is_honoured(

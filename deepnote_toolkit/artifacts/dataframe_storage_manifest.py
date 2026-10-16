@@ -13,7 +13,6 @@ from pydantic import BaseModel, StrictInt, StrictStr, ValidationError
 
 from deepnote_core.pydantic_compat_helpers import (
     _model_dump_compat,
-    _model_fields_compat,
     model_validate_compat,
 )
 from deepnote_toolkit import __version__
@@ -34,10 +33,7 @@ def is_frame_name(name: str) -> bool:
 
 
 class Manifest(BaseModel):
-    """The manifest file; `previous` is the frame `file` replaced.
-
-    Unknown keys are ignored.
-    """
+    """The manifest file; `previous` is the frame `file` replaced."""
 
     version: StrictInt
     file: StrictStr
@@ -64,16 +60,9 @@ def read_manifest(directory: Path) -> Optional[Manifest]:
         data = json.loads(raw)
     except (ValueError, RecursionError):
         return None
-    # pydantic v1 would turn a list of pairs into a dict.
-    if not isinstance(data, dict):
-        return None
-    # pydantic v1 passes every key to __init__, where __pydantic_self__ collides
-    # with its first parameter and raises TypeError.
-    fields = _model_fields_compat(Manifest)
-    known = {key: value for key, value in data.items() if key in fields}
     try:
-        manifest = model_validate_compat(Manifest, known)
-    except ValidationError:
+        manifest = model_validate_compat(Manifest, data)
+    except (ValidationError, TypeError):
         return None
 
     if manifest.version != MANIFEST_VERSION or manifest.rows < 0:
