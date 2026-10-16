@@ -31,10 +31,12 @@ def frame_dir(root: Path, name: str = NAME) -> Path:
 def arrow_files(root: Path, name: str = NAME) -> List[Path]:
     return sorted(frame_dir(root, name).glob("*.arrow"))
 
+
 def non_arrow_files(root: Path) -> List[str]:
     return sorted(
         path.name for path in frame_dir(root).iterdir() if path.suffix != ".arrow"
     )
+
 
 def stored_manifest(root: Path, name: str = NAME) -> Manifest:
     raw = json.loads((frame_dir(root, name) / "manifest.json").read_text())
