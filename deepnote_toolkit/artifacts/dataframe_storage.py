@@ -55,11 +55,7 @@ def _select_compression() -> str:
 
 
 def _write_frame_file(frame: StorableFrame, path: Path, compression: str) -> None:
-    """Write the frame to `path` as an Arrow IPC file.
-
-    Going through a Python file object makes `close()` raise upload errors, which
-    s3fs only surfaces there.
-    """
+    """Write the frame to `path` as an Arrow IPC file."""
     with path.open("wb") as sink:
         if isinstance(frame, pd.DataFrame):
             from pyarrow import feather

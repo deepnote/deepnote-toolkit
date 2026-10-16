@@ -65,12 +65,6 @@ def read_manifest(directory: Path) -> Optional[Manifest]:
     except (ValidationError, TypeError):
         return None
 
-    if manifest.version != MANIFEST_VERSION or manifest.rows < 0:
-        return None
-    if not is_frame_name(manifest.file):
-        return None
-    if manifest.previous is not None and not is_frame_name(manifest.previous):
-        return None
     return manifest
 
 
