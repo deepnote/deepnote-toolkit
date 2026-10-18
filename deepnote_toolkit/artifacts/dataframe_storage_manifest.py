@@ -65,6 +65,8 @@ def read_manifest(directory: Path) -> Optional[Manifest]:
     except (ValidationError, TypeError):
         return None
 
+    if manifest.version != MANIFEST_VERSION:
+        return None
     # Cleanup unlinks `previous`, and `file` becomes the next `previous`, so any
     # other name could delete a file outside this directory.
     if not is_frame_name(manifest.file):

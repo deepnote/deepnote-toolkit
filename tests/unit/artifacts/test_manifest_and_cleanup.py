@@ -111,6 +111,7 @@ def _manifest_bytes(without: str = "", **fields: Any) -> bytes:
         pytest.param(
             json.dumps(list(_VALID_MANIFEST.items())).encode(), id="not-an-object"
         ),
+        pytest.param(_manifest_bytes(version=2), id="unsupported-version"),
         pytest.param(_manifest_bytes(version=True), id="version-a-bool"),
         pytest.param(_manifest_bytes(without="file"), id="no-file"),
         pytest.param(_manifest_bytes(file="../../data/x.csv"), id="file-traversal"),
