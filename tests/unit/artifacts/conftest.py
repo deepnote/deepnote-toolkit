@@ -34,8 +34,6 @@ def tokyo_time() -> Iterator[None]:
 
 @pytest.fixture(scope="module")
 def spark() -> SparkSession:
-    from pyspark.sql import SparkSession
-
     return (
         SparkSession.builder.master("local")
         .appName("Toolkit")

@@ -242,6 +242,7 @@ def test_concurrent_writers_leave_a_complete_current_frame(
             thread.start()
         for thread in threads:
             thread.join(timeout=30)
+            assert not thread.is_alive()
 
     assert errors == []
     files = arrow_files(tmp_project_root)

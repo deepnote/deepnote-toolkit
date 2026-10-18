@@ -66,12 +66,13 @@ def test_stores_polars_frame(tmp_project_root: Path) -> None:
         pl.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]}), NAME
     )
 
-    assert stored_manifest(tmp_project_root).file == f"{reference_id}.arrow"
+    manifest = stored_manifest(tmp_project_root)
+    assert manifest.file == f"{reference_id}.arrow"
+    assert manifest.rows == 3
     assert stored_table(tmp_project_root).to_pydict() == {
         "a": [1, 2, 3],
         "b": ["x", "y", "z"],
     }
-    assert stored_manifest(tmp_project_root).rows == 3
 
 
 def test_writing_does_not_change_the_callers_frame(tmp_project_root: Path) -> None:
