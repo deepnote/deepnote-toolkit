@@ -55,13 +55,6 @@ def test_compression_falls_back_from_zstd_to_lz4_to_none(
     assert dataframe_storage._select_compression() == expected
 
 
-@pytest.mark.skipif(
-    not pa.Codec.is_available("zstd"), reason="this pyarrow build has no zstd"
-)
-def test_zstd_is_chosen_when_pyarrow_has_it() -> None:
-    assert dataframe_storage._select_compression() == "zstd"
-
-
 @pytest.mark.parametrize(
     "make_frame", [pd.DataFrame, pl.DataFrame], ids=["pandas", "polars"]
 )

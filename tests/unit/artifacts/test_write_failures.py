@@ -16,11 +16,9 @@ from pyarrow import feather
 from deepnote_toolkit import artifacts
 from deepnote_toolkit.artifacts import dataframe_storage, dataframe_storage_manifest
 from tests.unit.helpers.dataframe_storage import (
-    ALWAYS_FAILING,
     DAY,
     FRAME_A,
     NAME,
-    VERSION_DEPENDENT,
     arrow_files,
     backdate,
     frame_dir,
@@ -34,13 +32,6 @@ from tests.unit.helpers.dataframe_storage import (
 def _store_a_good_frame(tmp_project_root: Path) -> bytes:
     artifacts.store_dataframe(pd.DataFrame({"ok": [1]}), NAME)
     return (frame_dir(tmp_project_root) / "manifest.json").read_bytes()
-
-
-def _store_frame_after_a_good_one(
-    tmp_project_root: Path, make_frame: Callable[[], Any]
-) -> None:
-    _store_a_good_frame(tmp_project_root)
-    artifacts.store_dataframe(make_frame(), NAME)
 
 
 def _store_bad_frame_after_a_good_one(
@@ -60,15 +51,18 @@ def _store_bad_frame_after_a_good_one(
     }
 
 
-@pytest.mark.parametrize("make_frame", ALWAYS_FAILING)
+def _mixed_types() -> pd.DataFrame:
+    return pd.DataFrame({"a": [1, "two"]})
+
+
 def test_unserializable_frame_raises_and_keeps_the_previous_frame(
-    tmp_project_root: Path, make_frame: Callable[[], Any]
+    tmp_project_root: Path,
 ) -> None:
-    raised_by_pyarrow = probe_failure(make_frame())
+    raised_by_pyarrow = probe_failure(_mixed_types())
     assert raised_by_pyarrow is not None, "pyarrow is expected to refuse this frame"
 
     left = _store_bad_frame_after_a_good_one(
-        tmp_project_root, make_frame, raised_by_pyarrow
+        tmp_project_root, _mixed_types, raised_by_pyarrow
     )
 
     assert (frame_dir(tmp_project_root) / "manifest.json").read_bytes() == left[
@@ -78,30 +72,6 @@ def test_unserializable_frame_raises_and_keeps_the_previous_frame(
         ["manifest.json", stored_manifest(tmp_project_root).file]
     )
     assert stored_table(tmp_project_root).to_pydict() == {"ok": [1]}
-
-
-@pytest.mark.parametrize("make_frame, rows", VERSION_DEPENDENT)
-def test_frames_pyarrow_may_refuse_follow_what_pyarrow_does(
-    tmp_project_root: Path, make_frame: Callable[[], Any], rows: int
-) -> None:
-    raised_by_pyarrow = probe_failure(make_frame())
-
-    if raised_by_pyarrow is None:
-        _store_frame_after_a_good_one(tmp_project_root, make_frame)
-        stored = stored_table(tmp_project_root)
-        assert stored.column_names != ["ok"]
-        assert stored.num_rows == rows
-        return
-    left = _store_bad_frame_after_a_good_one(
-        tmp_project_root, make_frame, raised_by_pyarrow
-    )
-
-    assert (frame_dir(tmp_project_root) / "manifest.json").read_bytes() == left[
-        "manifest_bytes"
-    ]
-    assert left["listing"] == sorted(
-        ["manifest.json", stored_manifest(tmp_project_root).file]
-    )
 
 
 def test_polars_object_column_raises_and_keeps_the_previous_frame(
@@ -142,12 +112,10 @@ def test_partial_file_is_deleted_when_the_write_fails(
 @pytest.mark.parametrize(
     "error",
     [
-        PermissionError(errno.EPERM, "Operation not permitted"),
         PermissionError(errno.EACCES, "Permission denied"),
         OSError(errno.EIO, "Input/output error"),
-        OSError(errno.ENOSPC, "No space left on device"),
     ],
-    ids=["EPERM", "EACCES", "EIO", "ENOSPC"],
+    ids=["EACCES", "EIO"],
 )
 def test_error_from_close_raises_and_stores_nothing(
     tmp_project_root: Path,

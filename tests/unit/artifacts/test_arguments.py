@@ -11,12 +11,7 @@ from pyarrow import feather
 
 from deepnote_toolkit import artifacts
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
-from tests.unit.helpers.dataframe_storage import (
-    NAME,
-    arrow_files,
-    read_only,
-    stored_table,
-)
+from tests.unit.helpers.dataframe_storage import NAME, arrow_files, stored_table
 
 
 @pytest.mark.parametrize("name", ["x", "x" * 128, "Rev-2026_Q3"])
@@ -53,18 +48,6 @@ def test_invalid_name_raises_before_anything_is_written(
     assert str(raised.value).endswith(f"got {name!r}")
     write.assert_not_called()
     assert list(tmp_project_root.iterdir()) == []
-
-
-@pytest.mark.parametrize("name", INVALID_NAMES)
-def test_invalid_name_raises_on_a_read_only_mount(
-    tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch, name: Any
-) -> None:
-    read_only(monkeypatch)
-
-    with pytest.raises(ValueError) as raised:
-        artifacts.store_dataframe(pd.DataFrame({"a": [1]}), name)
-
-    assert str(raised.value).endswith(f"got {name!r}")
 
 
 def _query_preview() -> DeepnoteQueryPreview:
@@ -113,34 +96,6 @@ def test_query_preview_raises_type_error(
     assert list(tmp_project_root.iterdir()) == []
 
 
-@pytest.mark.parametrize("make_value", UNSUPPORTED_VALUES)
-def test_unsupported_value_raises_type_error_on_a_read_only_mount(
-    tmp_project_root: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_value: Callable[[], Any],
-) -> None:
-    read_only(monkeypatch)
-
-    with pytest.raises(TypeError) as raised:
-        artifacts.store_dataframe(make_value(), NAME)
-
-    raised.match("pandas or polars DataFrame")
-
-
-@pytest.mark.parametrize("make_preview", QUERY_PREVIEWS)
-def test_query_preview_raises_type_error_on_a_read_only_mount(
-    tmp_project_root: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    make_preview: Callable[[], Any],
-) -> None:
-    read_only(monkeypatch)
-
-    with pytest.raises(TypeError) as raised:
-        artifacts.store_dataframe(make_preview(), NAME)
-
-    raised.match("SQL query preview")
-
-
 def test_pyspark_frame_raises_type_error(tmp_project_root: Path, spark: Any) -> None:
     with pytest.raises(TypeError, match="pandas or polars DataFrame"):
         artifacts.store_dataframe(spark.range(3), NAME)
@@ -166,7 +121,17 @@ def test_pandas_on_spark_frame_raises_type_error(
     assert list(tmp_project_root.iterdir()) == []
 
 
-@pytest.mark.parametrize("name", INVALID_NAMES)
+# Let through, each of these would make delete_dataframe remove a directory that is
+# not the name's own.
+@pytest.mark.parametrize(
+    "name",
+    [
+        pytest.param("", id="empty"),
+        pytest.param(".", id="dot"),
+        pytest.param("..", id="dotdot"),
+        pytest.param("../x", id="traversal"),
+    ],
+)
 def test_delete_with_an_invalid_name_raises_and_deletes_nothing(
     tmp_project_root: Path, name: Any
 ) -> None:

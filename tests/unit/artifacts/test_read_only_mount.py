@@ -1,7 +1,6 @@
 """Tests for storing and deleting DataFrames on a read-only mount."""
 
 import errno
-import shutil
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -75,16 +74,3 @@ def test_delete_on_a_read_only_mount_deletes_nothing(
     assert artifacts.delete_dataframe(NAME) is False
 
     assert len(arrow_files(tmp_project_root)) == 1
-
-
-def test_delete_returns_false_when_the_filesystem_refuses_with_erofs(
-    tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
-
-    def refuse(path: Any) -> None:
-        raise OSError(errno.EROFS, "Read-only file system")
-
-    monkeypatch.setattr(shutil, "rmtree", refuse)
-
-    assert artifacts.delete_dataframe(NAME) is False

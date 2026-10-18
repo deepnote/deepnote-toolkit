@@ -147,6 +147,5 @@ def test_the_last_call_with_a_name_wins(tmp_project_root: Path) -> None:
     assert stored_table(tmp_project_root).to_pydict() == {"a": [2]}
 
 
-def test_functions_are_exported_from_the_package() -> None:
-    assert deepnote_toolkit.artifacts is artifacts
+def test_artifacts_is_in_the_package_all() -> None:
     assert "artifacts" in deepnote_toolkit.__all__

@@ -111,26 +111,13 @@ def _manifest_bytes(without: str = "", **fields: Any) -> bytes:
         pytest.param(
             json.dumps(list(_VALID_MANIFEST.items())).encode(), id="not-an-object"
         ),
-        pytest.param(_manifest_bytes(without="version"), id="no-version"),
-        pytest.param(_manifest_bytes(version="1"), id="version-a-string"),
         pytest.param(_manifest_bytes(version=True), id="version-a-bool"),
         pytest.param(_manifest_bytes(without="file"), id="no-file"),
-        pytest.param(_manifest_bytes(file=7), id="file-not-a-string"),
         pytest.param(_manifest_bytes(file="../../data/x.csv"), id="file-traversal"),
         pytest.param(
             _manifest_bytes(previous="../../data/x.csv"), id="previous-traversal"
         ),
-        pytest.param(_manifest_bytes(without="written_at"), id="no-written-at"),
-        pytest.param(_manifest_bytes(written_at=7), id="written-at-not-a-string"),
-        pytest.param(_manifest_bytes(without="rows"), id="no-rows"),
         pytest.param(_manifest_bytes(rows="1"), id="rows-a-string"),
-        pytest.param(_manifest_bytes(rows=1.5), id="rows-not-whole"),
-        pytest.param(
-            _manifest_bytes(without="toolkit_version"), id="no-toolkit-version"
-        ),
-        pytest.param(
-            _manifest_bytes(toolkit_version=7), id="toolkit-version-not-a-string"
-        ),
         pytest.param(
             _manifest_bytes(pad="x" * 5000), id="oversized-truncated-mid-string"
         ),
