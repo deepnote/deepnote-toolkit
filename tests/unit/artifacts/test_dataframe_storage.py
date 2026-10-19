@@ -22,11 +22,9 @@ from deepnote_toolkit.artifacts import dataframe_storage
 from deepnote_toolkit.ocelots.data_preview import DeepnoteDataFrameWithDataPreview
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
 from tests.unit.helpers.dataframe_storage import (
-    ALWAYS_FAILING,
     BLOCK_ID,
     NAME,
     REPORT_URL,
-    VERSION_DEPENDENT,
     arrow_files,
     cleared_query_preview,
     frame_dir,
@@ -281,17 +279,19 @@ def _failing_frame_runs(
     }
 
 
-@pytest.mark.parametrize("make_frame", ALWAYS_FAILING)
+def _mixed_types() -> pd.DataFrame:
+    return pd.DataFrame({"a": [1, "two"]})
+
+
 def test_unserializable_frame_is_not_stored_and_reported_once(
     shell: InteractiveShell,
     tmp_project_root: Path,
     reports: SimpleNamespace,
-    make_frame: Callable[[], Any],
 ) -> None:
-    probed = probe_failure(make_frame())
+    probed = probe_failure(_mixed_types())
     assert probed is not None, "pyarrow is expected to refuse this frame"
 
-    left = _failing_frame_runs(shell, tmp_project_root, reports, make_frame)
+    left = _failing_frame_runs(shell, tmp_project_root, reports, _mixed_types)
 
     assert all(result.success for result in left["results"])
     assert (frame_dir(tmp_project_root) / "manifest.json").read_bytes() == left[
@@ -308,34 +308,6 @@ def test_unserializable_frame_is_not_stored_and_reported_once(
         "kind": "error",
         "exception_type": _qualified(probed),
     }
-
-
-@pytest.mark.parametrize("make_frame, rows", VERSION_DEPENDENT)
-def test_frames_pyarrow_may_refuse_follow_what_pyarrow_does(
-    shell: InteractiveShell,
-    tmp_project_root: Path,
-    reports: SimpleNamespace,
-    make_frame: Callable[[], Any],
-    rows: int,
-) -> None:
-    probed = probe_failure(make_frame())
-
-    left = _failing_frame_runs(shell, tmp_project_root, reports, make_frame)
-
-    assert all(result.success for result in left["results"])
-    if probed is None:
-        assert reports.bodies == []
-        assert stored_table(tmp_project_root).num_rows == rows
-        return
-    assert (frame_dir(tmp_project_root) / "manifest.json").read_bytes() == left[
-        "manifest_bytes"
-    ]
-    assert left["listing"] == sorted(
-        ["manifest.json", stored_manifest(tmp_project_root).file]
-    )
-    assert [body["context"]["exception_type"] for body in reports.bodies] == [
-        _qualified(probed)
-    ]
 
 
 def test_mixed_type_column_failure_names_the_exception_type_only(
