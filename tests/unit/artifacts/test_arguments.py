@@ -11,7 +11,12 @@ from pyarrow import feather
 
 from deepnote_toolkit import artifacts
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
-from tests.unit.helpers.dataframe_storage import NAME, arrow_files, stored_table
+from tests.unit.helpers.dataframe_storage import (
+    FRAME_A,
+    NAME,
+    arrow_files,
+    stored_table,
+)
 
 
 @pytest.mark.parametrize("name", ["x", "x" * 128, "Rev-2026_Q3"])
@@ -121,8 +126,9 @@ def test_pandas_on_spark_frame_raises_type_error(
     assert list(tmp_project_root.iterdir()) == []
 
 
-# Let through, each of these would make delete_dataframe remove a directory that is
-# not the name's own.
+# Let through, each of these would point delete_dataframe outside the name's own
+# directory. Only the frame file is not a directory, so only it catches a name check
+# moved below the is_dir() return.
 @pytest.mark.parametrize(
     "name",
     [
@@ -130,6 +136,7 @@ def test_pandas_on_spark_frame_raises_type_error(
         pytest.param(".", id="dot"),
         pytest.param("..", id="dotdot"),
         pytest.param("../x", id="traversal"),
+        pytest.param(f"../{FRAME_A}", id="traversal-to-a-frame-file"),
     ],
 )
 def test_delete_with_an_invalid_name_raises_and_deletes_nothing(
@@ -137,6 +144,7 @@ def test_delete_with_an_invalid_name_raises_and_deletes_nothing(
 ) -> None:
     (tmp_project_root / "x").mkdir()
     (tmp_project_root / "x" / "keep.txt").write_text("keep")
+    (tmp_project_root / FRAME_A).write_text("keep")
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
     with pytest.raises(ValueError) as raised:
@@ -144,4 +152,5 @@ def test_delete_with_an_invalid_name_raises_and_deletes_nothing(
 
     assert str(raised.value).endswith(f"got {name!r}")
     assert (tmp_project_root / "x" / "keep.txt").read_text() == "keep"
+    assert (tmp_project_root / FRAME_A).read_text() == "keep"
     assert len(arrow_files(tmp_project_root)) == 1
