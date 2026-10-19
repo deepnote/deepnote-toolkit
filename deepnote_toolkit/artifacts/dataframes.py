@@ -4,10 +4,6 @@ import errno
 import shutil
 from typing import Any, Optional
 
-from deepnote_toolkit.ocelots.utils import (
-    is_pandas_dataframe,
-    is_polars_eager_dataframe,
-)
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
 
 from . import _dataframe_storage
@@ -54,7 +50,7 @@ def store_dataframe(df: Any, name: str) -> Optional[str]:
             "block's output mode to DataFrame, or pass pd.DataFrame(df) to store "
             "these rows"
         )
-    if not (is_pandas_dataframe(df) or is_polars_eager_dataframe(df)):
+    if not _dataframe_storage.is_storable_frame(df):
         raise TypeError(
             "store_dataframe needs a pandas or polars DataFrame, "
             f"got {type(df).__qualname__}"
