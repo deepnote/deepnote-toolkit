@@ -22,10 +22,10 @@ from tests.unit.helpers.dataframe_storage import (
 @pytest.mark.parametrize(
     "make_frame", [pd.DataFrame, pl.DataFrame], ids=["pandas", "polars"]
 )
-def test_frames_are_compressed(root: Path, make_frame: Any) -> None:
+def test_frames_are_compressed(tmp_project_root: Path, make_frame: Any) -> None:
     artifacts.store_dataframe(make_frame({"a": ["x" * 100] * 10_000}), NAME)
 
-    stored = frame_dir(root) / stored_manifest(root)["file"]
+    stored = frame_dir(tmp_project_root) / stored_manifest(tmp_project_root).file
     assert 0 < stored.stat().st_size < 100_000
 
 
@@ -55,40 +55,37 @@ def test_compression_falls_back_from_zstd_to_lz4_to_none(
     assert dataframe_storage._select_compression() == expected
 
 
-@pytest.mark.skipif(
-    not pa.Codec.is_available("zstd"), reason="this pyarrow build has no zstd"
-)
-def test_zstd_is_chosen_when_pyarrow_has_it() -> None:
-    assert dataframe_storage._select_compression() == "zstd"
-
-
 @pytest.mark.parametrize(
     "make_frame", [pd.DataFrame, pl.DataFrame], ids=["pandas", "polars"]
 )
 def test_frame_is_stored_uncompressed_when_no_codec_is_available(
-    root: Path, monkeypatch: pytest.MonkeyPatch, make_frame: Any
+    tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch, make_frame: Any
 ) -> None:
     monkeypatch.setattr(pa, "Codec", _FakeCodec({"zstd": False, "lz4": False}))
 
     artifacts.store_dataframe(make_frame({"a": ["x" * 100] * 10_000}), NAME)
 
-    stored = frame_dir(root) / stored_manifest(root)["file"]
+    stored = frame_dir(tmp_project_root) / stored_manifest(tmp_project_root).file
     assert pa.ipc.open_file(stored).read_all().num_rows == 10_000
     assert stored.stat().st_size > 1_000_000
 
 
-def test_pandas_frame_is_written_in_64k_row_batches(root: Path) -> None:
+def test_pandas_frame_is_written_in_64k_row_batches(tmp_project_root: Path) -> None:
     artifacts.store_dataframe(pd.DataFrame({"a": range(70_000)}), NAME)
 
-    reader = pa.ipc.open_file(frame_dir(root) / stored_manifest(root)["file"])
+    reader = pa.ipc.open_file(
+        frame_dir(tmp_project_root) / stored_manifest(tmp_project_root).file
+    )
     assert reader.num_record_batches == 2
     assert reader.read_all().num_rows == 70_000
 
 
-def test_polars_frame_is_written_in_64k_row_batches(root: Path) -> None:
+def test_polars_frame_is_written_in_64k_row_batches(tmp_project_root: Path) -> None:
     artifacts.store_dataframe(pl.DataFrame({"a": range(200_000)}), NAME)
 
-    reader = pa.ipc.open_file(frame_dir(root) / stored_manifest(root)["file"])
+    reader = pa.ipc.open_file(
+        frame_dir(tmp_project_root) / stored_manifest(tmp_project_root).file
+    )
     assert reader.num_record_batches == 4
     assert reader.read_all().num_rows == 200_000
 
@@ -99,7 +96,7 @@ def test_polars_frame_is_written_in_64k_row_batches(root: Path) -> None:
     ids=["before-1.37", "from-1.37"],
 )
 def test_polars_batch_size_is_passed_to_polars_from_1_37(
-    root: Path,
+    tmp_project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
     polars_version: str,
     expected_options: Dict[str, int],
@@ -119,10 +116,10 @@ def test_polars_batch_size_is_passed_to_polars_from_1_37(
         if name == "record_batch_size"
     }
     assert options == expected_options
-    assert stored_table(root).to_pydict() == {"a": [1, 2, 3]}
+    assert stored_table(tmp_project_root).to_pydict() == {"a": [1, 2, 3]}
 
 
-def test_polars_strings_are_stored_without_view_types(root: Path) -> None:
+def test_polars_strings_are_stored_without_view_types(tmp_project_root: Path) -> None:
     artifacts.store_dataframe(
         pl.DataFrame(
             {
@@ -134,7 +131,7 @@ def test_polars_strings_are_stored_without_view_types(root: Path) -> None:
         NAME,
     )
 
-    assert stored_table(root).schema.types == [
+    assert stored_table(tmp_project_root).schema.types == [
         pa.large_string(),
         pa.large_binary(),
         pa.large_list(pa.large_string()),
@@ -147,7 +144,10 @@ def test_polars_strings_are_stored_without_view_types(root: Path) -> None:
     ids=["before-1.2.1", "from-1.2.1"],
 )
 def test_polars_compat_level_is_passed_to_polars_from_1_2_1(
-    root: Path, monkeypatch: pytest.MonkeyPatch, polars_version: str, passed: bool
+    tmp_project_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    polars_version: str,
+    passed: bool,
 ) -> None:
     monkeypatch.setattr(pl, "__version__", polars_version)
     original = pl.DataFrame.write_ipc
@@ -158,4 +158,4 @@ def test_polars_compat_level_is_passed_to_polars_from_1_2_1(
         artifacts.store_dataframe(pl.DataFrame({"a": ["x"]}), NAME)
 
     assert ("compat_level" in write_ipc.call_args.kwargs) is passed
-    assert stored_table(root).to_pydict() == {"a": ["x"]}
+    assert stored_table(tmp_project_root).to_pydict() == {"a": ["x"]}

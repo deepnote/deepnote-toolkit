@@ -9,12 +9,14 @@ import uuid
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Optional, Union
 
+import pandas as pd
 import requests
 from IPython import get_ipython
 from IPython.core.interactiveshell import ExecutionResult
 from packaging.version import Version
+from typing_extensions import TypeAlias, TypeGuard, assert_never
 
 from deepnote_toolkit import env
 from deepnote_toolkit.config import resolve_notebook_root
@@ -23,6 +25,7 @@ from deepnote_toolkit.get_webapp_url import (
     get_project_auth_headers,
 )
 from deepnote_toolkit.logging import get_logger
+from deepnote_toolkit.ocelots.types import PandasDF, PolarsEagerDF
 from deepnote_toolkit.ocelots.utils import (
     is_pandas_dataframe,
     is_polars_eager_dataframe,
@@ -48,9 +51,9 @@ POLARS_BATCH_ROWS = 65_536
 POLARS_BATCH_MIN_VERSION = Version("1.37")
 POLARS_COMPAT_LEVEL_MIN_VERSION = Version("1.2.1")
 
-FrameKind = Literal["pandas", "polars"]
+StorableFrame: TypeAlias = Union[PandasDF, PolarsEagerDF]
 
-_SAFE_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
+_SAFE_ID_REGEX = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 
 @dataclass(frozen=True)
@@ -64,20 +67,16 @@ class StorageTarget:
 _reported: set[str] = set()
 
 
-def is_safe_id(value: object) -> bool:
+def is_safe_id(value: object) -> TypeGuard[str]:
     """Return whether `value` can be used as a single path segment."""
-    return isinstance(value, str) and _SAFE_ID.fullmatch(value) is not None
+    return isinstance(value, str) and _SAFE_ID_REGEX.fullmatch(value) is not None
 
 
-def classify_frame(value: object) -> Optional[FrameKind]:
-    """Return "pandas" or "polars" for a frame worth storing, else None."""
+def is_storable_frame(value: object) -> TypeGuard[StorableFrame]:
+    """Return whether `value` is a pandas or polars DataFrame, not a query preview."""
     if isinstance(value, DeepnoteQueryPreview):
-        return None
-    if is_pandas_dataframe(value):
-        return "pandas"
-    if is_polars_eager_dataframe(value):
-        return "polars"
-    return None
+        return False
+    return is_pandas_dataframe(value) or is_polars_eager_dataframe(value)
 
 
 def resolve_project_root() -> Path:
@@ -95,23 +94,20 @@ def _select_compression() -> str:
     return "uncompressed"
 
 
-def _write_frame_file(
-    frame: Any, kind: FrameKind, path: Path, compression: str
-) -> None:
-    """Write the frame to `path` as an Arrow IPC file.
-
-    Going through a Python file object makes `close()` raise upload errors, which
-    s3fs only surfaces there.
-    """
+def _write_frame_file(frame: StorableFrame, path: Path, compression: str) -> None:
+    """Write the frame to `path` as an Arrow IPC file."""
     with path.open("wb") as sink:
-        if kind == "pandas":
+        if isinstance(frame, pd.DataFrame):
             from pyarrow import feather
 
             # pandas < 2.1's to_feather needs a default index and string column names.
             feather.write_feather(frame, sink, compression=compression)
-        else:
-            import polars
+            return
 
+        # polars is an optional dependency, so import it only for a non-pandas frame.
+        import polars
+
+        if isinstance(frame, polars.DataFrame):
             polars_version = Version(polars.__version__)
             options: dict[str, Any] = {}
             # Cap batches like write_feather so a page read stays cheap.
@@ -121,6 +117,9 @@ def _write_frame_file(
             if polars_version >= POLARS_COMPAT_LEVEL_MIN_VERSION:
                 options["compat_level"] = polars.CompatLevel.oldest()
             frame.write_ipc(sink, compression=compression, **options)
+            return
+
+        assert_never(frame)
 
 
 def _delete_replaced_frames(
@@ -134,7 +133,11 @@ def _delete_replaced_frames(
     named = {new_file}
     if old is not None:
         named.add(old.file)
-        if old.previous is not None and old.previous not in named:
+        if (
+            old.previous is not None
+            and is_frame_name(old.previous)
+            and old.previous not in named
+        ):
             (directory / old.previous).unlink(missing_ok=True)
 
     now = time.time()
@@ -152,11 +155,7 @@ def _delete_replaced_frames(
 
 
 def store_frame(
-    frame: Any,
-    kind: FrameKind,
-    name: str,
-    root: Path,
-    block_id: Optional[str] = None,
+    frame: StorableFrame, name: str, root: Path, block_id: Optional[str] = None
 ) -> Optional[str]:
     """Store the frame as the current one under `name` and return its reference ID.
 
@@ -168,7 +167,7 @@ def store_frame(
     new_file = f"{reference_id}.arrow"
     try:
         directory.mkdir(parents=True, exist_ok=True)
-        _write_frame_file(frame, kind, directory / new_file, _select_compression())
+        _write_frame_file(frame, directory / new_file, _select_compression())
         old = read_manifest(directory)
     except BaseException as exc:
         with contextlib.suppress(OSError):
@@ -176,8 +175,7 @@ def store_frame(
         if isinstance(exc, OSError) and exc.errno == errno.EROFS:
             return None
         raise
-    # A failure from here on keeps the new frame: an s3fs rename can put the new
-    # manifest in place and still fail.
+
     write_manifest(directory, new_file, old.file if old else None, len(frame), block_id)
     _delete_replaced_frames(directory, old, new_file)
     return reference_id
@@ -268,11 +266,10 @@ def _store_result_frame(result: ExecutionResult) -> None:
         # execution_count anyway.
         if target is None or not result.info.store_history:
             return
-        kind = classify_frame(result.result)
-        if kind is None:
+        if not is_storable_frame(result.result):
             return
         root = resolve_project_root()
-        store_frame(result.result, kind, target.name, root, target.block_id)
+        store_frame(result.result, target.name, root, target.block_id)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         if isinstance(exc, OSError) and exc.errno == errno.EROFS:
             return

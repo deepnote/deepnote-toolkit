@@ -1,4 +1,4 @@
-"""Helpers and frames shared by the DataFrame storage tests."""
+"""Helpers shared by the DataFrame storage tests."""
 
 import errno
 import io
@@ -15,6 +15,8 @@ import pyarrow as pa
 import pytest
 from pyarrow import feather
 
+from deepnote_core.pydantic_compat_helpers import model_validate_compat
+from deepnote_toolkit.artifacts.dataframe_storage_manifest import Manifest
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
 
 NAME = "revenue"
@@ -33,13 +35,20 @@ def arrow_files(root: Path, name: str = NAME) -> List[Path]:
     return sorted(frame_dir(root, name).glob("*.arrow"))
 
 
-def stored_manifest(root: Path, name: str = NAME) -> Dict[str, Any]:
-    return json.loads((frame_dir(root, name) / "manifest.json").read_text())
+def non_arrow_files(root: Path) -> List[str]:
+    return sorted(
+        path.name for path in frame_dir(root).iterdir() if path.suffix != ".arrow"
+    )
+
+
+def stored_manifest(root: Path, name: str = NAME) -> Manifest:
+    raw = json.loads((frame_dir(root, name) / "manifest.json").read_text())
+    return model_validate_compat(Manifest, raw)
 
 
 def stored_table(root: Path, name: str = NAME) -> pa.Table:
     """The frame the name's manifest currently names."""
-    path = frame_dir(root, name) / stored_manifest(root, name)["file"]
+    path = frame_dir(root, name) / stored_manifest(root, name).file
     return pa.ipc.open_file(path).read_all()
 
 
@@ -72,12 +81,6 @@ def read_only(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(Path, "mkdir", mkdir)
     monkeypatch.setattr(os, "unlink", refuse)
     monkeypatch.setattr(os, "rmdir", refuse)
-
-
-def entries_beside_the_frames(root: Path) -> List[str]:
-    return sorted(
-        path.name for path in frame_dir(root).iterdir() if path.suffix != ".arrow"
-    )
 
 
 def probe_failure(frame: Any) -> Optional[type]:
@@ -117,6 +120,7 @@ def query_preview() -> DeepnoteQueryPreview:
 
 def cleared_query_preview() -> DeepnoteQueryPreview:
     preview = query_preview()
+    # Mutating the frame clears its attached SQL query metadata.
     preview["b"] = 2
     return preview
 

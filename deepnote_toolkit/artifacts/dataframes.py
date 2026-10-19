@@ -4,6 +4,10 @@ import errno
 import shutil
 from typing import Any, Optional
 
+from deepnote_toolkit.ocelots.utils import (
+    is_pandas_dataframe,
+    is_polars_eager_dataframe,
+)
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
 
 from . import dataframe_storage
@@ -43,22 +47,21 @@ def store_dataframe(df: Any, name: str) -> Optional[str]:
     already put the new manifest in place.
     """
     _check_name(name)
-    kind = dataframe_storage.classify_frame(df)
-    if kind is None:
-        if isinstance(df, DeepnoteQueryPreview):
-            raise TypeError(
-                "store_dataframe refuses a SQL query preview or a frame derived from "
-                "one, which holds at most 100 rows of the query's result. Set the SQL "
-                "block's output mode to DataFrame, or pass pd.DataFrame(df) to store "
-                "these rows"
-            )
+    if isinstance(df, DeepnoteQueryPreview):
+        raise TypeError(
+            "store_dataframe refuses a SQL query preview or a frame derived from "
+            "one, which holds at most 100 rows of the query's result. Set the SQL "
+            "block's output mode to DataFrame, or pass pd.DataFrame(df) to store "
+            "these rows"
+        )
+    if not (is_pandas_dataframe(df) or is_polars_eager_dataframe(df)):
         raise TypeError(
             "store_dataframe needs a pandas or polars DataFrame, "
             f"got {type(df).__qualname__}"
         )
 
     root = dataframe_storage.resolve_project_root()
-    return dataframe_storage.store_frame(df, kind, name, root)
+    return dataframe_storage.store_frame(df, name, root)
 
 
 def delete_dataframe(name: str) -> bool:

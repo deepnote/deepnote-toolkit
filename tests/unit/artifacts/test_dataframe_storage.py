@@ -1,6 +1,7 @@
 """Tests for the post_run_cell hook that stores a block's DataFrame result."""
 
 import errno
+import json
 import re
 import warnings
 from pathlib import Path
@@ -41,8 +42,8 @@ REPORT_TYPE = "TOOLKIT_RUNTIME_ERROR"
 REPORT_CODE = "DATAFRAME_STORAGE_WRITE_FAILED"
 
 
-def _assert_nothing_stored(root: Path, reports: SimpleNamespace) -> None:
-    assert not (root / "deepnote_dataframes").exists()
+def _assert_nothing_stored(tmp_project_root: Path, reports: SimpleNamespace) -> None:
+    assert not (tmp_project_root / "deepnote_dataframes").exists()
     assert reports.bodies == []
 
 
@@ -53,11 +54,14 @@ def _run(
     return shell.run_cell("df", store_history=store_history)
 
 
-def test_stores_polars_frame(shell: InteractiveShell, root: Path) -> None:
+def test_stores_polars_frame(shell: InteractiveShell, tmp_project_root: Path) -> None:
     _run(shell, pl.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]}))
 
-    assert stored_table(root).to_pydict() == {"a": [1, 2, 3], "b": ["x", "y", "z"]}
-    assert stored_manifest(root)["rows"] == 3
+    assert stored_table(tmp_project_root).to_pydict() == {
+        "a": [1, 2, 3],
+        "b": ["x", "y", "z"],
+    }
+    assert stored_manifest(tmp_project_root).rows == 3
 
 
 @pytest.mark.parametrize(
@@ -67,7 +71,7 @@ def test_stores_polars_frame(shell: InteractiveShell, root: Path) -> None:
 )
 def test_env_var_off_writes_nothing(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
     env_value: Optional[str],
@@ -80,23 +84,23 @@ def test_env_var_off_writes_nothing(
     result = _run(shell, pd.DataFrame({"a": [1]}))
 
     assert result.success
-    _assert_nothing_stored(root, reports)
+    _assert_nothing_stored(tmp_project_root, reports)
 
 
 def test_calls_store_frames_with_the_flag_off(
-    root: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv("DEEPNOTE_DATAFRAME_STORAGE_ENABLED", raising=False)
 
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
-    assert stored_table(root).to_pydict() == {"a": [1]}
+    assert stored_table(tmp_project_root).to_pydict() == {"a": [1]}
 
 
 @pytest.mark.parametrize("env_value", ["1", "true", "TRUE", " yes ", "on"])
 def test_env_var_on_writes_the_frame(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
     env_value: str,
 ) -> None:
@@ -104,48 +108,50 @@ def test_env_var_on_writes_the_frame(
 
     _run(shell, pd.DataFrame({"a": [1]}))
 
-    assert stored_table(root).to_pydict() == {"a": [1]}
+    assert stored_table(tmp_project_root).to_pydict() == {"a": [1]}
 
 
 def test_shell_without_kernel_writes_nothing(
-    shell: InteractiveShell, root: Path, reports: SimpleNamespace
+    shell: InteractiveShell, tmp_project_root: Path, reports: SimpleNamespace
 ) -> None:
     del shell.kernel
 
     result = _run(shell, pd.DataFrame({"a": [1]}))
 
     assert result.success
-    _assert_nothing_stored(root, reports)
+    _assert_nothing_stored(tmp_project_root, reports)
 
 
-def test_missing_result_is_ignored(root: Path, reports: SimpleNamespace) -> None:
+def test_missing_result_is_ignored(
+    tmp_project_root: Path, reports: SimpleNamespace
+) -> None:
     """ipykernel can trigger post_run_cell without a result."""
     dataframe_storage._on_post_run_cell(None)
 
-    _assert_nothing_stored(root, reports)
+    _assert_nothing_stored(tmp_project_root, reports)
 
 
 def test_helper_execution_writes_nothing(
-    shell: InteractiveShell, root: Path, reports: SimpleNamespace
+    shell: InteractiveShell, tmp_project_root: Path, reports: SimpleNamespace
 ) -> None:
     result = _run(shell, pd.DataFrame({"a": [1]}), store_history=False)
 
     assert result.success
-    _assert_nothing_stored(root, reports)
+    _assert_nothing_stored(tmp_project_root, reports)
 
 
 @pytest.mark.parametrize(
     "cell", ["df\n1/0", "df\nraise KeyboardInterrupt"], ids=["raised", "interrupted"]
 )
 def test_failed_cell_writes_nothing(
-    shell: InteractiveShell, root: Path, reports: SimpleNamespace, cell: str
+    shell: InteractiveShell, tmp_project_root: Path, reports: SimpleNamespace, cell: str
 ) -> None:
     shell.user_ns["df"] = pd.DataFrame({"a": [1]})
 
     result = shell.run_cell(cell, store_history=True)
 
     assert not result.success
-    _assert_nothing_stored(root, reports)
+    _assert_nothing_stored(tmp_project_root, reports)
 
 
 @pytest.mark.parametrize(
@@ -154,21 +160,24 @@ def test_failed_cell_writes_nothing(
     ids=["int", "series", "lazyframe", "none"],
 )
 def test_non_dataframe_result_writes_nothing(
-    shell: InteractiveShell, root: Path, reports: SimpleNamespace, value: Any
+    shell: InteractiveShell,
+    tmp_project_root: Path,
+    reports: SimpleNamespace,
+    value: Any,
 ) -> None:
     _run(shell, value)
 
-    _assert_nothing_stored(root, reports)
+    _assert_nothing_stored(tmp_project_root, reports)
 
 
 def test_cell_ending_in_semicolon_writes_nothing(
-    shell: InteractiveShell, root: Path, reports: SimpleNamespace
+    shell: InteractiveShell, tmp_project_root: Path, reports: SimpleNamespace
 ) -> None:
     shell.user_ns["df"] = pd.DataFrame({"a": [1]})
 
     shell.run_cell("df;", store_history=True)
 
-    _assert_nothing_stored(root, reports)
+    _assert_nothing_stored(tmp_project_root, reports)
 
 
 @pytest.mark.parametrize(
@@ -181,29 +190,35 @@ def test_cell_ending_in_semicolon_writes_nothing(
     ids=["preview", "cleared-query", "copy"],
 )
 def test_sql_query_preview_writes_nothing(
-    shell: InteractiveShell, root: Path, reports: SimpleNamespace, make_preview: Any
+    shell: InteractiveShell,
+    tmp_project_root: Path,
+    reports: SimpleNamespace,
+    make_preview: Any,
 ) -> None:
     preview = make_preview()
     assert isinstance(preview, DeepnoteQueryPreview)
 
     _run(shell, preview)
 
-    _assert_nothing_stored(root, reports)
+    _assert_nothing_stored(tmp_project_root, reports)
 
 
 def test_pyspark_result_writes_nothing(
-    shell: InteractiveShell, root: Path, reports: SimpleNamespace, spark: Any
+    shell: InteractiveShell,
+    tmp_project_root: Path,
+    reports: SimpleNamespace,
+    spark: Any,
 ) -> None:
     wrapped = DeepnoteDataFrameWithDataPreview(spark.range(3))
 
     _run(shell, wrapped)
 
-    _assert_nothing_stored(root, reports)
+    _assert_nothing_stored(tmp_project_root, reports)
 
 
 def test_pandas_on_spark_result_writes_nothing(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     spark_without_ansi_mode: Any,
     monkeypatch: pytest.MonkeyPatch,
@@ -218,7 +233,7 @@ def test_pandas_on_spark_result_writes_nothing(
 
     _run(shell, wrapped)
 
-    _assert_nothing_stored(root, reports)
+    _assert_nothing_stored(tmp_project_root, reports)
 
 
 def _displayed(capsys: pytest.CaptureFixture) -> str:
@@ -247,13 +262,13 @@ def _qualified(exc_type: type) -> str:
 
 def _failing_frame_runs(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     make_frame: Callable[[], Any],
 ) -> Dict[str, Any]:
     """Store a good frame, then run a bad one twice; return what was left behind."""
     _run(shell, pd.DataFrame({"ok": [1]}))
-    block = frame_dir(root)
+    block = frame_dir(tmp_project_root)
     manifest_bytes = (block / "manifest.json").read_bytes()
     first = _run(shell, make_frame())
     reported_after_first = len(reports.bodies)
@@ -269,18 +284,22 @@ def _failing_frame_runs(
 @pytest.mark.parametrize("make_frame", ALWAYS_FAILING)
 def test_unserializable_frame_is_not_stored_and_reported_once(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     make_frame: Callable[[], Any],
 ) -> None:
     probed = probe_failure(make_frame())
     assert probed is not None, "pyarrow is expected to refuse this frame"
 
-    left = _failing_frame_runs(shell, root, reports, make_frame)
+    left = _failing_frame_runs(shell, tmp_project_root, reports, make_frame)
 
     assert all(result.success for result in left["results"])
-    assert (frame_dir(root) / "manifest.json").read_bytes() == left["manifest_bytes"]
-    assert left["listing"] == sorted(["manifest.json", stored_manifest(root)["file"]])
+    assert (frame_dir(tmp_project_root) / "manifest.json").read_bytes() == left[
+        "manifest_bytes"
+    ]
+    assert left["listing"] == sorted(
+        ["manifest.json", stored_manifest(tmp_project_root).file]
+    )
     assert left["reported_after_first"] == 1
     assert len(reports.bodies) == 1
     assert reports.bodies[0]["type"] == REPORT_TYPE
@@ -294,22 +313,26 @@ def test_unserializable_frame_is_not_stored_and_reported_once(
 @pytest.mark.parametrize("make_frame, rows", VERSION_DEPENDENT)
 def test_frames_pyarrow_may_refuse_follow_what_pyarrow_does(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     make_frame: Callable[[], Any],
     rows: int,
 ) -> None:
     probed = probe_failure(make_frame())
 
-    left = _failing_frame_runs(shell, root, reports, make_frame)
+    left = _failing_frame_runs(shell, tmp_project_root, reports, make_frame)
 
     assert all(result.success for result in left["results"])
     if probed is None:
         assert reports.bodies == []
-        assert stored_table(root).num_rows == rows
+        assert stored_table(tmp_project_root).num_rows == rows
         return
-    assert (frame_dir(root) / "manifest.json").read_bytes() == left["manifest_bytes"]
-    assert left["listing"] == sorted(["manifest.json", stored_manifest(root)["file"]])
+    assert (frame_dir(tmp_project_root) / "manifest.json").read_bytes() == left[
+        "manifest_bytes"
+    ]
+    assert left["listing"] == sorted(
+        ["manifest.json", stored_manifest(tmp_project_root).file]
+    )
     assert [body["context"]["exception_type"] for body in reports.bodies] == [
         _qualified(probed)
     ]
@@ -317,7 +340,7 @@ def test_frames_pyarrow_may_refuse_follow_what_pyarrow_does(
 
 def test_mixed_type_column_failure_names_the_exception_type_only(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     capsys: pytest.CaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
@@ -340,7 +363,7 @@ def test_mixed_type_column_failure_names_the_exception_type_only(
 
 
 def test_each_exception_type_is_reported_separately(
-    shell: InteractiveShell, root: Path, reports: SimpleNamespace
+    shell: InteractiveShell, tmp_project_root: Path, reports: SimpleNamespace
 ) -> None:
     _run(shell, pd.DataFrame({"a": [1, "two"]}))
     _run(shell, pd.DataFrame([[1, 2]], columns=["a", "a"]))
@@ -353,16 +376,18 @@ def test_each_exception_type_is_reported_separately(
 
 
 def test_polars_object_column_is_not_stored_and_reported(
-    shell: InteractiveShell, root: Path, reports: SimpleNamespace
+    shell: InteractiveShell, tmp_project_root: Path, reports: SimpleNamespace
 ) -> None:
     _run(shell, pl.DataFrame({"ok": [1]}))
-    manifest_bytes = (frame_dir(root) / "manifest.json").read_bytes()
+    manifest_bytes = (frame_dir(tmp_project_root) / "manifest.json").read_bytes()
 
     result = _run(shell, pl.DataFrame({"a": pl.Series([object()], dtype=pl.Object)}))
 
     assert result.success
-    assert (frame_dir(root) / "manifest.json").read_bytes() == manifest_bytes
-    assert len(arrow_files(root)) == 1
+    assert (
+        frame_dir(tmp_project_root) / "manifest.json"
+    ).read_bytes() == manifest_bytes
+    assert len(arrow_files(tmp_project_root)) == 1
     assert [body["context"] for body in reports.bodies] == [
         {"kind": "error", "exception_type": "polars.exceptions.ComputeError"}
     ]
@@ -370,7 +395,7 @@ def test_polars_object_column_is_not_stored_and_reported(
 
 def test_report_is_one_short_authenticated_attempt(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -429,7 +454,7 @@ def _refuse_url(path: str) -> str:
 )
 def test_report_that_cannot_be_delivered_is_silent(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     capsys: pytest.CaptureFixture,
     caplog: pytest.LogCaptureFixture,
@@ -457,7 +482,7 @@ def test_report_that_cannot_be_delivered_is_silent(
 
 def test_writer_adds_nothing_to_the_cell(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     capsys: pytest.CaptureFixture,
     caplog: pytest.LogCaptureFixture,
@@ -488,7 +513,7 @@ def test_writer_adds_nothing_to_the_cell(
 
 def test_handler_never_raises(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     capsys: pytest.CaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
@@ -512,12 +537,14 @@ def test_handler_never_raises(
 
 def test_eperm_from_close_is_reported_once(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     parent: Dict[str, Any],
-    close_error: Dict[str, Optional[OSError]],
+    close_upload_error: Dict[str, Optional[OSError]],
 ) -> None:
-    close_error["error"] = PermissionError(errno.EPERM, "Operation not permitted")
+    close_upload_error["error"] = PermissionError(
+        errno.EPERM, "Operation not permitted"
+    )
 
     first = _run(shell, pd.DataFrame({"a": [1]}))
     parent["metadata"]["deepnote"]["dataframeStorage"]["name"] = "other"
@@ -527,22 +554,22 @@ def test_eperm_from_close_is_reported_once(
     assert [body["context"] for body in reports.bodies] == [
         {"kind": "io", "errno": "EPERM", "exception_type": "builtins.PermissionError"}
     ]
-    assert not list((root / "deepnote_dataframes").rglob("*.arrow"))
-    assert not list((root / "deepnote_dataframes").rglob("manifest.json"))
+    assert not list((tmp_project_root / "deepnote_dataframes").rglob("*.arrow"))
+    assert not list((tmp_project_root / "deepnote_dataframes").rglob("manifest.json"))
 
 
 def test_each_io_error_code_is_reported_once_and_not_swallowed(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
-    close_error: Dict[str, Optional[OSError]],
+    close_upload_error: Dict[str, Optional[OSError]],
 ) -> None:
     for error in (
         OSError(errno.EIO, "Input/output error"),
         OSError(errno.EIO, "Input/output error"),
         OSError(errno.ENOSPC, "No space left on device"),
     ):
-        close_error["error"] = error
+        close_upload_error["error"] = error
         assert _run(shell, pd.DataFrame({"a": [1]})).success
 
     assert [body["context"] for body in reports.bodies] == [
@@ -553,7 +580,7 @@ def test_each_io_error_code_is_reported_once_and_not_swallowed(
 
 def test_partial_file_is_deleted_when_the_write_fails(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -566,13 +593,13 @@ def test_partial_file_is_deleted_when_the_write_fails(
     result = _run(shell, pd.DataFrame({"a": [1]}))
 
     assert result.success
-    assert arrow_files(root) == []
+    assert arrow_files(tmp_project_root) == []
     assert len(reports.bodies) == 1
 
 
 def test_failure_after_the_manifest_step_keeps_the_new_frame(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -586,7 +613,7 @@ def test_failure_after_the_manifest_step_keeps_the_new_frame(
     result = _run(shell, pd.DataFrame({"a": [2]}))
 
     assert result.success
-    assert stored_table(root).to_pydict() == {"a": [2]}
+    assert stored_table(tmp_project_root).to_pydict() == {"a": [2]}
     assert [body["context"] for body in reports.bodies] == [
         {"kind": "io", "errno": "EIO", "exception_type": "builtins.OSError"}
     ]
@@ -594,7 +621,7 @@ def test_failure_after_the_manifest_step_keeps_the_new_frame(
 
 def test_read_only_mount_is_skipped_before_converting(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     capsys: pytest.CaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
@@ -608,14 +635,14 @@ def test_read_only_mount_is_skipped_before_converting(
 
     assert result.success
     write.assert_not_called()
-    assert not (root / "deepnote_dataframes").exists()
+    assert not (tmp_project_root / "deepnote_dataframes").exists()
     assert reports.bodies == []
     assert _displayed(capsys) == expected_output
 
 
 def test_erofs_from_the_write_is_silent(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     capsys: pytest.CaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
@@ -632,13 +659,13 @@ def test_erofs_from_the_write_is_silent(
 
     assert result.success
     assert reports.bodies == []
-    assert arrow_files(root) == []
+    assert arrow_files(tmp_project_root) == []
     assert _displayed(capsys) == expected_output
 
 
 def test_erofs_after_the_manifest_step_is_silent(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     capsys: pytest.CaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
@@ -647,7 +674,7 @@ def test_erofs_after_the_manifest_step_is_silent(
     expected_output = _output_without_storage(shell, frame, capsys, monkeypatch)
     _run(shell, pd.DataFrame({"a": [1]}))
     _run(shell, pd.DataFrame({"a": [2]}))
-    replaced = frame_dir(root) / stored_manifest(root)["previous"]
+    replaced = frame_dir(tmp_project_root) / stored_manifest(tmp_project_root).previous
     real_unlink = Path.unlink
 
     def unlink_refused_for_the_replaced_frame(
@@ -663,7 +690,7 @@ def test_erofs_after_the_manifest_step_is_silent(
     result = _run(shell, frame)
 
     assert result.success
-    assert stored_table(root).to_pydict() == {"a": [3]}
+    assert stored_table(tmp_project_root).to_pydict() == {"a": [3]}
     assert replaced.exists()
     assert reports.bodies == []
     assert _displayed(capsys) == expected_output
@@ -671,7 +698,7 @@ def test_erofs_after_the_manifest_step_is_silent(
 
 def test_interrupt_during_the_write_fails_the_execution(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     capsys: pytest.CaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
@@ -683,7 +710,7 @@ def test_interrupt_during_the_write_fails_the_execution(
         raise KeyboardInterrupt
 
     _run(shell, pd.DataFrame({"a": [1]}))
-    manifest_bytes = (frame_dir(root) / "manifest.json").read_bytes()
+    manifest_bytes = (frame_dir(tmp_project_root) / "manifest.json").read_bytes()
     monkeypatch.setattr(feather, "write_feather", write_some_then_interrupt)
     capsys.readouterr()
 
@@ -693,13 +720,15 @@ def test_interrupt_during_the_write_fails_the_execution(
     assert not result.success
     assert "KeyboardInterrupt" in _displayed(capsys)
     assert reports.bodies == []
-    assert (frame_dir(root) / "manifest.json").read_bytes() == manifest_bytes
-    assert len(arrow_files(root)) == 1
+    assert (
+        frame_dir(tmp_project_root) / "manifest.json"
+    ).read_bytes() == manifest_bytes
+    assert len(arrow_files(tmp_project_root)) == 1
 
 
 def test_interrupt_while_reporting_a_failure_fails_the_execution(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     capsys: pytest.CaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -719,14 +748,18 @@ def test_interrupt_while_reporting_a_failure_fails_the_execution(
 
 
 def test_stores_the_result_under_the_requested_name(
-    shell: InteractiveShell, root: Path
+    shell: InteractiveShell, tmp_project_root: Path
 ) -> None:
     result = _run(shell, pd.DataFrame({"a": [1, 2, 3], "b": ["x", "y", "z"]}))
 
     assert result.success
-    assert stored_table(root).to_pydict() == {"a": [1, 2, 3], "b": ["x", "y", "z"]}
-    manifest = stored_manifest(root)
-    assert set(manifest) == {
+    assert stored_table(tmp_project_root).to_pydict() == {
+        "a": [1, 2, 3],
+        "b": ["x", "y", "z"],
+    }
+    manifest = stored_manifest(tmp_project_root)
+    written = json.loads((frame_dir(tmp_project_root) / "manifest.json").read_text())
+    assert set(written) == {
         "version",
         "file",
         "written_at",
@@ -734,38 +767,40 @@ def test_stores_the_result_under_the_requested_name(
         "toolkit_version",
         "block_id",
     }
-    assert manifest["block_id"] == BLOCK_ID
-    assert manifest["rows"] == 3
+    assert manifest.block_id == BLOCK_ID
+    assert manifest.rows == 3
 
 
 def test_the_name_in_the_request_chooses_the_directory(
-    shell: InteractiveShell, root: Path, parent: Dict[str, Any]
+    shell: InteractiveShell, tmp_project_root: Path, parent: Dict[str, Any]
 ) -> None:
     parent.update(storage_request(name="monthly-2026"))
 
     _run(shell, pd.DataFrame({"a": [1]}))
 
-    assert (root / "deepnote_dataframes" / "monthly-2026" / "manifest.json").exists()
-    assert not (root / "deepnote_dataframes" / NAME).exists()
+    assert (
+        tmp_project_root / "deepnote_dataframes" / "monthly-2026" / "manifest.json"
+    ).exists()
+    assert not (tmp_project_root / "deepnote_dataframes" / NAME).exists()
 
 
 def test_block_frames_and_calls_share_one_name(
-    shell: InteractiveShell, root: Path, parent: Dict[str, Any]
+    shell: InteractiveShell, tmp_project_root: Path, parent: Dict[str, Any]
 ) -> None:
     _run(shell, pd.DataFrame({"a": [1]}))
-    first = stored_manifest(root)
+    first = stored_manifest(tmp_project_root)
     parent.update(storage_request(blockId="blk2"))
     _run(shell, pd.DataFrame({"a": [2]}))
-    second = stored_manifest(root)
+    second = stored_manifest(tmp_project_root)
     artifacts.store_dataframe(pd.DataFrame({"a": [3]}), NAME)
-    third = stored_manifest(root)
+    third = stored_manifest(tmp_project_root)
 
-    assert first["block_id"] == BLOCK_ID
-    assert second["block_id"] == "blk2"
-    assert second["previous"] == first["file"]
-    assert "block_id" not in third
-    assert third["previous"] == second["file"]
-    assert stored_table(root).to_pydict() == {"a": [3]}
+    assert first.block_id == BLOCK_ID
+    assert second.block_id == "blk2"
+    assert second.previous == first.file
+    assert third.block_id is None
+    assert third.previous == second.file
+    assert stored_table(tmp_project_root).to_pydict() == {"a": [3]}
 
 
 @pytest.mark.parametrize(
@@ -805,7 +840,7 @@ def test_block_frames_and_calls_share_one_name(
 )
 def test_unusable_request_metadata_writes_nothing(
     shell: InteractiveShell,
-    root: Path,
+    tmp_project_root: Path,
     reports: SimpleNamespace,
     parent: Dict[str, Any],
     request_message: Dict[str, Any],
@@ -816,4 +851,4 @@ def test_unusable_request_metadata_writes_nothing(
     result = _run(shell, pd.DataFrame({"a": [1]}))
 
     assert result.success
-    _assert_nothing_stored(root, reports)
+    _assert_nothing_stored(tmp_project_root, reports)
