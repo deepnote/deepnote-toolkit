@@ -121,11 +121,15 @@ def test_shell_without_kernel_writes_nothing(
 
 
 def test_missing_result_is_ignored(
-    tmp_project_root: Path, reports: SimpleNamespace
+    shell: InteractiveShell,
+    tmp_project_root: Path,
+    reports: SimpleNamespace,
+    capsys: pytest.CaptureFixture,
 ) -> None:
     """ipykernel can trigger post_run_cell without a result."""
-    _dataframe_storage._on_post_run_cell(None)
+    shell.events.trigger("post_run_cell", None)
 
+    assert "Error in callback" not in _displayed(capsys)
     _assert_nothing_stored(tmp_project_root, reports)
 
 
@@ -235,7 +239,7 @@ def test_pandas_on_spark_result_writes_nothing(
 
 
 def _displayed(capsys: pytest.CaptureFixture) -> str:
-    """Everything the last cells printed, with execution counts masked."""
+    """Everything printed since the last read, with execution counts masked."""
     captured = capsys.readouterr()
     return re.sub(r"Out\[\d+\]", "Out[N]", captured.out + captured.err)
 
