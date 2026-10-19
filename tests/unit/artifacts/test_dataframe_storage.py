@@ -18,7 +18,7 @@ from IPython.core.interactiveshell import ExecutionResult, InteractiveShell
 from pyarrow import feather
 
 from deepnote_toolkit import artifacts
-from deepnote_toolkit.artifacts import dataframe_storage
+from deepnote_toolkit.artifacts import _dataframe_storage
 from deepnote_toolkit.ocelots.data_preview import DeepnoteDataFrameWithDataPreview
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
 from tests.unit.helpers.dataframe_storage import (
@@ -124,7 +124,7 @@ def test_missing_result_is_ignored(
     tmp_project_root: Path, reports: SimpleNamespace
 ) -> None:
     """ipykernel can trigger post_run_cell without a result."""
-    dataframe_storage._on_post_run_cell(None)
+    _dataframe_storage._on_post_run_cell(None)
 
     _assert_nothing_stored(tmp_project_root, reports)
 
@@ -372,7 +372,7 @@ def test_report_is_one_short_authenticated_attempt(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        dataframe_storage,
+        _dataframe_storage,
         "get_project_auth_headers",
         lambda: {"Authorization": "Bearer t"},
     )
@@ -417,7 +417,7 @@ def _refuse_url(path: str) -> str:
         ),
         pytest.param(
             lambda reports, monkeypatch: monkeypatch.setattr(
-                dataframe_storage, "get_absolute_userpod_api_url", _refuse_url
+                _dataframe_storage, "get_absolute_userpod_api_url", _refuse_url
             ),
             "ValueError",
             id="no-url",
@@ -439,7 +439,7 @@ def test_report_that_cannot_be_delivered_is_silent(
     logged: List[Any] = []
     break_report(reports, monkeypatch)
     monkeypatch.setattr(
-        dataframe_storage,
+        _dataframe_storage,
         "get_logger",
         lambda: SimpleNamespace(warning=lambda *args: logged.append(args)),
     )
@@ -496,7 +496,7 @@ def test_handler_never_raises(
     def broken_root() -> Path:
         raise RuntimeError("no root")
 
-    monkeypatch.setattr(dataframe_storage, "resolve_project_root", broken_root)
+    monkeypatch.setattr(_dataframe_storage, "resolve_project_root", broken_root)
 
     result = _run(shell, frame)
 
@@ -580,7 +580,7 @@ def test_failure_after_the_manifest_step_keeps_the_new_frame(
     def broken_cleanup(*args: Any) -> Any:
         raise OSError(errno.EIO, "Input/output error")
 
-    monkeypatch.setattr(dataframe_storage, "_delete_replaced_frames", broken_cleanup)
+    monkeypatch.setattr(_dataframe_storage, "_delete_replaced_frames", broken_cleanup)
 
     result = _run(shell, pd.DataFrame({"a": [2]}))
 
@@ -707,7 +707,7 @@ def test_interrupt_while_reporting_a_failure_fails_the_execution(
     def interrupted(context: Dict[str, str]) -> None:
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(dataframe_storage, "_post_error_report", interrupted)
+    monkeypatch.setattr(_dataframe_storage, "_post_error_report", interrupted)
     capsys.readouterr()
 
     result = _run(shell, pd.DataFrame({"a": [1, "two"]}))

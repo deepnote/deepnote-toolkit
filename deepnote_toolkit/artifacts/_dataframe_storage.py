@@ -32,7 +32,7 @@ from deepnote_toolkit.ocelots.utils import (
 )
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
 
-from .dataframe_storage_manifest import (
+from ._dataframe_storage_manifest import (
     Manifest,
     is_frame_name,
     read_manifest,

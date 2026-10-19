@@ -14,8 +14,8 @@ from IPython.core.interactiveshell import InteractiveShell
 from pyspark.sql import SparkSession
 from traitlets.config import Config
 
-from deepnote_toolkit.artifacts import dataframe_storage
-from deepnote_toolkit.artifacts.dataframe_storage import register_dataframe_storage
+from deepnote_toolkit.artifacts import _dataframe_storage
+from deepnote_toolkit.artifacts._dataframe_storage import register_dataframe_storage
 from tests.unit.helpers.dataframe_storage import REPORT_URL, storage_request
 
 
@@ -36,16 +36,16 @@ def reports(monkeypatch: pytest.MonkeyPatch) -> Iterator[SimpleNamespace]:
         return 200, {}, ""
 
     monkeypatch.setattr(
-        dataframe_storage,
+        _dataframe_storage,
         "get_absolute_userpod_api_url",
         lambda path: f"http://userpod/{path}",
     )
-    dataframe_storage._reported.clear()
+    _dataframe_storage._reported.clear()
     with responses.RequestsMock(assert_all_requests_are_fired=False) as mock:
         mock.add_callback(responses.POST, REPORT_URL, callback=record)
         transport.mock = mock
         yield transport
-    dataframe_storage._reported.clear()
+    _dataframe_storage._reported.clear()
 
 
 @pytest.fixture
@@ -55,7 +55,7 @@ def shell(
     monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[InteractiveShell]:
     """A shell whose kernel reports `parent`, with the hook registered and enabled."""
-    monkeypatch.setenv(dataframe_storage.ENABLED_ENV_VAR, "true")
+    monkeypatch.setenv(_dataframe_storage.ENABLED_ENV_VAR, "true")
     # A shell swaps in its own __main__ and adds builtins; leave both as found
     monkeypatch.setitem(sys.modules, "__main__", sys.modules["__main__"])
     builtins_before = set(vars(builtins))
@@ -69,7 +69,7 @@ def shell(
     shell.kernel = SimpleNamespace(get_parent=lambda channel=None: parent)
     register_dataframe_storage()
     yield shell
-    shell.events.unregister("post_run_cell", dataframe_storage._on_post_run_cell)
+    shell.events.unregister("post_run_cell", _dataframe_storage._on_post_run_cell)
     InteractiveShell.clear_instance()
     for name in set(vars(builtins)) - builtins_before:
         delattr(builtins, name)
@@ -80,7 +80,9 @@ def tmp_project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """The project root, a fresh directory."""
     project_root = tmp_path / "project"
     project_root.mkdir()
-    monkeypatch.setattr(dataframe_storage, "resolve_project_root", lambda: project_root)
+    monkeypatch.setattr(
+        _dataframe_storage, "resolve_project_root", lambda: project_root
+    )
     return project_root
 
 

@@ -8,7 +8,7 @@ import psycopg2.extras
 
 from deepnote_toolkit.runtime_patches import apply_runtime_patches
 
-from .artifacts.dataframe_storage import register_dataframe_storage
+from .artifacts._dataframe_storage import register_dataframe_storage
 from .dataframe_utils import add_formatters
 from .execute_post_start_hooks import execute_post_start_hooks
 from .logging import LoggerManager

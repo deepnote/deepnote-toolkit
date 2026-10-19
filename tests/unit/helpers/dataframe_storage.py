@@ -13,7 +13,7 @@ import pytest
 from pyarrow import feather
 
 from deepnote_core.pydantic_compat_helpers import model_validate_compat
-from deepnote_toolkit.artifacts.dataframe_storage_manifest import Manifest
+from deepnote_toolkit.artifacts._dataframe_storage_manifest import Manifest
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
 
 NAME = "revenue"

@@ -14,7 +14,7 @@ import pytest
 from pyarrow import feather
 
 from deepnote_toolkit import artifacts
-from deepnote_toolkit.artifacts import dataframe_storage, dataframe_storage_manifest
+from deepnote_toolkit.artifacts import _dataframe_storage, _dataframe_storage_manifest
 from tests.unit.helpers.dataframe_storage import (
     DAY,
     FRAME_A,
@@ -171,7 +171,7 @@ def test_failure_in_the_manifest_step_deletes_nothing(
     def broken_manifest(*args: Any) -> Any:
         raise OSError(errno.EIO, "Input/output error")
 
-    monkeypatch.setattr(dataframe_storage, "write_manifest", broken_manifest)
+    monkeypatch.setattr(_dataframe_storage, "write_manifest", broken_manifest)
 
     with pytest.raises(OSError) as raised:
         artifacts.store_dataframe(pd.DataFrame({"a": [3]}), NAME)
@@ -232,7 +232,7 @@ def test_failed_manifest_write_keeps_the_previous_frame(
         return _FailingManifestHandle(handle, failing, error)
 
     monkeypatch.setattr(
-        dataframe_storage_manifest,
+        _dataframe_storage_manifest,
         "tempfile",
         SimpleNamespace(NamedTemporaryFile=failing_temporary_file),
     )
@@ -258,7 +258,7 @@ def test_rename_failing_after_the_copy_keeps_the_frame_it_put_in_place(
     tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
-    monkeypatch.setattr(dataframe_storage_manifest.os, "replace", _copy_then_fail)
+    monkeypatch.setattr(_dataframe_storage_manifest.os, "replace", _copy_then_fail)
 
     with pytest.raises(OSError) as raised:
         artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
