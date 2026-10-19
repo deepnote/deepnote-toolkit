@@ -198,7 +198,7 @@ def _read_storage_target() -> Optional[StorageTarget]:
     if kernel is None:
         return None
 
-    node: Any = kernel.get_parent()
+    node: object = kernel.get_parent()
     for key in ("metadata", "deepnote", "dataframeStorage"):
         if not isinstance(node, dict):
             return None
