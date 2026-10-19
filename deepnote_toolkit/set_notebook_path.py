@@ -2,13 +2,12 @@ import json
 import os
 import sys
 import traceback
-from pathlib import Path
 
 import requests
 from ipykernel import connect
 
 from . import env
-from .config import get_config
+from .config import get_config, resolve_notebook_root
 from .logging import get_logger
 
 
@@ -22,26 +21,7 @@ def set_notebook_path() -> None:
     - Changes the working directory to the notebook's directory
     - Sets DEEPNOTE_PROJECT_ID in detached mode
     """
-    # Determine notebooks common root using config first, with env fallback
-    try:
-        cfg = get_config()
-        # Prefer explicit notebook_root when provided
-        if cfg.paths.notebook_root:
-            root_path = Path(cfg.paths.notebook_root)
-        elif cfg.paths.home_dir:
-            root_path = Path(cfg.paths.home_dir)
-        elif cfg.runtime.dev_mode:
-            root_path = Path("/work")
-        else:
-            # Respect HOME if provided for compatibility with tests and environments
-            root_path = Path(os.environ.get("HOME", str(Path.home()))) / "work"
-    except Exception:
-        # Fallback: respect HOME when available, but honor dev-mode env toggle
-        root_path = (
-            Path("/work")
-            if env.get_env("DEEPNOTE_RUNNING_IN_DEV_MODE")
-            else Path(os.environ.get("HOME", str(Path.home()))) / "work"
-        )
+    root_path = resolve_notebook_root()
 
     try:
         connection_file = os.path.basename(connect.get_connection_file())

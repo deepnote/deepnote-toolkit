@@ -339,6 +339,11 @@ exclude = [
     "(^|[\\/])deepnote_core[\\/]resources[\\/]"
 ]
 
+# An isinstance chain that misses a typed union member fails its assert_never with arg-type.
+[[tool.mypy.overrides]]
+module = ["deepnote_toolkit.artifacts.*"]
+enable_error_code = ["arg-type"]
+
 [tool.coverage.run]
 branch = true
 source = ["deepnote_toolkit", "installer", "deepnote_core"]

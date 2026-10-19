@@ -1,4 +1,8 @@
-from typing import Any, Mapping
+from typing import Any, Mapping, TypeVar
+
+from pydantic import BaseModel
+
+Model = TypeVar("Model", bound=BaseModel)
 
 
 def _model_dump_compat(model_cls) -> dict:
@@ -45,7 +49,7 @@ def _get_description_compat(field: Any) -> str:
     return getattr(field_info, "description", "") if field_info else ""
 
 
-def model_validate_compat(model_cls, data: Mapping[str, Any]) -> Any:
+def model_validate_compat(model_cls: type[Model], data: Mapping[str, Any]) -> Model:
     """Validate using Pydantic v2 if available, else fall back to v1.
 
     Pydantic v2 exposes `model_validate`, while v1 uses `parse_obj` on the class.

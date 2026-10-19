@@ -9,11 +9,10 @@ from deepnote_toolkit.ocelots.types import (
     PolarsEagerDF,
     PysparkDF,
 )
-from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
 
 
 def is_pandas_dataframe(df) -> TypeGuard[PandasDF]:
-    return isinstance(df, (pd.DataFrame, DeepnoteQueryPreview))
+    return isinstance(df, pd.DataFrame)
 
 
 def is_pyspark_dataframe(df) -> TypeGuard[PysparkDF]:
