@@ -1,3 +1,4 @@
+import logging
 from types import SimpleNamespace
 from typing import Iterator
 from unittest import mock
@@ -25,13 +26,15 @@ def steps() -> Iterator[SimpleNamespace]:
     with (
         mock.patch.multiple(
             "deepnote_toolkit.runtime_initialization",
+            autospec=True,
             LoggerManager=mock.DEFAULT,
             **{name: mock.DEFAULT for name in STEPS},
         ) as mocks,
         mock.patch("IPython.get_ipython"),
         mock.patch("psycopg2.extensions.set_wait_callback"),
     ):
-        logger = mocks["LoggerManager"].return_value.get_logger.return_value
+        logger = mock.create_autospec(logging.Logger, instance=True)
+        mocks["LoggerManager"].return_value.get_logger.return_value = logger
         yield SimpleNamespace(logger=logger, **mocks)
 
 
