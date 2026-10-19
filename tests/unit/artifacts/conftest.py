@@ -7,7 +7,7 @@ from typing import IO, Any, Dict, Iterator, List, Optional
 import pytest
 from pyspark.sql import SparkSession
 
-from deepnote_toolkit.artifacts import dataframe_storage
+from deepnote_toolkit.artifacts import _dataframe_storage
 
 
 @pytest.fixture
@@ -15,7 +15,9 @@ def tmp_project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """The project root, a fresh directory."""
     project_root = tmp_path / "project"
     project_root.mkdir()
-    monkeypatch.setattr(dataframe_storage, "resolve_project_root", lambda: project_root)
+    monkeypatch.setattr(
+        _dataframe_storage, "resolve_project_root", lambda: project_root
+    )
     return project_root
 
 

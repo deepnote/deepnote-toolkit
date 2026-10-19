@@ -13,7 +13,7 @@ import pyarrow as pa
 import pytest
 
 from deepnote_toolkit import artifacts
-from deepnote_toolkit.artifacts import dataframe_storage, dataframe_storage_manifest
+from deepnote_toolkit.artifacts import _dataframe_storage, _dataframe_storage_manifest
 from tests.unit.helpers.dataframe_storage import (
     DAY,
     FRAME_A,
@@ -196,7 +196,7 @@ def test_manifest_nested_too_deeply_to_parse_counts_as_no_manifest(
         )
 
     monkeypatch.setattr(
-        dataframe_storage_manifest,
+        _dataframe_storage_manifest,
         "json",
         SimpleNamespace(loads=too_deep, dumps=json.dumps),
     )
@@ -211,14 +211,14 @@ def test_manifest_is_written_after_the_frame_file_is_complete(
     tmp_project_root: Path, arrow_sinks: List[Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seen: List[Dict[str, Any]] = []
-    original = dataframe_storage.write_manifest
+    original = _dataframe_storage.write_manifest
 
     def spy(directory: Path, new_file: str, *args: Any) -> None:
         table = pa.ipc.open_file(directory / new_file).read_all()
         seen.append({"closed": arrow_sinks[0].closed, "rows": table.num_rows})
         original(directory, new_file, *args)
 
-    monkeypatch.setattr(dataframe_storage, "write_manifest", spy)
+    monkeypatch.setattr(_dataframe_storage, "write_manifest", spy)
 
     artifacts.store_dataframe(pd.DataFrame({"a": [1, 2, 3]}), NAME)
 
@@ -229,7 +229,7 @@ def test_concurrent_writers_leave_a_complete_current_frame(
     tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     barrier = threading.Barrier(2, timeout=10)
-    original = dataframe_storage.read_manifest
+    original = _dataframe_storage.read_manifest
 
     def read_then_wait(directory: Path) -> Any:
         manifest = original(directory)
@@ -245,7 +245,7 @@ def test_concurrent_writers_leave_a_complete_current_frame(
             errors.append(exc)
 
     with monkeypatch.context() as patch:
-        patch.setattr(dataframe_storage, "read_manifest", read_then_wait)
+        patch.setattr(_dataframe_storage, "read_manifest", read_then_wait)
         threads = [threading.Thread(target=write, args=(value,)) for value in (1, 2)]
         for thread in threads:
             thread.start()
@@ -296,7 +296,7 @@ def test_stray_pruned_by_another_writer_meanwhile_is_not_a_failure(
         strays[0].unlink()
         yield iter(listing)
 
-    monkeypatch.setattr(dataframe_storage.os, "scandir", scandir_then_lose_a_stray)
+    monkeypatch.setattr(_dataframe_storage.os, "scandir", scandir_then_lose_a_stray)
 
     artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
 

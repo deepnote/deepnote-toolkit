@@ -16,7 +16,7 @@ from typing_extensions import TypeAlias, assert_never
 from deepnote_toolkit.config import resolve_notebook_root
 from deepnote_toolkit.ocelots.types import PandasDF, PolarsEagerDF
 
-from .dataframe_storage_manifest import (
+from ._dataframe_storage_manifest import (
     Manifest,
     is_frame_name,
     read_manifest,

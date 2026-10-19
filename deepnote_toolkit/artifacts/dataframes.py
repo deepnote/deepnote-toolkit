@@ -10,11 +10,11 @@ from deepnote_toolkit.ocelots.utils import (
 )
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
 
-from . import dataframe_storage
+from . import _dataframe_storage
 
 
 def _check_name(name: object) -> None:
-    if not dataframe_storage.is_safe_id(name):
+    if not _dataframe_storage.is_safe_id(name):
         raise ValueError(
             f"A DataFrame name must match [A-Za-z0-9_-]{{1,128}}, got {name!r}"
         )
@@ -60,8 +60,8 @@ def store_dataframe(df: Any, name: str) -> Optional[str]:
             f"got {type(df).__qualname__}"
         )
 
-    root = dataframe_storage.resolve_project_root()
-    return dataframe_storage.store_frame(df, name, root)
+    root = _dataframe_storage.resolve_project_root()
+    return _dataframe_storage.store_frame(df, name, root)
 
 
 def delete_dataframe(name: str) -> bool:
@@ -77,8 +77,8 @@ def delete_dataframe(name: str) -> bool:
             files. A symbolic link in place of the name's directory raises too.
     """
     _check_name(name)
-    root = dataframe_storage.resolve_project_root()
-    directory = root / dataframe_storage.FRAMES_DIR / name
+    root = _dataframe_storage.resolve_project_root()
+    directory = root / _dataframe_storage.FRAMES_DIR / name
     if not directory.is_dir():
         return False
     try:

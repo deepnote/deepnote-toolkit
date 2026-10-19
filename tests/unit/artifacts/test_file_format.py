@@ -10,7 +10,7 @@ import pyarrow as pa
 import pytest
 
 from deepnote_toolkit import artifacts
-from deepnote_toolkit.artifacts import dataframe_storage
+from deepnote_toolkit.artifacts import _dataframe_storage
 from tests.unit.helpers.dataframe_storage import (
     NAME,
     frame_dir,
@@ -52,7 +52,7 @@ def test_compression_falls_back_from_zstd_to_lz4_to_none(
 ) -> None:
     monkeypatch.setattr(pa, "Codec", _FakeCodec(availability))
 
-    assert dataframe_storage._select_compression() == expected
+    assert _dataframe_storage._select_compression() == expected
 
 
 @pytest.mark.parametrize(
