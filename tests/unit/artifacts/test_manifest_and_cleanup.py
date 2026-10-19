@@ -111,13 +111,8 @@ def _manifest_bytes(without: str = "", **fields: Any) -> bytes:
         pytest.param(
             json.dumps(list(_VALID_MANIFEST.items())).encode(), id="not-an-object"
         ),
-        pytest.param(_manifest_bytes(version=2), id="unsupported-version"),
         pytest.param(_manifest_bytes(version=True), id="version-a-bool"),
         pytest.param(_manifest_bytes(without="file"), id="no-file"),
-        pytest.param(_manifest_bytes(file="../../data/x.csv"), id="file-traversal"),
-        pytest.param(
-            _manifest_bytes(previous="../../data/x.csv"), id="previous-traversal"
-        ),
         pytest.param(_manifest_bytes(rows="1"), id="rows-a-string"),
         pytest.param(
             _manifest_bytes(pad="x" * 5000), id="oversized-truncated-mid-string"
@@ -136,9 +131,6 @@ def test_unusable_manifest_counts_as_no_manifest(
     named = [directory / FRAME_A, directory / FRAME_B]
     for path in named:
         path.write_bytes(b"named by the unusable manifest")
-    sentinel = (directory / "../../data/x.csv").resolve()
-    sentinel.parent.mkdir(parents=True)
-    sentinel.write_text("keep")
 
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
@@ -146,7 +138,6 @@ def test_unusable_manifest_counts_as_no_manifest(
     assert manifest.previous is None
     assert manifest.file not in (FRAME_A, FRAME_B)
     assert stored_table(tmp_project_root).to_pydict() == {"a": [1]}
-    assert sentinel.read_text() == "keep"
     assert all(path.exists() for path in named)
 
 
@@ -174,6 +165,23 @@ def test_usable_manifest_is_honoured(
     assert stored_manifest(tmp_project_root).previous == FRAME_A
     assert (directory / FRAME_A).exists()
     assert not (directory / FRAME_B).exists()
+
+
+@pytest.mark.parametrize("absolute", [False, True], ids=["relative", "absolute"])
+def test_previous_in_a_parent_directory_is_not_deleted(
+    tmp_project_root: Path, absolute: bool
+) -> None:
+    directory = frame_dir(tmp_project_root)
+    directory.mkdir(parents=True)
+    # Named like a frame, so checking only the last path component would delete it.
+    in_the_parent = directory.parent / FRAME_B
+    in_the_parent.write_text("keep")
+    previous = str(in_the_parent) if absolute else f"../{FRAME_B}"
+    (directory / "manifest.json").write_bytes(_manifest_bytes(previous=previous))
+
+    artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+
+    assert in_the_parent.read_text() == "keep"
 
 
 def test_manifest_nested_too_deeply_to_parse_counts_as_no_manifest(

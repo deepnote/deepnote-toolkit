@@ -93,7 +93,11 @@ def _delete_replaced_frames(
     named = {new_file}
     if old is not None:
         named.add(old.file)
-        if old.previous is not None and old.previous not in named:
+        if (
+            old.previous is not None
+            and is_frame_name(old.previous)
+            and old.previous not in named
+        ):
             (directory / old.previous).unlink(missing_ok=True)
 
     now = time.time()
