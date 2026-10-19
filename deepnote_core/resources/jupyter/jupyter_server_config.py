@@ -459,11 +459,13 @@ c.ServerApp.ip = "0.0.0.0"
 #  Default: {}
 # c.ServerApp.nbserver_extensions = {}
 
-## Enable jupyter_server_terminals extension for terminal support
-# and jupyter_resource_usage for resource usage tracking through API
+## Enable jupyter_server_terminals extension for terminal support,
+# jupyter_resource_usage for resource usage tracking through API
+# and deepnote_core.widget_assets to serve widget files
 c.ServerApp.jpserver_extensions = {
     "jupyter_server_terminals": True,
     "jupyter_resource_usage": True,
+    "deepnote_core.widget_assets": True,
 }
 
 ## The directory to use for notebooks and kernels.
