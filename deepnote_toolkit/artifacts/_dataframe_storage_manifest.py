@@ -41,6 +41,7 @@ class Manifest(BaseModel):
     written_at: StrictStr
     rows: StrictInt
     toolkit_version: StrictStr
+    block_id: Optional[StrictStr] = None
 
 
 def read_manifest(directory: Path) -> Optional[Manifest]:
@@ -69,9 +70,13 @@ def read_manifest(directory: Path) -> Optional[Manifest]:
 
 
 def write_manifest(
-    directory: Path, new_file: str, previous: Optional[str], rows: int
+    directory: Path,
+    new_file: str,
+    previous: Optional[str],
+    rows: int,
+    block_id: Optional[str] = None,
 ) -> None:
-    """Point the manifest at `new_file`.
+    """Point the manifest at `new_file`, recording `block_id` if given.
 
     On s3fs a rename is a copy and then a delete, so a failed rename may already
     have replaced the manifest.
@@ -83,6 +88,7 @@ def write_manifest(
         written_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         rows=rows,
         toolkit_version=__version__,
+        block_id=block_id,
     )
     # delete=False: s3fs uploads at close(), so the file must be closed before the
     # rename, and deleting it only when the context ends needs Python 3.12's
