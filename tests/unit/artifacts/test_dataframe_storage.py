@@ -129,7 +129,7 @@ def test_missing_result_is_ignored(
     """ipykernel can trigger post_run_cell without a result."""
     shell.events.trigger("post_run_cell", None)
 
-    assert "Error in callback" not in _displayed(capsys)
+    assert _callback_errors(_displayed(capsys)) == []
     _assert_nothing_stored(tmp_project_root, reports)
 
 
@@ -242,6 +242,11 @@ def _displayed(capsys: pytest.CaptureFixture) -> str:
     """Everything printed since the last read, with execution counts masked."""
     captured = capsys.readouterr()
     return re.sub(r"Out\[\d+\]", "Out[N]", captured.out + captured.err)
+
+
+def _callback_errors(printed: str) -> List[str]:
+    """IPython's "Error in callback" lines, skipping traceback lines that quote it."""
+    return re.findall(r"^Error in callback .*", printed, flags=re.MULTILINE)
 
 
 def _output_without_storage(
@@ -483,7 +488,7 @@ def test_writer_adds_nothing_to_the_cell(
     assert caplog.records == []
     assert len(reports.bodies) == 1
     printed = _displayed(capsys)
-    assert printed.count("Error in callback") == 0
+    assert _callback_errors(printed) == []
     assert printed.startswith(expected_output)
 
 
@@ -720,7 +725,7 @@ def test_interrupt_while_reporting_a_failure_fails_the_execution(
     assert not result.success
     printed = _displayed(capsys)
     assert "KeyboardInterrupt" in printed
-    assert "Error in callback" not in printed
+    assert _callback_errors(printed) == []
 
 
 def test_stores_the_result_under_the_requested_name(
