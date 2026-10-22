@@ -1,5 +1,4 @@
 # Configuration file for ipython-kernel.
-# flake8: noqa: F821  # 'c' is provided by IPython configuration system
 
 # ------------------------------------------------------------------------------
 # ConnectionFileMixin(LoggingConfigurable) configuration
@@ -335,7 +334,7 @@
 #  This should allow easy re-use of the IPKernelApp entry point to configure and
 #  launch kernels other than IPython's own.
 #  Default: 'ipykernel.ipkernel.IPythonKernel'
-c.IPKernelApp.kernel_class = "deepnote_core.kernel.DeepnoteKernel"
+c.IPKernelApp.kernel_class = "deepnote_core.kernel.DeepnoteKernel"  # noqa: F821
 
 ## The date format used by logging formatters for %(asctime)s
 #  See also: Application.log_datefmt

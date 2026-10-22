@@ -1,5 +1,6 @@
 """Tests for the Deepnote kernel class."""
 
+import asyncio
 import json
 import os
 import shutil
@@ -8,11 +9,12 @@ import sys
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Iterator, Tuple
+from typing import Iterator, List, Tuple
 
 import psutil
 import pytest
 from ipykernel.control import ControlThread
+from ipykernel.ipkernel import IPythonKernel
 from jupyter_client.blocking.client import BlockingKernelClient
 from jupyter_client.kernelspec import KernelSpecManager
 from jupyter_client.manager import KernelManager
@@ -96,6 +98,24 @@ class TestKernelWithProfile:
 
         # A kernel that jupyter_client had to SIGTERM ends with -15
         assert process.returncode == 0
+
+
+class TestStart:
+    """Starting the kernel's message handlers."""
+
+    def test_creates_control_lock_before_ipykernel_starts(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The control lock exists before ipykernel starts handling control requests."""
+        locks: List[asyncio.Lock] = []
+        monkeypatch.setattr(
+            IPythonKernel, "start", lambda kernel: locks.append(kernel._control_lock)
+        )
+        kernel = DeepnoteKernel.__new__(DeepnoteKernel)
+
+        kernel.start()
+
+        assert isinstance(locks[0], asyncio.Lock)
 
 
 class TestIsRunning:
