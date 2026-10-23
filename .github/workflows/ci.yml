@@ -433,6 +433,47 @@ jobs:
           path: coverage-data/coverage.xml
           retention-days: 30
 
+  # Other jobs take the toolkit's dependencies from poetry.lock; this one resolves
+  # the wheel's own requirements, as `pip install deepnote-toolkit` does for users.
+  lockless-install-smoke:
+    name: Lock-less install smoke - Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Poetry
+        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
+        with:
+          version: ${{ env.POETRY_VERSION }}
+
+      - name: Build wheel
+        id: build
+        uses: ./.github/actions/build-wheel
+
+      - name: Install wheel without the lock and check the exports
+        env:
+          WHEEL_PATH: ${{ steps.build.outputs.wheel-path }}
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/python -m pip install "${WHEEL_PATH}[server]"
+          cd /tmp
+          /tmp/smoke/bin/python -c "import deepnote_toolkit as t; missing = [n for n in ('DeepnoteChart', 'execute_sql', 'execute_sql_with_connection_json') if not hasattr(t, n)]; assert not missing, missing"
+
   audit-prod:
     name: Audit - Production
     runs-on: ubuntu-latest
