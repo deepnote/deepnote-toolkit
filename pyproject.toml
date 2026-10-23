@@ -69,7 +69,7 @@ dependencies = [
     "pyarrow>=13.0.0,<=17.0.0; python_version == '3.11' and sys_platform != 'darwin'",
     "pyarrow>=16.0.0,<=18.0.0; python_version == '3.11' and sys_platform == 'darwin'",
     # pyarrow 26 requires NumPy 2 at import time without declaring it, and 3.12 is on numpy<2.
-    "pyarrow>=23.0.1,<26; python_version == '3.12'",  # 23.0.1 patches CVE-2026-25087 (GHSA-rgxp-2hwp-jwgg)
+    "pyarrow>=23.0.1,<26; python_version == '3.12'",
     "pyarrow>=23.0.1; python_version >= '3.13'",  # 3.10/3.11 stay <17 via databricks-sqlalchemy 1.x (SQLAlchemy 1.x compat)
 
     "db-dtypes>=1.2.0,<1.4",
