@@ -6,10 +6,11 @@ from typing import Any
 from unittest import mock
 
 import pandas as pd
+import pyarrow as pa
 import pytest
-from pyarrow import feather
 
 from deepnote_toolkit import artifacts
+from deepnote_toolkit.artifacts import _dataframe_storage
 from tests.unit.helpers.dataframe_storage import (
     NAME,
     arrow_files,
@@ -24,11 +25,13 @@ def test_read_only_mount_stores_nothing_and_does_not_convert(
 ) -> None:
     read_only(monkeypatch)
 
-    with mock.patch.object(feather, "write_feather", autospec=True) as write:
+    with mock.patch.object(
+        _dataframe_storage, "_to_arrow_table", autospec=True
+    ) as convert:
         result = artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
     assert result is None
-    write.assert_not_called()
+    convert.assert_not_called()
     assert list(tmp_project_root.iterdir()) == []
 
 
@@ -39,11 +42,13 @@ def test_read_only_mount_keeps_the_stored_frame_and_does_not_convert(
     manifest_bytes = (frame_dir(tmp_project_root) / "manifest.json").read_bytes()
     read_only(monkeypatch)
 
-    with mock.patch.object(feather, "write_feather", autospec=True) as write:
+    with mock.patch.object(
+        _dataframe_storage, "_to_arrow_table", autospec=True
+    ) as convert:
         result = artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
 
     assert result is None
-    write.assert_not_called()
+    convert.assert_not_called()
     assert (
         frame_dir(tmp_project_root) / "manifest.json"
     ).read_bytes() == manifest_bytes
@@ -53,10 +58,10 @@ def test_read_only_mount_keeps_the_stored_frame_and_does_not_convert(
 def test_erofs_from_the_write_stores_nothing(
     tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def refuse(frame: pd.DataFrame, sink: Any, **kwargs: Any) -> None:
+    def refuse(sink: Any, schema: pa.Schema, **kwargs: Any) -> None:
         raise OSError(errno.EROFS, "Read-only file system")
 
-    monkeypatch.setattr(feather, "write_feather", refuse)
+    monkeypatch.setattr(pa.ipc, "new_file", refuse)
 
     result = artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 

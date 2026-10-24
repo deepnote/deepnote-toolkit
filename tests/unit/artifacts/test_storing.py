@@ -40,11 +40,19 @@ def test_stores_pandas_frame_and_manifest(tmp_project_root: Path) -> None:
     }
     # Manifest ignores unknown keys and defaults previous, so the keys are checked raw.
     written = json.loads((frame_dir(tmp_project_root) / "manifest.json").read_text())
-    assert set(written) == {"version", "file", "written_at", "rows", "toolkit_version"}
+    assert set(written) == {
+        "version",
+        "file",
+        "written_at",
+        "rows",
+        "batch_rows",
+        "toolkit_version",
+    }
     manifest = stored_manifest(tmp_project_root)
     assert manifest.version == 1
     assert manifest.file == f"{reference_id}.arrow"
     assert manifest.rows == 3
+    assert manifest.batch_rows == [3]
     assert manifest.toolkit_version == deepnote_toolkit.__version__
     assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", manifest.written_at)
 

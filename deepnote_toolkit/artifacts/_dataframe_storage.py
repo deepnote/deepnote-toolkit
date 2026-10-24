@@ -7,7 +7,7 @@ import re
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import pandas as pd
 from packaging.version import Version
@@ -18,16 +18,23 @@ from deepnote_toolkit.ocelots.types import PandasDF, PolarsEagerDF
 
 from ._dataframe_storage_manifest import (
     Manifest,
+    encode_manifest,
     is_frame_name,
     read_manifest,
     write_manifest,
 )
 
+if TYPE_CHECKING:
+    import pyarrow as pa
+
 FRAMES_DIR = Path("deepnote_dataframes")
 STALE_FRAME_AGE_SECONDS = 24 * 60 * 60
-POLARS_BATCH_ROWS = 65_536
-POLARS_BATCH_MIN_VERSION = Version("1.37")
+MAX_BATCH_ROWS = 65_536
+# A page spanning two batches reads at most half the reader's 32 MiB limit,
+# leaving room for dictionaries, IPC framing and uneven rows.
+TARGET_BATCH_BYTES = 8 * 1024 * 1024
 POLARS_COMPAT_LEVEL_MIN_VERSION = Version("1.2.1")
+POLARS_CHUNK_DICTIONARIES_MIN_VERSION = Version("1.35.1")
 
 StorableFrame: TypeAlias = Union[PandasDF, PolarsEagerDF]
 
@@ -44,42 +51,131 @@ def resolve_project_root() -> Path:
     return resolve_notebook_root()
 
 
-def _select_compression() -> str:
-    """Return the best codec this pyarrow build has: zstd, lz4, else uncompressed."""
+def _select_compression() -> Optional[str]:
+    """Return zstd if this pyarrow build has it, else None for uncompressed.
+
+    Never lz4: the dataframe reader cannot decode it.
+    """
     import pyarrow as pa
 
-    for codec in ("zstd", "lz4"):
-        if pa.Codec.is_available(codec):
-            return codec
-    return "uncompressed"
+    return "zstd" if pa.Codec.is_available("zstd") else None
 
 
-def _write_frame_file(frame: StorableFrame, path: Path, compression: str) -> None:
-    """Write the frame to `path` as an Arrow IPC file."""
+def _contains_polars_dtype(dtype: Any, *targets: Any) -> bool:
+    """Return whether `dtype` is one of `targets` or nests one at any depth."""
+    import polars
+
+    if any(dtype == target for target in targets):
+        return True
+    if isinstance(dtype, (polars.List, polars.Array)):
+        return _contains_polars_dtype(dtype.inner, *targets)
+    if isinstance(dtype, polars.Struct):
+        return any(
+            _contains_polars_dtype(field.dtype, *targets) for field in dtype.fields
+        )
+    return False
+
+
+def _to_arrow_table(frame: StorableFrame) -> "pa.Table":
+    """Return the frame as an Arrow table; raise TypeError for polars Object data."""
+    if isinstance(frame, pd.DataFrame):
+        import pyarrow as pa
+
+        # As write_feather does: RangeIndex to metadata, other indexes to columns.
+        return pa.Table.from_pandas(frame, preserve_index=None)
+
+    # polars is an optional dependency, so import it only for a non-pandas frame.
+    import polars
+
+    if isinstance(frame, polars.DataFrame):
+        # to_arrow() exports an Object value as its 8-byte memory address.
+        objects = [
+            name
+            for name, dtype in frame.schema.items()
+            if _contains_polars_dtype(dtype, polars.Object)
+        ]
+        if objects:
+            raise TypeError(f"Polars Object columns cannot be stored, got {objects}")
+        polars_version = Version(polars.__version__)
+        # Before 1.35.1, to_arrow() copies a column's whole dictionary into every
+        # chunk, so many chunks of a large Categorical could exhaust memory. Only
+        # the first column's chunks are counted: to_arrow() itself rechunks a frame
+        # whose columns are chunked differently.
+        if (
+            polars_version < POLARS_CHUNK_DICTIONARIES_MIN_VERSION
+            and frame.n_chunks() > 1
+            and any(
+                _contains_polars_dtype(dtype, polars.Categorical, polars.Enum)
+                for dtype in frame.schema.values()
+            )
+        ):
+            frame = frame.rechunk()
+        # pyarrow < 15, apache-arrow < 21.2 can't read 1.0+'s string/binary views.
+        if polars_version >= POLARS_COMPAT_LEVEL_MIN_VERSION:
+            return frame.to_arrow(compat_level=polars.CompatLevel.oldest())
+        return frame.to_arrow()
+
+    assert_never(frame)
+
+
+def _has_dictionary(data_type: "pa.DataType") -> bool:
+    """Return whether `data_type` is a dictionary type or nests one."""
+    import pyarrow as pa
+
+    if pa.types.is_dictionary(data_type):
+        return True
+    return any(
+        _has_dictionary(data_type.field(i).type) for i in range(data_type.num_fields)
+    )
+
+
+def _rows_per_batch(table: "pa.Table") -> int:
+    """Return how many rows make a batch of about TARGET_BATCH_BYTES."""
+    # Every batch writes its own copy of each column and chunk, as nbytes counts
+    # them, even where they share buffers. A dictionary is the exception: the file
+    # holds it once, while nbytes counts it once per chunk that shares it.
+    # get_total_buffer_size() counts it once, but counts a slice's whole buffer.
+    nbytes = sum(
+        (
+            min(column.nbytes, column.get_total_buffer_size())
+            if _has_dictionary(column.type)
+            else column.nbytes
+        )
+        for column in table.columns
+    )
+    if table.num_rows == 0 or nbytes == 0:
+        return MAX_BATCH_ROWS
+    row_bytes = nbytes / table.num_rows
+    return max(1, min(MAX_BATCH_ROWS, int(TARGET_BATCH_BYTES // row_bytes)))
+
+
+def _write_frame_file(
+    frame: StorableFrame, path: Path, compression: Optional[str]
+) -> list[int]:
+    """Write the frame to `path` as an Arrow IPC file; return its batches' row counts.
+
+    The dataframe reader needs every record batch's row count, so the batches are
+    cut here rather than by pyarrow.
+    """
+    import pyarrow as pa
+
     with path.open("wb") as sink:
-        if isinstance(frame, pd.DataFrame):
-            from pyarrow import feather
-
-            # pandas < 2.1's to_feather needs a default index and string column names.
-            feather.write_feather(frame, sink, compression=compression)
-            return
-
-        # polars is an optional dependency, so import it only for a non-pandas frame.
-        import polars
-
-        if isinstance(frame, polars.DataFrame):
-            polars_version = Version(polars.__version__)
-            options: dict[str, Any] = {}
-            # Cap batches like write_feather so a page read stays cheap.
-            if polars_version >= POLARS_BATCH_MIN_VERSION:
-                options["record_batch_size"] = POLARS_BATCH_ROWS
-            # pyarrow < 15, apache-arrow < 21.2 can't read 1.0+'s string/binary views.
-            if polars_version >= POLARS_COMPAT_LEVEL_MIN_VERSION:
-                options["compat_level"] = polars.CompatLevel.oldest()
-            frame.write_ipc(sink, compression=compression, **options)
-            return
-
-        assert_never(frame)
+        # A file with more than one dictionary for a column is refused by pyarrow.
+        table = _to_arrow_table(frame).unify_dictionaries()
+        rows_per_batch = _rows_per_batch(table)
+        options = pa.ipc.IpcWriteOptions(compression=compression, allow_64bit=True)
+        batch_rows: list[int] = []
+        with pa.ipc.new_file(sink, table.schema, options=options) as writer:
+            for offset in range(0, table.num_rows, rows_per_batch):
+                # slice() does not clamp the length of a table without columns.
+                length = min(rows_per_batch, table.num_rows - offset)
+                # to_batches() alone never merges chunks, so small chunks would
+                # make small batches; combining a slice copies at most one batch.
+                batch_table = table.slice(offset, length).combine_chunks()
+                for batch in batch_table.to_batches():
+                    writer.write_batch(batch)
+                    batch_rows.append(batch.num_rows)
+    return batch_rows
 
 
 def _delete_replaced_frames(
@@ -125,8 +221,11 @@ def store_frame(frame: StorableFrame, name: str, root: Path) -> Optional[str]:
     new_file = f"{reference_id}.arrow"
     try:
         directory.mkdir(parents=True, exist_ok=True)
-        _write_frame_file(frame, directory / new_file, _select_compression())
+        batch_rows = _write_frame_file(
+            frame, directory / new_file, _select_compression()
+        )
         old = read_manifest(directory)
+        manifest = encode_manifest(new_file, old.file if old else None, batch_rows)
     except BaseException as exc:
         with contextlib.suppress(OSError):
             (directory / new_file).unlink(missing_ok=True)
@@ -134,6 +233,6 @@ def store_frame(frame: StorableFrame, name: str, root: Path) -> Optional[str]:
             return None
         raise
 
-    write_manifest(directory, new_file, old.file if old else None, len(frame))
+    write_manifest(directory, manifest)
     _delete_replaced_frames(directory, old, new_file)
     return reference_id

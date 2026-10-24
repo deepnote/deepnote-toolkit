@@ -10,8 +10,8 @@ from typing import Any, Callable, Dict, Optional
 
 import pandas as pd
 import polars as pl
+import pyarrow as pa
 import pytest
-from pyarrow import feather
 
 from deepnote_toolkit import artifacts
 from deepnote_toolkit.artifacts import _dataframe_storage, _dataframe_storage_manifest
@@ -74,18 +74,65 @@ def test_unserializable_frame_raises_and_keeps_the_previous_frame(
     assert stored_table(tmp_project_root).to_pydict() == {"ok": [1]}
 
 
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        pytest.param(pl.Object, id="object"),
+        pytest.param(
+            pl.List(pl.Object),
+            id="list-of-objects",
+            # polars panics, unraisably, while it builds a List(Object) column.
+            marks=pytest.mark.filterwarnings(
+                "ignore::pytest.PytestUnraisableExceptionWarning"
+            ),
+        ),
+        pytest.param(pl.Array(pl.Object, 1), id="array-of-objects"),
+        pytest.param(
+            pl.List(pl.List(pl.Object)),
+            id="list-of-lists-of-objects",
+            marks=pytest.mark.filterwarnings(
+                "ignore::pytest.PytestUnraisableExceptionWarning"
+            ),
+        ),
+    ],
+)
 def test_polars_object_column_raises_and_keeps_the_previous_frame(
-    tmp_project_root: Path,
+    tmp_project_root: Path, dtype: Any
 ) -> None:
     artifacts.store_dataframe(pl.DataFrame({"ok": [1]}), NAME)
     manifest_bytes = (frame_dir(tmp_project_root) / "manifest.json").read_bytes()
+    frame = pl.DataFrame({"ok": [1]}).with_columns(pl.lit(None, dtype=dtype).alias("a"))
 
-    with pytest.raises(pl.exceptions.ComputeError) as raised:
-        artifacts.store_dataframe(
-            pl.DataFrame({"a": pl.Series([object()], dtype=pl.Object)}), NAME
-        )
+    with pytest.raises(TypeError) as raised:
+        artifacts.store_dataframe(frame, NAME)
 
-    raised.match("'Object' datatype")
+    raised.match(r"Object columns cannot be stored, got \['a'\]")
+    assert (
+        frame_dir(tmp_project_root) / "manifest.json"
+    ).read_bytes() == manifest_bytes
+    assert len(arrow_files(tmp_project_root)) == 1
+
+
+def test_object_in_a_struct_is_refused() -> None:
+    # polars 1.2 and later refuse to build such a frame, but older versions store
+    # the Object field's memory addresses.
+    assert _dataframe_storage._contains_polars_dtype(
+        pl.Struct({"a": pl.Int64, "o": pl.Object}), pl.Object
+    )
+
+
+def test_frame_with_too_many_batches_for_the_manifest_raises_and_keeps_the_previous_frame(
+    tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifacts.store_dataframe(pd.DataFrame({"ok": [1]}), NAME)
+    manifest_bytes = (frame_dir(tmp_project_root) / "manifest.json").read_bytes()
+    # 25,000 two-row batches need a manifest of about 75 KB.
+    monkeypatch.setattr(_dataframe_storage, "MAX_BATCH_ROWS", 2)
+
+    with pytest.raises(ValueError) as raised:
+        artifacts.store_dataframe(pd.DataFrame({"a": range(50_000)}), NAME)
+
+    raised.match("25000 record batches")
     assert (
         frame_dir(tmp_project_root) / "manifest.json"
     ).read_bytes() == manifest_bytes
@@ -95,11 +142,11 @@ def test_polars_object_column_raises_and_keeps_the_previous_frame(
 def test_partial_file_is_deleted_when_the_write_fails(
     tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def write_some_then_fail(frame: pd.DataFrame, sink: Any, **kwargs: Any) -> None:
+    def write_some_then_fail(sink: Any, schema: pa.Schema, **kwargs: Any) -> None:
         sink.write(b"ARROW1 partial")
         raise OSError(errno.EIO, "Input/output error")
 
-    monkeypatch.setattr(feather, "write_feather", write_some_then_fail)
+    monkeypatch.setattr(pa.ipc, "new_file", write_some_then_fail)
 
     with pytest.raises(OSError) as raised:
         artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
@@ -300,15 +347,13 @@ def test_interrupt_during_the_write_raises_and_keeps_the_previous_frame(
 ) -> None:
     interrupt = KeyboardInterrupt()
 
-    def write_some_then_interrupt(
-        frame: pd.DataFrame, sink: Any, **kwargs: Any
-    ) -> None:
+    def write_some_then_interrupt(sink: Any, schema: pa.Schema, **kwargs: Any) -> None:
         sink.write(b"ARROW1 partial")
         raise interrupt
 
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
     manifest_bytes = (frame_dir(tmp_project_root) / "manifest.json").read_bytes()
-    monkeypatch.setattr(feather, "write_feather", write_some_then_interrupt)
+    monkeypatch.setattr(pa.ipc, "new_file", write_some_then_interrupt)
 
     with pytest.raises(KeyboardInterrupt) as raised:
         artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)
