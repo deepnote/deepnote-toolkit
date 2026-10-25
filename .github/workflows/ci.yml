@@ -471,8 +471,17 @@ jobs:
         run: |
           python -m venv /tmp/smoke
           /tmp/smoke/bin/python -m pip install "${WHEEL_PATH}[server]"
+          # Leave the checkout so the import loads the installed wheel, not ./deepnote_toolkit.
           cd /tmp
-          /tmp/smoke/bin/python -c "import deepnote_toolkit as t; missing = [n for n in ('DeepnoteChart', 'execute_sql', 'execute_sql_with_connection_json') if not hasattr(t, n)]; assert not missing, missing"
+          /tmp/smoke/bin/python - <<'EOF'
+          import deepnote_toolkit
+
+          # safe_import logs failed imports instead of raising, so check the exports exist.
+          expected = ["DeepnoteChart", "execute_sql", "execute_sql_with_connection_json"]
+          missing = [name for name in expected if not hasattr(deepnote_toolkit, name)]
+          if missing:
+              raise SystemExit(f"deepnote_toolkit is missing exports: {missing}")
+          EOF
 
   audit-prod:
     name: Audit - Production
