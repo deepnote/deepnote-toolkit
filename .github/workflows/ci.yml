@@ -435,8 +435,8 @@ jobs:
 
   # Other jobs take the toolkit's dependencies from poetry.lock; this one resolves
   # the wheel's own requirements, as `pip install deepnote-toolkit` does for users.
-  lockless-install-smoke:
-    name: Lock-less install smoke - Python ${{ matrix.python-version }}
+  wheel-install-check:
+    name: Wheel Install Check - Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
