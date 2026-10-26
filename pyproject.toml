@@ -149,7 +149,7 @@ dependencies = [
     "pynacl>=1.6.2,<2",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/8
     "pyopenssl>=26.4.0,<27",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/21
     "pillow>=13.0.0,<14; python_version >= '3.11'",  # 13.0.0 fixes GHSA-78g4-xqwv-q3g8 and 36 other advisories
-    "pillow>=12.3.0,<13; python_version < '3.11'",  # pillow 13 requires Python 3.11, so 3.10 stays exposed to those advisories
+    "pillow>=12.3.0,<13; python_version < '3.11'",  # pillow 13 requires Python 3.11
     "mistune>=3.3.0,<4",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/46 https://github.com/deepnote/deepnote-toolkit/security/dependabot/54
     "nbconvert>=7.17.1,<8",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/37 https://github.com/deepnote/deepnote-toolkit/security/dependabot/38
     "GitPython>=3.2.1,<4",  # 3.2.1 fixes CVE-2026-114145
@@ -218,7 +218,7 @@ dev = [
     "pylint>=3.3.0,<4.0.0; python_version < '3.14'",
     "pylint>=4.0.0,<5.0.0; python_version >= '3.14'",
     "flake8>=7.1.0,<8.0.0",
-    "black>=26.10.1,<27.0.0",  # 26.10.1 fixes CVE-2026-114134
+    "black>=26.10.1,<27.0.0",
     "isort>=5.13.2,<6.0.0",
     "pytest>=9.0.3,<10.0.0",
     "pytest-cov>=6.0.0,<7.0.0",
