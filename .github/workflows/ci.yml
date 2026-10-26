@@ -520,3 +520,77 @@ jobs:
           require-hashes: true
           disable-pip: true
           ignore-vulns: *ignore-vulns
+
+  audit-server:
+    name: Audit - Server
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        id: setup-python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
+        with:
+          version: ${{ env.POETRY_VERSION }}
+          virtualenvs-create: ${{ env.POETRY_VIRTUALENVS_CREATE }}
+          virtualenvs-in-project: ${{ env.POETRY_VIRTUALENVS_IN_PROJECT }}
+          installer-parallel: ${{ env.POETRY_INSTALLER_PARALLEL }}
+
+      - name: Install poetry-plugin-export
+        run: poetry self add poetry-plugin-export
+
+      - name: Run audit for server extra dependencies
+        run: |
+          poetry export --extras server -f requirements.txt -o /tmp/requirements-server.txt
+
+      - uses: pypa/gh-action-pip-audit@f1c3022531130da3984dbdfb2786f6e1cba15556 # latest release (v1.1.0 doesn't contain `disable-pip`)
+        with:
+          inputs: /tmp/requirements-server.txt
+          require-hashes: true
+          disable-pip: true
+          ignore-vulns: *ignore-vulns
+
+  audit-dev:
+    name: Audit - Dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        id: setup-python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
+        with:
+          version: ${{ env.POETRY_VERSION }}
+          virtualenvs-create: ${{ env.POETRY_VIRTUALENVS_CREATE }}
+          virtualenvs-in-project: ${{ env.POETRY_VIRTUALENVS_IN_PROJECT }}
+          installer-parallel: ${{ env.POETRY_INSTALLER_PARALLEL }}
+
+      - name: Install poetry-plugin-export
+        run: poetry self add poetry-plugin-export
+
+      - name: Run audit for dev dependencies
+        run: |
+          poetry export --only dev -f requirements.txt -o /tmp/requirements-dev.txt
+
+      - uses: pypa/gh-action-pip-audit@f1c3022531130da3984dbdfb2786f6e1cba15556 # latest release (v1.1.0 doesn't contain `disable-pip`)
+        with:
+          inputs: /tmp/requirements-dev.txt
+          require-hashes: true
+          disable-pip: true
+          ignore-vulns: *ignore-vulns
