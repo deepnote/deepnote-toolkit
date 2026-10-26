@@ -2,9 +2,7 @@
 
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
-from unittest import mock
 
-import numpy as np
 import pandas as pd
 import polars as pl
 import pyarrow as pa
@@ -201,14 +199,6 @@ def _arrow_text(rows: int) -> pd.Series:
             ),
             id="pandas-column-and-its-copies",
         ),
-        pytest.param(
-            lambda: pl.DataFrame(
-                {"e": pl.Series(np.ones((20_000, 128), dtype=np.float32))}
-            ).with_columns(
-                pl.col("e").alias("a"), pl.col("e").alias("b"), pl.col("e").alias("c")
-            ),
-            id="polars-column-and-its-aliases",
-        ),
     ],
 )
 def test_buffers_shared_by_columns_or_chunks_count_once_per_use(
@@ -241,95 +231,3 @@ def test_polars_strings_are_stored_without_view_types(tmp_project_root: Path) ->
         pa.large_binary(),
         pa.large_list(pa.large_string()),
     ]
-
-
-@pytest.mark.parametrize(
-    "polars_version, passed",
-    [("1.2.0", False), ("1.2.1", True)],
-    ids=["before-1.2.1", "from-1.2.1"],
-)
-def test_polars_compat_level_is_passed_to_polars_from_1_2_1(
-    tmp_project_root: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    polars_version: str,
-    passed: bool,
-) -> None:
-    monkeypatch.setattr(pl, "__version__", polars_version)
-    original = pl.DataFrame.to_arrow
-
-    with mock.patch.object(
-        pl.DataFrame, "to_arrow", autospec=True, side_effect=original
-    ) as to_arrow:
-        artifacts.store_dataframe(pl.DataFrame({"a": ["x"]}), NAME)
-
-    assert ("compat_level" in to_arrow.call_args.kwargs) is passed
-    assert stored_table(tmp_project_root).to_pydict() == {"a": ["x"]}
-
-
-def _two_chunks(make_column: Callable[[List[str]], pl.Series]) -> pl.DataFrame:
-    """Two chunks of column `c` beside an Int64 column, which needs no rechunk."""
-    return pl.concat(
-        [
-            pl.DataFrame({"n": [1, 2], "c": make_column(["x", "y"])}),
-            pl.DataFrame({"n": [3], "c": make_column(["z"])}),
-        ],
-        rechunk=False,
-    )
-
-
-@pytest.mark.parametrize(
-    "polars_version, make_column, converted_chunks",
-    [
-        pytest.param(
-            "1.34.0",
-            lambda values: pl.Series(values, dtype=pl.Categorical),
-            1,
-            id="categorical-before-1.35.1",
-        ),
-        pytest.param(
-            "1.34.0",
-            lambda values: pl.Series(values, dtype=pl.Enum(["x", "y", "z"])),
-            1,
-            id="enum-before-1.35.1",
-        ),
-        pytest.param(
-            "1.34.0",
-            lambda values: pl.Series(
-                [[value] for value in values], dtype=pl.List(pl.Categorical)
-            ),
-            1,
-            id="list-of-categoricals-before-1.35.1",
-        ),
-        pytest.param(
-            "1.35.1",
-            lambda values: pl.Series(values, dtype=pl.Categorical),
-            2,
-            id="categorical-from-1.35.1",
-        ),
-        pytest.param(
-            "1.34.0",
-            lambda values: pl.Series(values),
-            2,
-            id="strings-before-1.35.1",
-        ),
-    ],
-)
-def test_chunked_polars_categoricals_are_rechunked_before_1_35_1(
-    tmp_project_root: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    polars_version: str,
-    make_column: Callable[[List[str]], pl.Series],
-    converted_chunks: int,
-) -> None:
-    with pl.StringCache():
-        frame = _two_chunks(make_column)
-    monkeypatch.setattr(pl, "__version__", polars_version)
-    original = pl.DataFrame.to_arrow
-
-    with mock.patch.object(
-        pl.DataFrame, "to_arrow", autospec=True, side_effect=original
-    ) as to_arrow:
-        artifacts.store_dataframe(frame, NAME)
-
-    assert to_arrow.call_args.args[0].get_column("c").n_chunks() == converted_chunks
-    assert stored_manifest(tmp_project_root).rows == len(frame)

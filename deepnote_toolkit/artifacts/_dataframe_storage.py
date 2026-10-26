@@ -33,8 +33,8 @@ MAX_BATCH_ROWS = 65_536
 # A page spanning two batches reads at most half the reader's 32 MiB limit,
 # leaving room for dictionaries, IPC framing and uneven rows.
 TARGET_BATCH_BYTES = 8 * 1024 * 1024
-POLARS_COMPAT_LEVEL_MIN_VERSION = Version("1.2.1")
-POLARS_CHUNK_DICTIONARIES_MIN_VERSION = Version("1.35.1")
+POLARS_MIN_VERSION = Version("1.35.1")
+POLARS_ARRAY_MIN_VERSION = Version("1.43.2")
 
 StorableFrame: TypeAlias = Union[PandasDF, PolarsEagerDF]
 
@@ -77,7 +77,12 @@ def _contains_polars_dtype(dtype: Any, *targets: Any) -> bool:
 
 
 def _to_arrow_table(frame: StorableFrame) -> "pa.Table":
-    """Return the frame as an Arrow table; raise TypeError for polars Object data."""
+    """Return the frame as an Arrow table.
+
+    Raise TypeError for polars Object data, on polars older than
+    POLARS_MIN_VERSION, and for Array data on polars older than
+    POLARS_ARRAY_MIN_VERSION.
+    """
     if isinstance(frame, pd.DataFrame):
         import pyarrow as pa
 
@@ -88,6 +93,15 @@ def _to_arrow_table(frame: StorableFrame) -> "pa.Table":
     import polars
 
     if isinstance(frame, polars.DataFrame):
+        polars_version = Version(polars.__version__)
+        # Before 1.35.1, to_arrow() copies a column's whole dictionary into every
+        # chunk, so many chunks of a large Categorical could exhaust memory.
+        if polars_version < POLARS_MIN_VERSION:
+            raise TypeError(
+                f"Storing polars DataFrames needs polars {POLARS_MIN_VERSION} or "
+                f"newer, found {polars.__version__}. Upgrade it (pip install -U "
+                "polars) and restart the kernel."
+            )
         # to_arrow() exports an Object value as its 8-byte memory address.
         objects = [
             name
@@ -96,24 +110,26 @@ def _to_arrow_table(frame: StorableFrame) -> "pa.Table":
         ]
         if objects:
             raise TypeError(f"Polars Object columns cannot be stored, got {objects}")
-        polars_version = Version(polars.__version__)
-        # Before 1.35.1, to_arrow() copies a column's whole dictionary into every
-        # chunk, so many chunks of a large Categorical could exhaust memory. Only
-        # the first column's chunks are counted: to_arrow() itself rechunks a frame
-        # whose columns are chunked differently.
-        if (
-            polars_version < POLARS_CHUNK_DICTIONARIES_MIN_VERSION
-            and frame.n_chunks() > 1
-            and any(
-                _contains_polars_dtype(dtype, polars.Categorical, polars.Enum)
-                for dtype in frame.schema.values()
-            )
-        ):
-            frame = frame.rechunk()
-        # pyarrow < 15, apache-arrow < 21.2 can't read 1.0+'s string/binary views.
-        if polars_version >= POLARS_COMPAT_LEVEL_MIN_VERSION:
-            return frame.to_arrow(compat_level=polars.CompatLevel.oldest())
-        return frame.to_arrow()
+        # Before 1.43.2, to_arrow() applies the offset of a sliced Array column with
+        # nulls twice: the file holds shifted values or aborts pyarrow on read.
+        # Struct had the same bug before 1.43.0, but pyarrow rejects that export,
+        # so storing fails instead of writing wrong values.
+        if polars_version < POLARS_ARRAY_MIN_VERSION:
+            arrays = [
+                name
+                for name, dtype in frame.schema.items()
+                if _contains_polars_dtype(dtype, polars.Array)
+            ]
+            if arrays:
+                raise TypeError(
+                    "Storing polars Array columns needs polars "
+                    f"{POLARS_ARRAY_MIN_VERSION} or newer, found "
+                    f"{polars.__version__}, got {arrays}. Upgrade it (pip install "
+                    "-U polars) and restart the kernel."
+                )
+        # Pinned, though it's the default: pyarrow < 15 and apache-arrow < 21.2
+        # can't read polars' string/binary views.
+        return frame.to_arrow(compat_level=polars.CompatLevel.oldest())
 
     assert_never(frame)
 

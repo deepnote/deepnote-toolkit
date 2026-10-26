@@ -38,8 +38,10 @@ def store_dataframe(df: Any, name: str) -> Optional[str]:
             data.
         TypeError: `df` is a SQL query preview or a frame derived from one, or is
             not a pandas or polars DataFrame. That includes PySpark and
-            pandas-on-Spark DataFrames and polars LazyFrames. Also raised for a
-            polars DataFrame with an Object column, or Object in a List, Array or
+            pandas-on-Spark DataFrames and polars LazyFrames. Also raised for any
+            polars DataFrame on polars older than 1.35.1; for one with an Object
+            column, or Object in a List, Array or Struct; and, on polars older than
+            1.43.2, for one with an Array column, or Array in a List, Array or
             Struct.
         OSError: The write failed.
         Exception: `df` cannot be converted to Arrow: whatever pyarrow's
