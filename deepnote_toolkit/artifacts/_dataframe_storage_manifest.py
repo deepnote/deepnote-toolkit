@@ -19,8 +19,6 @@ from deepnote_toolkit import __version__
 
 MANIFEST_NAME = "manifest.json"
 MANIFEST_VERSION = 1
-# The dataframe reader has the same cap. A batch costs about 7 bytes in
-# batch_rows, so this fits about 9,000 batches.
 MANIFEST_MAX_BYTES = 64 * 1024
 
 _FRAME_NAME_REGEX = re.compile(
