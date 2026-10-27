@@ -7,3 +7,4 @@ exclude = .git,__pycache__,.nox,docs/source/conf.py,old,build,dist,configs/ipyth
 per-file-ignores =
     # imported but unused
     __init__.py: F401
+    scripts/check_toolkit_imports.py: F401
