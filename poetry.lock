@@ -9458,4 +9458,4 @@ server = ["deepnote-python-lsp-server", "jupyter-resource-usage", "jupyter-serve
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10.0,<3.15"
-content-hash = "04a325f38a272beccf64959c3054ef9764fcbc230fcf8f2c6ce1aa57e94977aa"
+content-hash = "7c9e1e2316e450b768c48877b533b5b5ad2399666880f5d236c40fb89d3197ff"
