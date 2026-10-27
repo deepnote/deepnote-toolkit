@@ -433,10 +433,22 @@ jobs:
           path: coverage-data/coverage.xml
           retention-days: 30
 
-  audit-prod:
-    name: Audit - Production
+  audit:
+    name: Audit - ${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Production
+            export-args: --without dev
+          - name: Server
+            export-args: --extras server
+          - name: Dev
+            export-args: --only dev
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
         with:
@@ -459,13 +471,13 @@ jobs:
       - name: Install poetry-plugin-export
         run: poetry self add poetry-plugin-export
 
-      - name: Run audit for production dependencies
+      - name: Export dependencies
         run: |
-          poetry export --without dev -f requirements.txt -o /tmp/requirements-prod.txt
+          poetry export ${{ matrix.export-args }} -f requirements.txt -o /tmp/requirements.txt
 
       - uses: pypa/gh-action-pip-audit@f1c3022531130da3984dbdfb2786f6e1cba15556 # latest release (v1.1.0 doesn't contain `disable-pip`)
         with:
-          inputs: /tmp/requirements-prod.txt
+          inputs: /tmp/requirements.txt
           require-hashes: true
           disable-pip: true
           # PYSEC-2024-161 (pyarrow deserialization vulnerability)
@@ -479,122 +491,7 @@ jobs:
           # PYSEC-2026-4114 (oauthlib PKCE code_verifier timing side-channel)
           # * not exploitable here: affects server-side AuthorizationCodeGrant validation; databricks-sql-connector only uses the client side (WebApplicationClient)
           # * fix is in oauthlib 4.0.0, but databricks-sql-connector (latest 4.6.0) caps oauthlib<4.0.0
-          ignore-vulns: &ignore-vulns |
+          ignore-vulns: |
             PYSEC-2024-161
             PYSEC-2026-113
             PYSEC-2026-4114
-
-  audit-all:
-    name: Audit - All
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
-        with:
-          persist-credentials: false
-
-      - name: Set up Python
-        id: setup-python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Poetry
-        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
-        with:
-          version: ${{ env.POETRY_VERSION }}
-          virtualenvs-create: ${{ env.POETRY_VIRTUALENVS_CREATE }}
-          virtualenvs-in-project: ${{ env.POETRY_VIRTUALENVS_IN_PROJECT }}
-          installer-parallel: ${{ env.POETRY_INSTALLER_PARALLEL }}
-
-      - name: Install poetry-plugin-export
-        run: poetry self add poetry-plugin-export
-
-      - name: Run audit for all dependencies
-        run: |
-          poetry export -f requirements.txt -o /tmp/requirements-all.txt
-
-      - uses: pypa/gh-action-pip-audit@f1c3022531130da3984dbdfb2786f6e1cba15556 # latest release (v1.1.0 doesn't contain `disable-pip`)
-        with:
-          inputs: /tmp/requirements-all.txt
-          require-hashes: true
-          disable-pip: true
-          ignore-vulns: *ignore-vulns
-
-  audit-server:
-    name: Audit - Server
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
-        with:
-          persist-credentials: false
-
-      - name: Set up Python
-        id: setup-python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Poetry
-        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
-        with:
-          version: ${{ env.POETRY_VERSION }}
-          virtualenvs-create: ${{ env.POETRY_VIRTUALENVS_CREATE }}
-          virtualenvs-in-project: ${{ env.POETRY_VIRTUALENVS_IN_PROJECT }}
-          installer-parallel: ${{ env.POETRY_INSTALLER_PARALLEL }}
-
-      - name: Install poetry-plugin-export
-        run: poetry self add poetry-plugin-export
-
-      - name: Run audit for server extra dependencies
-        run: |
-          poetry export --extras server -f requirements.txt -o /tmp/requirements-server.txt
-
-      - uses: pypa/gh-action-pip-audit@f1c3022531130da3984dbdfb2786f6e1cba15556 # latest release (v1.1.0 doesn't contain `disable-pip`)
-        with:
-          inputs: /tmp/requirements-server.txt
-          require-hashes: true
-          disable-pip: true
-          ignore-vulns: *ignore-vulns
-
-  audit-dev:
-    name: Audit - Dev
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
-        with:
-          persist-credentials: false
-
-      - name: Set up Python
-        id: setup-python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
-        with:
-          python-version: '3.11'
-
-      - name: Install Poetry
-        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
-        with:
-          version: ${{ env.POETRY_VERSION }}
-          virtualenvs-create: ${{ env.POETRY_VIRTUALENVS_CREATE }}
-          virtualenvs-in-project: ${{ env.POETRY_VIRTUALENVS_IN_PROJECT }}
-          installer-parallel: ${{ env.POETRY_INSTALLER_PARALLEL }}
-
-      - name: Install poetry-plugin-export
-        run: poetry self add poetry-plugin-export
-
-      - name: Run audit for dev dependencies
-        run: |
-          poetry export --only dev -f requirements.txt -o /tmp/requirements-dev.txt
-
-      - uses: pypa/gh-action-pip-audit@f1c3022531130da3984dbdfb2786f6e1cba15556 # latest release (v1.1.0 doesn't contain `disable-pip`)
-        with:
-          inputs: /tmp/requirements-dev.txt
-          require-hashes: true
-          disable-pip: true
-          ignore-vulns: *ignore-vulns
