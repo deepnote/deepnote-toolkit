@@ -145,12 +145,14 @@ dependencies = [
     "filelock>=3.20.3,<4",
     "pyjwt>=2.15.0,<3",  # 2.15.0 fixes PYSEC-2026-4140..4152, PYSEC-2026-4183
     "fsspec>=2026.6.0",  # 2026.6.0 fixes CVE-2026-104851 (transitive via pyathena)
+    "certifi>=2026.10.19",  # 2026.10.19 fixes PYSEC-2026-4320 (transitive via requests)
     "pynacl>=1.6.2,<2",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/8
     "pyopenssl>=26.4.0,<27",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/21
-    "pillow>=12.3.0,<13",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/34 https://github.com/deepnote/deepnote-toolkit/security/dependabot/17
+    "pillow>=13.0.0,<14; python_version >= '3.11'",  # 13.0.0 fixes GHSA-78g4-xqwv-q3g8 and 36 other advisories
+    "pillow>=12.3.0,<13; python_version < '3.11'",  # pillow 13 requires Python 3.11
     "mistune>=3.3.0,<4",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/46 https://github.com/deepnote/deepnote-toolkit/security/dependabot/54
     "nbconvert>=7.17.1,<8",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/37 https://github.com/deepnote/deepnote-toolkit/security/dependabot/38
-    "GitPython>=3.1.60,<4",  # fixes PYSEC-2026-3982, PYSEC-2026-3983, PYSEC-2026-3984
+    "GitPython>=3.2.1,<4",  # 3.2.1 fixes CVE-2026-114145
     "Mako>=1.3.12,<2",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/36 https://github.com/deepnote/deepnote-toolkit/security/dependabot/48
     "ujson>=5.13.0,<6",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/58
     "idna>=3.15,<4",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/59
@@ -185,7 +187,8 @@ server = [
     "jupyter-server==2.20.0",
     "jupyter-server-terminals==0.5.3",
     "jupyter-resource-usage>=1.1.0,<2.0.0",
-    "streamlit>=1.40.0,<2.0.0",
+    "streamlit>=1.66.1,<2.0.0; python_version >= '3.11'",  # first release that allows pillow 13
+    "streamlit>=1.40.0,<2.0.0; python_version < '3.11'",
     "deepnote-python-lsp-server==1.13.1.1",
     "parso>=0.8.5,<0.9; python_version >= '3.14'",
     "pywinpty>=3.0.1; python_version >= '3.14' and sys_platform == 'win32'",
@@ -215,7 +218,7 @@ dev = [
     "pylint>=3.3.0,<4.0.0; python_version < '3.14'",
     "pylint>=4.0.0,<5.0.0; python_version >= '3.14'",
     "flake8>=7.1.0,<8.0.0",
-    "black>=26.3.1,<27.0.0",
+    "black>=26.10.1,<27.0.0",
     "isort>=5.13.2,<6.0.0",
     "pytest>=9.0.3,<10.0.0",
     "pytest-cov>=6.0.0,<7.0.0",
