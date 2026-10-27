@@ -6,7 +6,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 import pyarrow as pa
 import pytest
@@ -14,8 +14,11 @@ from pyarrow import feather
 
 from deepnote_core.pydantic_compat_helpers import model_validate_compat
 from deepnote_toolkit.artifacts._dataframe_storage_manifest import Manifest
+from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
 
 NAME = "revenue"
+BLOCK_ID = "blk1"
+REPORT_URL = "http://userpod/toolkit/errors"
 DAY = 24 * 60 * 60
 FRAME_A = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.arrow"
 FRAME_B = "11111111-2222-4333-8444-555555555555.arrow"
@@ -84,3 +87,25 @@ def probe_failure(frame: Any) -> Optional[type]:
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return type(exc)
     return None
+
+
+def query_preview() -> DeepnoteQueryPreview:
+    return DeepnoteQueryPreview({"a": [1]}, deepnote_query="select 1")
+
+
+def cleared_query_preview() -> DeepnoteQueryPreview:
+    preview = query_preview()
+    # Mutating the frame clears its attached SQL query metadata.
+    preview["b"] = 2
+    return preview
+
+
+def storage_request(**overrides: Any) -> Dict[str, Any]:
+    """Return the request message that asks the kernel to store a block's result."""
+    return {
+        "metadata": {
+            "deepnote": {
+                "dataframeStorage": {"name": NAME, "blockId": BLOCK_ID, **overrides}
+            }
+        }
+    }

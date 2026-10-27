@@ -10,11 +10,12 @@ import pytest
 from pyarrow import feather
 
 from deepnote_toolkit import artifacts
-from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
 from tests.unit.helpers.dataframe_storage import (
     FRAME_A,
     NAME,
     arrow_files,
+    cleared_query_preview,
+    query_preview,
     stored_table,
 )
 
@@ -55,17 +56,6 @@ def test_invalid_name_raises_before_anything_is_written(
     assert list(tmp_project_root.iterdir()) == []
 
 
-def _query_preview() -> DeepnoteQueryPreview:
-    return DeepnoteQueryPreview({"a": [1]}, deepnote_query="select 1")
-
-
-def _cleared_query_preview() -> DeepnoteQueryPreview:
-    preview = _query_preview()
-    # Mutating the frame clears its attached SQL query metadata.
-    preview["b"] = 2
-    return preview
-
-
 UNSUPPORTED_VALUES = [
     pytest.param(lambda: 1, id="int"),
     pytest.param(lambda: None, id="none"),
@@ -75,9 +65,9 @@ UNSUPPORTED_VALUES = [
 ]
 
 QUERY_PREVIEWS = [
-    pytest.param(_query_preview, id="query-preview"),
-    pytest.param(_cleared_query_preview, id="cleared-query-preview"),
-    pytest.param(lambda: _query_preview().copy(), id="copied-query-preview"),
+    pytest.param(query_preview, id="query-preview"),
+    pytest.param(cleared_query_preview, id="cleared-query-preview"),
+    pytest.param(lambda: query_preview().copy(), id="copied-query-preview"),
 ]
 
 
