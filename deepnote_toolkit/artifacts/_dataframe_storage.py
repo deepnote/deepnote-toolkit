@@ -7,10 +7,9 @@ import re
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Optional, Union
 
 import pandas as pd
-from packaging.version import Version
 from typing_extensions import TypeAlias, assert_never
 
 from deepnote_toolkit.config import resolve_notebook_root
@@ -23,6 +22,11 @@ from ._dataframe_storage_manifest import (
     read_manifest,
     write_manifest,
 )
+from ._polars_compatibility_checks import (
+    refuse_arrays_on_old_polars,
+    refuse_object_columns,
+    refuse_old_polars,
+)
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -33,8 +37,6 @@ MAX_BATCH_ROWS = 65_536
 # A page spanning two batches reads at most half the reader's 32 MiB limit,
 # leaving room for dictionaries, IPC framing and uneven rows.
 TARGET_BATCH_BYTES = 8 * 1024 * 1024
-POLARS_MIN_VERSION = Version("1.35.1")
-POLARS_ARRAY_MIN_VERSION = Version("1.43.2")
 
 StorableFrame: TypeAlias = Union[PandasDF, PolarsEagerDF]
 
@@ -61,80 +63,8 @@ def _select_compression() -> Optional[str]:
     return "zstd" if pa.Codec.is_available("zstd") else None
 
 
-def _contains_polars_dtype(dtype: Any, *targets: Any) -> bool:
-    """Return whether `dtype` is one of `targets` or nests one at any depth."""
-    import polars
-
-    if any(dtype == target for target in targets):
-        return True
-    if isinstance(dtype, (polars.List, polars.Array)):
-        return _contains_polars_dtype(dtype.inner, *targets)
-    if isinstance(dtype, polars.Struct):
-        return any(
-            _contains_polars_dtype(field.dtype, *targets) for field in dtype.fields
-        )
-    return False
-
-
-def _refuse_old_polars() -> None:
-    """Raise TypeError on polars older than POLARS_MIN_VERSION."""
-    import polars
-
-    # Before 1.35.1, to_arrow() copies a column's whole dictionary into every
-    # chunk, so many chunks of a large Categorical could exhaust memory.
-    if Version(polars.__version__) < POLARS_MIN_VERSION:
-        raise TypeError(
-            f"Storing polars DataFrames needs polars {POLARS_MIN_VERSION} or "
-            f"newer, found {polars.__version__}. Upgrade it (pip install -U "
-            "polars) and restart the kernel."
-        )
-
-
-def _refuse_object_columns(frame: PolarsEagerDF) -> None:
-    """Raise TypeError for Object data."""
-    import polars
-
-    # to_arrow() exports an Object value as its 8-byte memory address.
-    objects = [
-        name
-        for name, dtype in frame.schema.items()
-        if _contains_polars_dtype(dtype, polars.Object)
-    ]
-    if objects:
-        raise TypeError(f"Polars Object columns cannot be stored, got {objects}")
-
-
-def _refuse_arrays_on_old_polars(frame: PolarsEagerDF) -> None:
-    """Raise TypeError for Array data on polars older than POLARS_ARRAY_MIN_VERSION."""
-    import polars
-
-    # Before 1.43.2, to_arrow() applies the offset of a sliced Array column with
-    # nulls twice: the file holds shifted values or aborts pyarrow on read.
-    # Struct had the same bug before 1.43.0, but pyarrow rejects that export,
-    # so storing fails instead of writing wrong values.
-    if Version(polars.__version__) >= POLARS_ARRAY_MIN_VERSION:
-        return
-    arrays = [
-        name
-        for name, dtype in frame.schema.items()
-        if _contains_polars_dtype(dtype, polars.Array)
-    ]
-    if arrays:
-        raise TypeError(
-            "Storing polars Array columns needs polars "
-            f"{POLARS_ARRAY_MIN_VERSION} or newer, found "
-            f"{polars.__version__}, got {arrays}. Upgrade it (pip install "
-            "-U polars) and restart the kernel."
-        )
-
-
 def _to_arrow_table(frame: StorableFrame) -> "pa.Table":
-    """Return the frame as an Arrow table.
-
-    Raise TypeError for polars Object data, on polars older than
-    POLARS_MIN_VERSION, and for Array data on polars older than
-    POLARS_ARRAY_MIN_VERSION.
-    """
+    """Return the frame as an Arrow table."""
     if isinstance(frame, pd.DataFrame):
         import pyarrow as pa
 
@@ -145,9 +75,9 @@ def _to_arrow_table(frame: StorableFrame) -> "pa.Table":
     import polars
 
     if isinstance(frame, polars.DataFrame):
-        _refuse_old_polars()
-        _refuse_object_columns(frame)
-        _refuse_arrays_on_old_polars(frame)
+        refuse_old_polars()
+        refuse_object_columns(frame)
+        refuse_arrays_on_old_polars(frame)
         # Pinned, though it's the default: pyarrow < 15 and apache-arrow < 21.2
         # can't read polars' string/binary views.
         return frame.to_arrow(compat_level=polars.CompatLevel.oldest())
