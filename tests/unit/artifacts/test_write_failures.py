@@ -34,7 +34,7 @@ def _store_a_good_frame(tmp_project_root: Path) -> bytes:
 
 
 def _store_bad_frame_after_a_good_one(
-    tmp_project_root: Path, make_frame: Callable[[], Any], expected_error: type
+    tmp_project_root: Path, make_frame: Callable[[], pd.DataFrame], expected_error: type
 ) -> Dict[str, Any]:
     """Store a good frame, then a bad one.
 

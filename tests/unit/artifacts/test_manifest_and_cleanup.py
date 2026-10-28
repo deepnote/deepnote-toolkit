@@ -6,7 +6,7 @@ import os
 import threading
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Iterator, List
+from typing import IO, Any, Dict, Iterator, List, Tuple
 
 import pandas as pd
 import pyarrow as pa
@@ -224,22 +224,22 @@ def test_manifest_nested_too_deeply_to_parse_counts_as_no_manifest(
 
 
 def test_manifest_is_written_after_the_frame_file_is_complete(
-    tmp_project_root: Path, arrow_sinks: List[Any], monkeypatch: pytest.MonkeyPatch
+    tmp_project_root: Path, arrow_sinks: List[IO[Any]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seen: List[Dict[str, Any]] = []
+    seen: List[Tuple[bool, int]] = []
     original = _dataframe_storage.write_manifest
 
     def spy(directory: Path, encoded: str) -> None:
         new_file = json.loads(encoded)["file"]
         table = pa.ipc.open_file(directory / new_file).read_all()
-        seen.append({"closed": arrow_sinks[0].closed, "rows": table.num_rows})
+        seen.append((arrow_sinks[0].closed, table.num_rows))
         original(directory, encoded)
 
     monkeypatch.setattr(_dataframe_storage, "write_manifest", spy)
 
     artifacts.store_dataframe(pd.DataFrame({"a": [1, 2, 3]}), NAME)
 
-    assert seen == [{"closed": True, "rows": 3}]
+    assert seen == [(True, 3)]
 
 
 def test_concurrent_writers_leave_a_complete_current_frame(

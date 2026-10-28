@@ -89,7 +89,7 @@ def test_unsupported_value_raises_type_error(
 
 @pytest.mark.parametrize("make_preview", QUERY_PREVIEWS)
 def test_query_preview_raises_type_error(
-    tmp_project_root: Path, make_preview: Callable[[], Any]
+    tmp_project_root: Path, make_preview: Callable[[], DeepnoteQueryPreview]
 ) -> None:
     with pytest.raises(TypeError, match="SQL query preview"):
         artifacts.store_dataframe(make_preview(), NAME)

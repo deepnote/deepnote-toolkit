@@ -5,7 +5,7 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 import pandas as pd
 import polars as pl
@@ -134,7 +134,9 @@ def test_transposed_frame_is_stored_with_string_names(tmp_project_root: Path) ->
     [pd.DataFrame({"a": []}), pl.DataFrame({"a": []})],
     ids=["pandas", "polars"],
 )
-def test_empty_frame_is_stored(tmp_project_root: Path, frame: Any) -> None:
+def test_empty_frame_is_stored(
+    tmp_project_root: Path, frame: Union[pd.DataFrame, pl.DataFrame]
+) -> None:
     artifacts.store_dataframe(frame, NAME)
 
     assert stored_table(tmp_project_root).num_rows == 0

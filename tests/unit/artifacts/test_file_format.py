@@ -1,7 +1,7 @@
 """Tests for the compression, record batches and column types of stored DataFrames."""
 
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Type, Union
 
 import pandas as pd
 import polars as pl
@@ -21,7 +21,9 @@ from tests.unit.helpers.dataframe_storage import (
 @pytest.mark.parametrize(
     "make_frame", [pd.DataFrame, pl.DataFrame], ids=["pandas", "polars"]
 )
-def test_frames_are_compressed(tmp_project_root: Path, make_frame: Any) -> None:
+def test_frames_are_compressed(
+    tmp_project_root: Path, make_frame: Union[Type[pd.DataFrame], Type[pl.DataFrame]]
+) -> None:
     artifacts.store_dataframe(make_frame({"a": ["x" * 100] * 10_000}), NAME)
 
     stored = frame_dir(tmp_project_root) / stored_manifest(tmp_project_root).file
@@ -135,7 +137,7 @@ def _categories_in_two_batches() -> pl.DataFrame:
     ],
 )
 def test_manifest_batch_rows_match_the_files_record_batches(
-    tmp_project_root: Path, make_frame: Callable[[], Any], expected: List[int]
+    tmp_project_root: Path, make_frame: Callable[[], pd.DataFrame], expected: List[int]
 ) -> None:
     frame = make_frame()
 
@@ -202,7 +204,7 @@ def _arrow_text(rows: int) -> pd.Series:
     ],
 )
 def test_buffers_shared_by_columns_or_chunks_count_once_per_use(
-    tmp_project_root: Path, make_frame: Callable[[], Any]
+    tmp_project_root: Path, make_frame: Callable[[], pd.DataFrame]
 ) -> None:
     # Every batch writes its own copy of each column and chunk.
     artifacts.store_dataframe(make_frame(), NAME)
