@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from pydantic import BaseModel, StrictInt, StrictStr, ValidationError
+from pydantic import BaseModel, Field, StrictInt, StrictStr, ValidationError
 
 from deepnote_core.pydantic_compat_helpers import (
     _model_dump_compat,
@@ -33,17 +33,18 @@ def is_frame_name(name: str) -> bool:
 
 
 class Manifest(BaseModel):
-    """The manifest file; `previous` is the frame `file` replaced.
-
-    `batch_rows` holds the row count of each record batch in `file`, in order.
-    """
+    """The manifest file"""
 
     version: StrictInt
     file: StrictStr
-    previous: Optional[StrictStr] = None
+    previous: Optional[StrictStr] = Field(
+        default=None, description="The previous frame file, if any"
+    )
     written_at: StrictStr
-    rows: StrictInt
-    batch_rows: list[StrictInt]
+    rows: StrictInt = Field(description="The total number of rows in the DataFrame.")
+    batch_rows: list[StrictInt] = Field(
+        description="The number of rows in each record batch, in order."
+    )
     toolkit_version: StrictStr
 
 
