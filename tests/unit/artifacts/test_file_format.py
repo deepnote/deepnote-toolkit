@@ -137,7 +137,7 @@ def _categories_in_two_batches() -> pl.DataFrame:
     ],
 )
 def test_manifest_batch_rows_match_the_files_record_batches(
-    tmp_project_root: Path, make_frame: Callable[[], pd.DataFrame], expected: List[int]
+    tmp_project_root: Path, make_frame: Callable[[], Union[pd.DataFrame, pl.DataFrame]], expected: List[int]
 ) -> None:
     frame = make_frame()
 
