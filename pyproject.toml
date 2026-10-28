@@ -88,8 +88,9 @@ dependencies = [
     "jinja2>=3.1.6,<4",
     "sqlparse>=0.6.0,<0.7",
     "pymysql>=1.1.1,<1.2",
-    "pymongo>=4.18.2,<5",  # 4.18.2 fixes CVE-2026-88029, CVE-2026-96747, CVE-2026-96748, CVE-2026-96749
-    "dnspython>=2.7.0,<3.0",  # required by pymongo>=4.18
+    "pymongo>=4.18.3,<5",  # 4.18.3 fixes CVE-2026-106435
+    "dnspython>=2.9.0,<3.0; python_version >= '3.11'",  # 2.9.0 fixes CVE-2026-114605 (transitive via pymongo)
+    "dnspython>=2.7.0,<3.0; python_version < '3.11'",  # dnspython 2.9.0 requires Python 3.11
     "paramiko>=5.0.0,<6",
     "sqlalchemy<2; python_version <= '3.11'",
     "sqlalchemy>=2.0.45,<3; python_version >= '3.12'",
@@ -149,6 +150,7 @@ dependencies = [
     "pyjwt>=2.15.0,<3",  # 2.15.0 fixes PYSEC-2026-4140..4152, PYSEC-2026-4183
     "fsspec>=2026.6.0",  # 2026.6.0 fixes CVE-2026-104851 (transitive via pyathena)
     "certifi>=2026.10.19",  # 2026.10.19 fixes PYSEC-2026-4320 (transitive via requests)
+    "oauthlib>=4.0.0,<5",  # 4.0.0 fixes CVE-2026-49272, PYSEC-2026-4114 (transitive via databricks-sql-connector)
     "pynacl>=1.6.2,<2",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/8
     "pyopenssl>=26.4.0,<27",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/21
     "pillow>=13.0.0,<14; python_version >= '3.11'",  # 13.0.0 fixes GHSA-78g4-xqwv-q3g8 and 36 other advisories
@@ -219,8 +221,7 @@ deepnote-toolkit = "deepnote_toolkit.cli.main:main"
 
 [dependency-groups]
 dev = [
-    "pylint>=3.3.0,<4.0.0; python_version < '3.14'",
-    "pylint>=4.0.0,<5.0.0; python_version >= '3.14'",
+    "pylint>=4.0.9,<5.0.0",
     "flake8>=7.1.0,<8.0.0",
     "black>=26.10.1,<27.0.0",
     "isort>=5.13.2,<6.0.0",
