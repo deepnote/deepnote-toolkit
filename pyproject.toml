@@ -68,7 +68,8 @@ dependencies = [
     "pyarrow>=16.0.0,<18.0.0; python_version == '3.10' and sys_platform == 'darwin'",
     "pyarrow>=13.0.0,<=17.0.0; python_version == '3.11' and sys_platform != 'darwin'",
     "pyarrow>=16.0.0,<=18.0.0; python_version == '3.11' and sys_platform == 'darwin'",
-    "pyarrow>=23.0.1; python_version == '3.12'",  # 23.0.1 patches CVE-2026-25087 (GHSA-rgxp-2hwp-jwgg)
+    # pyarrow 26 requires NumPy 2 at import time without declaring it, and 3.12 is on numpy<2.
+    "pyarrow>=23.0.1,<26; python_version == '3.12'",
     "pyarrow>=23.0.1; python_version >= '3.13'",  # 3.10/3.11 stay <17 via databricks-sqlalchemy 1.x (SQLAlchemy 1.x compat)
 
     "db-dtypes>=1.2.0,<1.4",
@@ -87,13 +88,15 @@ dependencies = [
     "jinja2>=3.1.6,<4",
     "sqlparse>=0.6.0,<0.7",
     "pymysql>=1.1.1,<1.2",
-    "pymongo>=4.18.2,<5",  # 4.18.2 fixes CVE-2026-88029, CVE-2026-96747, CVE-2026-96748, CVE-2026-96749
-    "dnspython>=2.7.0,<3.0",  # required by pymongo>=4.18
+    "pymongo>=4.18.3,<5",  # 4.18.3 fixes CVE-2026-106435
+    "dnspython>=2.9.0,<3.0; python_version >= '3.11'",  # 2.9.0 fixes CVE-2026-114605 (transitive via pymongo)
+    "dnspython>=2.7.0,<3.0; python_version < '3.11'",  # dnspython 2.9.0 requires Python 3.11
     "paramiko>=5.0.0,<6",
     "sqlalchemy<2; python_version <= '3.11'",
     "sqlalchemy>=2.0.45,<3; python_version >= '3.12'",
     "snowflake-sqlalchemy>=1.11.0,<2",  # 1.11.0 fixes PYSEC-2026-3921 (SQL injection, local file read)
-    "snowflake-connector-python>=4.7.3,<5",  # 4.7.3 fixes CVE-2026-86597
+    "snowflake-connector-python>=4.8.1,<5; python_version >= '3.11'",  # first release that allows filelock 4
+    "snowflake-connector-python>=4.7.3,<5; python_version < '3.11'",  # 4.7.3 fixes CVE-2026-86597
     "sqlalchemy-spanner>=1.6.2,<2",
     "clickhouse-sqlalchemy>0,<0.4",
     "sqlalchemy-bigquery>1.6.1,<1.13; python_version < '3.13'",
@@ -142,10 +145,12 @@ dependencies = [
     "protobuf>=5.29.6,<6",
     "requests>=2.32.4,<3",
     "tornado>=6.5.9,<7",  # 6.5.9 fixes GHSA-3hv7-mjh2-fv65, GHSA-c2m8-h5v5-343r, GHSA-chx6-46f5-w4vp
-    "filelock>=3.20.3,<4",
+    "filelock>=4.2.1,<5; python_version >= '3.11'",  # 4.2.1 fixes CVE-2026-112907, CVE-2026-112913, CVE-2026-112940
+    "filelock==3.20.3; python_version < '3.11'",  # 3.20.4 through 4.2.0 carry those advisories, and 4.2.1 requires Python 3.11
     "pyjwt>=2.15.0,<3",  # 2.15.0 fixes PYSEC-2026-4140..4152, PYSEC-2026-4183
     "fsspec>=2026.6.0",  # 2026.6.0 fixes CVE-2026-104851 (transitive via pyathena)
     "certifi>=2026.10.19",  # 2026.10.19 fixes PYSEC-2026-4320 (transitive via requests)
+    "oauthlib>=4.0.0,<5",  # 4.0.0 fixes CVE-2026-49272, PYSEC-2026-4114 (transitive via databricks-sql-connector)
     "pynacl>=1.6.2,<2",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/8
     "pyopenssl>=26.4.0,<27",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/21
     "pillow>=13.0.0,<14; python_version >= '3.11'",  # 13.0.0 fixes GHSA-78g4-xqwv-q3g8 and 36 other advisories
@@ -184,7 +189,7 @@ Issues = "https://github.com/deepnote/deepnote-toolkit/issues"
 
 [project.optional-dependencies]
 server = [
-    "jupyter-server==2.20.0",
+    "jupyter-server==2.21.0",  # 2.21.0 fixes PYSEC-2026-4054
     "jupyter-server-terminals==0.5.3",
     "jupyter-resource-usage>=1.1.0,<2.0.0",
     "streamlit>=1.66.1,<2.0.0; python_version >= '3.11'",  # first release that allows pillow 13
@@ -192,6 +197,7 @@ server = [
     "deepnote-python-lsp-server==1.13.1.1",
     "parso>=0.8.5,<0.9; python_version >= '3.14'",
     "pywinpty>=3.0.1; python_version >= '3.14' and sys_platform == 'win32'",
+    "anyio>=4.14.2,<5",  # 4.14.2 fixes PYSEC-2026-4024, PYSEC-2026-4025 (transitive via jupyter-server)
 
     # Config dependencies - they need to be declared both in main and server extras, keep them in sync
     "pydantic>=1.10.0,<3; python_version < '3.13'",
@@ -215,8 +221,7 @@ deepnote-toolkit = "deepnote_toolkit.cli.main:main"
 
 [dependency-groups]
 dev = [
-    "pylint>=3.3.0,<4.0.0; python_version < '3.14'",
-    "pylint>=4.0.0,<5.0.0; python_version >= '3.14'",
+    "pylint>=4.0.9,<5.0.0",
     "flake8>=7.1.0,<8.0.0",
     "black>=26.10.1,<27.0.0",
     "isort>=5.13.2,<6.0.0",
@@ -232,14 +237,15 @@ dev = [
     # We do not distribute PySpark for all users because it's huge dependency (300mb) and not all
     # users need it. So in code we get pyspark from global module cache (since user already imported it at
     # that point). But we also have it as dev dependency to provide better autocompletion and for tests
-    "pyspark>=3.5.5,<4.0.0; python_version < '3.13'",
+    "pyspark>=3.5.8,<4.0.0; python_version < '3.13'",
     "pyspark>=4.0.0,<5.0.0; python_version == '3.13'",
     "pyspark>=4.1.0,<5.0.0; python_version >= '3.14'",
     "pyogrio>=0.12.0; python_version >= '3.14'",
     "pyproj>=3.7.2; python_version >= '3.14'",
     "shapely>=2.1.2; python_version >= '3.14'",
     "nox>=2025.11.12,<2026.0.0",
-    "virtualenv>=20.36.1",
+    "virtualenv>=21.14.13; python_version >= '3.11'",
+    "virtualenv>=20.36.1,<21; python_version < '3.11'",
     "poetry-dynamic-versioning>=1.4.0,<2.0.0",
     "twine>=6.1.0,<7.0.0",
     "codespell>=2.3.0,<3.0.0",
@@ -251,7 +257,7 @@ license-check = [
     # Dependencies needed for license checking that aren't in main production dependencies
     "geopandas>=1.1.2,<2; python_version < '3.12'",
     "geopandas>=1.1.2,<2; python_version >= '3.12'",
-    "pyspark>=3.5.5,<4.0.0; python_version < '3.13'",
+    "pyspark>=3.5.8,<4.0.0; python_version < '3.13'",
     "pyspark>=4.0.0,<5.0.0; python_version == '3.13'",
     "pyspark>=4.1.0,<5.0.0; python_version >= '3.14'",
     "pyogrio>=0.12.0; python_version >= '3.14'",
