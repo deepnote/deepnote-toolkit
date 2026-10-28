@@ -4,7 +4,6 @@ import errno
 import os
 import shutil
 import tempfile
-from io import BufferedWriter
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Dict, Optional
@@ -95,13 +94,17 @@ def test_frame_with_too_many_batches_for_the_manifest_raises_and_keeps_the_previ
 def test_partial_file_is_deleted_when_the_write_fails(
     tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def write_some_then_fail(
-        sink: BufferedWriter, schema: pa.Schema, **kwargs: Any
+    real_write_batch = pa.ipc.RecordBatchFileWriter.write_batch
+
+    def write_a_batch_then_fail(
+        self: pa.ipc.RecordBatchFileWriter, batch: pa.RecordBatch, **kwargs: Any
     ) -> None:
-        sink.write(b"ARROW1 partial")
+        real_write_batch(self, batch, **kwargs)
         raise OSError(errno.EIO, "Input/output error")
 
-    monkeypatch.setattr(pa.ipc, "new_file", write_some_then_fail)
+    monkeypatch.setattr(
+        pa.ipc.RecordBatchFileWriter, "write_batch", write_a_batch_then_fail
+    )
 
     with pytest.raises(OSError) as raised:
         artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
@@ -301,16 +304,19 @@ def test_interrupt_during_the_write_raises_and_keeps_the_previous_frame(
     tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     interrupt = KeyboardInterrupt()
+    real_write_batch = pa.ipc.RecordBatchFileWriter.write_batch
 
-    def write_some_then_interrupt(
-        sink: BufferedWriter, schema: pa.Schema, **kwargs: Any
+    def write_a_batch_then_interrupt(
+        self: pa.ipc.RecordBatchFileWriter, batch: pa.RecordBatch, **kwargs: Any
     ) -> None:
-        sink.write(b"ARROW1 partial")
+        real_write_batch(self, batch, **kwargs)
         raise interrupt
 
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
     manifest_bytes = (frame_dir(tmp_project_root) / "manifest.json").read_bytes()
-    monkeypatch.setattr(pa.ipc, "new_file", write_some_then_interrupt)
+    monkeypatch.setattr(
+        pa.ipc.RecordBatchFileWriter, "write_batch", write_a_batch_then_interrupt
+    )
 
     with pytest.raises(KeyboardInterrupt) as raised:
         artifacts.store_dataframe(pd.DataFrame({"a": [2]}), NAME)

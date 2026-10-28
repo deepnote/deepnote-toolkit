@@ -1,7 +1,6 @@
 """Tests for storing and deleting DataFrames on a read-only mount."""
 
 import errno
-from io import BufferedWriter
 from pathlib import Path
 from typing import Any
 from unittest import mock
@@ -59,10 +58,12 @@ def test_read_only_mount_keeps_the_stored_frame_and_does_not_convert(
 def test_erofs_from_the_write_stores_nothing(
     tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def refuse(sink: BufferedWriter, schema: pa.Schema, **kwargs: Any) -> None:
+    def refuse(
+        self: pa.ipc.RecordBatchFileWriter, batch: pa.RecordBatch, **kwargs: Any
+    ) -> None:
         raise OSError(errno.EROFS, "Read-only file system")
 
-    monkeypatch.setattr(pa.ipc, "new_file", refuse)
+    monkeypatch.setattr(pa.ipc.RecordBatchFileWriter, "write_batch", refuse)
 
     result = artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
