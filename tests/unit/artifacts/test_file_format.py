@@ -132,12 +132,35 @@ def _categories_in_two_batches() -> pl.DataFrame:
             [65_536, 65_536, 65_536, 3_392],
             id="polars-list-of-categoricals-many-chunks",
         ),
+        pytest.param(
+            lambda: pd.DataFrame(
+                {"c": pd.Categorical([f"{i:0100d}" for i in range(200_000)])}
+            ),
+            [65_536, 65_536, 65_536, 3_392],
+            id="pandas-categorical-dictionary-larger-than-a-batch",
+        ),
+        pytest.param(
+            lambda: pd.DataFrame(
+                {"t": ["y"] * 150 + ["x" * 7_000_000] * 2 + ["y"] * 19_848}
+            ),
+            [151, 11_747, 8_102],
+            id="pandas-long-rows-cut-where-a-batch-is-full",
+        ),
+        pytest.param(
+            lambda: pd.DataFrame(
+                {"t": ["y"] * 150 + ["x" * 13_000_000] + ["y"] * 19_849}
+            ),
+            [150, 1, 12_656, 7_193],
+            id="pandas-row-over-the-limit-among-short-ones",
+        ),
         pytest.param(lambda: pd.DataFrame({"a": []}), [], id="pandas-empty"),
         pytest.param(lambda: pd.DataFrame(index=range(5)), [5], id="pandas-no-columns"),
     ],
 )
 def test_manifest_batch_rows_match_the_files_record_batches(
-    tmp_project_root: Path, make_frame: Callable[[], Union[pd.DataFrame, pl.DataFrame]], expected: List[int]
+    tmp_project_root: Path,
+    make_frame: Callable[[], Union[pd.DataFrame, pl.DataFrame]],
+    expected: List[int],
 ) -> None:
     frame = make_frame()
 
@@ -176,10 +199,31 @@ def test_long_text_is_split_into_batches_of_at_most_8_mib(
 def test_row_larger_than_a_batch_gets_a_batch_of_its_own(
     tmp_project_root: Path,
 ) -> None:
-    artifacts.store_dataframe(pd.DataFrame({"text": ["x" * 10_000_000] * 3}), NAME)
+    artifacts.store_dataframe(pd.DataFrame({"text": ["x" * 13_000_000] * 3}), NAME)
 
     assert stored_manifest(tmp_project_root).batch_rows == [1, 1, 1]
     assert _file_batch_rows(tmp_project_root) == [1, 1, 1]
+
+
+def test_long_rows_together_are_split_into_batches_of_at_most_12_mib(
+    tmp_project_root: Path,
+) -> None:
+    # 20 MB in the first and in the last 400 rows, which the frame's average row size
+    # puts in one batch each.
+    long_rows = ["x" * 50_000] * 400
+    frame = pd.DataFrame({"t": long_rows + ["y"] * 99_200 + long_rows})
+
+    artifacts.store_dataframe(frame, NAME)
+
+    reader = pa.ipc.open_file(
+        frame_dir(tmp_project_root) / stored_manifest(tmp_project_root).file
+    )
+    batches = [reader.get_batch(i) for i in range(reader.num_record_batches)]
+    assert max(batch.nbytes for batch in batches) <= 12 * 1024 * 1024
+    assert stored_manifest(tmp_project_root).batch_rows == [
+        batch.num_rows for batch in batches
+    ]
+    assert pa.Table.from_batches(batches).column("t").to_pylist() == list(frame["t"])
 
 
 def _arrow_text(rows: int) -> pd.Series:

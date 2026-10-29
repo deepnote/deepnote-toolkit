@@ -37,6 +37,7 @@ MAX_BATCH_ROWS = 65_536
 # A page spanning two batches reads at most half the reader's 32 MiB limit,
 # leaving room for dictionaries, IPC framing and uneven rows.
 TARGET_BATCH_BYTES = 8 * 1024 * 1024
+MAX_BATCH_BYTES = 12 * 1024 * 1024
 
 StorableFrame: TypeAlias = Union[PandasDF, PolarsEagerDF]
 
@@ -116,6 +117,29 @@ def _rows_per_batch(table: "pa.Table") -> int:
     return max(1, min(MAX_BATCH_ROWS, int(TARGET_BATCH_BYTES // row_bytes)))
 
 
+def _split_oversized(batch: "pa.RecordBatch") -> list["pa.RecordBatch"]:
+    """Split `batch` into parts of at most MAX_BATCH_BYTES, or one row each.
+
+    Each part but the last is the longest prefix that fits, so long rows don't
+    leave a trail of small batches that one page would have to span.
+    """
+    import pyarrow as pa
+
+    parts = []
+    while batch.num_rows > 1 and pa.ipc.get_record_batch_size(batch) > MAX_BATCH_BYTES:
+        fits, too_many = 1, batch.num_rows
+        while too_many - fits > 1:
+            middle = (fits + too_many) // 2
+            if pa.ipc.get_record_batch_size(batch.slice(0, middle)) <= MAX_BATCH_BYTES:
+                fits = middle
+            else:
+                too_many = middle
+        parts.append(batch.slice(0, fits))
+        batch = batch.slice(fits)
+    parts.append(batch)
+    return parts
+
+
 def _write_frame_file(
     frame: StorableFrame, path: Path, compression: Optional[str]
 ) -> list[int]:
@@ -140,8 +164,9 @@ def _write_frame_file(
                 # make small batches; combining a slice copies at most one batch.
                 batch_table = table.slice(offset, length).combine_chunks()
                 for batch in batch_table.to_batches():
-                    writer.write_batch(batch)
-                    batch_rows.append(batch.num_rows)
+                    for part in _split_oversized(batch):
+                        writer.write_batch(part)
+                        batch_rows.append(part.num_rows)
     return batch_rows
 
 
