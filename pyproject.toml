@@ -144,7 +144,8 @@ dependencies = [
     "cryptography>=50.0.0,<51",
     "protobuf>=5.29.6,<6",
     "requests>=2.32.4,<3",
-    "tornado>=6.5.9,<7",  # 6.5.9 fixes GHSA-3hv7-mjh2-fv65, GHSA-c2m8-h5v5-343r, GHSA-chx6-46f5-w4vp
+    "tornado>=6.6,<7; python_version >= '3.11'",  # 6.6 fixes CVE-2026-115927, CVE-2026-116577, CVE-2026-116578
+    "tornado>=6.5.9,<7; python_version < '3.11'",  # tornado 6.6 requires Python 3.11
     "filelock>=4.2.1,<5; python_version >= '3.11'",  # 4.2.1 fixes CVE-2026-112907, CVE-2026-112913, CVE-2026-112940
     "filelock==3.20.3; python_version < '3.11'",  # 3.20.4 through 4.2.0 carry those advisories, and 4.2.1 requires Python 3.11
     "pyjwt>=2.15.0,<3",  # 2.15.0 fixes PYSEC-2026-4140..4152, PYSEC-2026-4183
