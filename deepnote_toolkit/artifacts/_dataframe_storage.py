@@ -89,14 +89,13 @@ def _to_arrow_table(frame: StorableFrame) -> "pa.Table":
 def _contains_type(
     data_type: "pa.DataType", matches: Callable[["pa.DataType"], bool]
 ) -> bool:
-    """Return whether `matches` holds for `data_type` or any type nested in it.
-
-    Looks into child fields and dictionary values, not extension storage types.
-    """
+    """Return whether `matches` holds for `data_type` or any type nested in it."""
     import pyarrow as pa
 
     if matches(data_type):
         return True
+    if isinstance(data_type, pa.BaseExtensionType):
+        return _contains_type(data_type.storage_type, matches)
     if pa.types.is_dictionary(data_type):
         return _contains_type(data_type.value_type, matches)
     return any(

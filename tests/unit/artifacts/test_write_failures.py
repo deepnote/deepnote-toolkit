@@ -117,6 +117,10 @@ def _arrow_column(values: pa.Array) -> pd.Series:
             ),
             id="dictionary-of-string-views",
         ),
+        pytest.param(
+            lambda: pa.array([["a"]], pa.fixed_shape_tensor(pa.string_view(), [1])),
+            id="tensor-extension-of-string-views",
+        ),
         pytest.param(lambda: pa.array([[1]], pa.list_view(pa.int64())), id="list-view"),
         pytest.param(
             lambda: pa.array([[1]], pa.large_list_view(pa.int64())),
