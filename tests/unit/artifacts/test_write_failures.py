@@ -91,6 +91,72 @@ def test_frame_with_too_many_batches_for_the_manifest_raises_and_keeps_the_previ
     assert len(arrow_files(tmp_project_root)) == 1
 
 
+def _arrow_column(values: pa.Array) -> pd.Series:
+    return pd.Series(pd.arrays.ArrowExtensionArray(values))
+
+
+@pytest.mark.parametrize(
+    "make_values",
+    [
+        pytest.param(lambda: pa.array(["a"], pa.string_view()), id="string-view"),
+        pytest.param(lambda: pa.array([b"a"], pa.binary_view()), id="binary-view"),
+        pytest.param(
+            lambda: pa.array([["a"]], pa.list_(pa.string_view())),
+            id="list-of-string-views",
+        ),
+        pytest.param(
+            lambda: pa.array(
+                [{"n": 1, "s": "a"}],
+                pa.struct([("n", pa.int64()), ("s", pa.string_view())]),
+            ),
+            id="struct-with-a-string-view-second",
+        ),
+        pytest.param(
+            lambda: pa.DictionaryArray.from_arrays(
+                pa.array([0], pa.int64()), pa.array(["a"], pa.string_view())
+            ),
+            id="dictionary-of-string-views",
+        ),
+        pytest.param(lambda: pa.array([[1]], pa.list_view(pa.int64())), id="list-view"),
+        pytest.param(
+            lambda: pa.array([[1]], pa.large_list_view(pa.int64())),
+            id="large-list-view",
+        ),
+    ],
+)
+def test_view_type_column_raises_and_keeps_the_previous_frame(
+    tmp_project_root: Path, make_values: Callable[[], pa.Array]
+) -> None:
+    manifest_bytes = _store_a_good_frame(tmp_project_root)
+    frame = pd.DataFrame({"ok": [1], "a": _arrow_column(make_values())})
+
+    with pytest.raises(TypeError) as raised:
+        artifacts.store_dataframe(frame, NAME)
+
+    raised.match(r"Arrow view-type columns cannot be stored, got \['a'\]")
+    assert (
+        frame_dir(tmp_project_root) / "manifest.json"
+    ).read_bytes() == manifest_bytes
+    assert len(arrow_files(tmp_project_root)) == 1
+
+
+def test_view_type_error_names_each_view_type_column_and_no_other(
+    tmp_project_root: Path,
+) -> None:
+    frame = pd.DataFrame(
+        {
+            "s": _arrow_column(pa.array(["a"], pa.string_view())),
+            "ok": _arrow_column(pa.array(["a"], pa.large_string())),
+            "l": _arrow_column(pa.array([[1]], pa.list_view(pa.int64()))),
+        }
+    )
+
+    with pytest.raises(TypeError) as raised:
+        artifacts.store_dataframe(frame, NAME)
+
+    raised.match(r"view-type columns cannot be stored, got \['s', 'l'\]")
+
+
 def test_partial_file_is_deleted_when_the_write_fails(
     tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -7,7 +7,7 @@ import re
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Callable, Optional, Union
 
 import pandas as pd
 from typing_extensions import TypeAlias, assert_never
@@ -86,19 +86,58 @@ def _to_arrow_table(frame: StorableFrame) -> "pa.Table":
     assert_never(frame)
 
 
-def _has_dictionary(data_type: "pa.DataType") -> bool:
-    """Return whether `data_type` is a dictionary type or nests one."""
+def _contains_type(
+    data_type: "pa.DataType", matches: Callable[["pa.DataType"], bool]
+) -> bool:
+    """Return whether `matches` holds for `data_type` or any type nested in it.
+
+    Looks into child fields and dictionary values, not extension storage types.
+    """
     import pyarrow as pa
 
-    if pa.types.is_dictionary(data_type):
+    if matches(data_type):
         return True
+    if pa.types.is_dictionary(data_type):
+        return _contains_type(data_type.value_type, matches)
     return any(
-        _has_dictionary(data_type.field(i).type) for i in range(data_type.num_fields)
+        _contains_type(data_type.field(i).type, matches)
+        for i in range(data_type.num_fields)
     )
+
+
+def _is_view_type(data_type: "pa.DataType") -> bool:
+    """Return whether `data_type` is string_view, binary_view or a list view."""
+    import pyarrow as pa
+
+    # pyproject allows pyarrow older than 16, which lacks these functions.
+    return any(
+        hasattr(pa.types, check) and getattr(pa.types, check)(data_type)
+        for check in (
+            "is_string_view",
+            "is_binary_view",
+            "is_list_view",
+            "is_large_list_view",
+        )
+    )
+
+
+def _refuse_view_types(table: "pa.Table") -> None:
+    """Raise TypeError naming each column whose type is or nests a view type."""
+    # IPC writes a slice of a view column with up to all of the column's data, so
+    # every batch would repeat it. pyarrow older than 24 can't measure their nbytes.
+    views = [
+        field.name
+        for field in table.schema
+        if _contains_type(field.type, _is_view_type)
+    ]
+    if views:
+        raise TypeError(f"Arrow view-type columns cannot be stored, got {views}")
 
 
 def _rows_per_batch(table: "pa.Table") -> int:
     """Return how many rows make a batch of about TARGET_BATCH_BYTES."""
+    import pyarrow as pa
+
     # Every batch writes its own copy of each column and chunk, as nbytes counts
     # them, even where they share buffers. A dictionary is the exception: the file
     # holds it once, while nbytes counts it once per chunk that shares it.
@@ -106,7 +145,7 @@ def _rows_per_batch(table: "pa.Table") -> int:
     nbytes = sum(
         (
             min(column.nbytes, column.get_total_buffer_size())
-            if _has_dictionary(column.type)
+            if _contains_type(column.type, pa.types.is_dictionary)
             else column.nbytes
         )
         for column in table.columns
@@ -151,8 +190,10 @@ def _write_frame_file(
     import pyarrow as pa
 
     with path.open("wb") as sink:
+        table = _to_arrow_table(frame)
+        _refuse_view_types(table)
         # A file with more than one dictionary for a column is refused by pyarrow.
-        table = _to_arrow_table(frame).unify_dictionaries()
+        table = table.unify_dictionaries()
         rows_per_batch = _rows_per_batch(table)
         options = pa.ipc.IpcWriteOptions(compression=compression, allow_64bit=True)
         batch_rows: list[int] = []

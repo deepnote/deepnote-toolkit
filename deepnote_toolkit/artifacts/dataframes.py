@@ -42,7 +42,9 @@ def store_dataframe(df: Any, name: str) -> Optional[str]:
             polars DataFrame on polars older than 1.35.1; for one with an Object
             column, or Object in a List, Array or Struct; and, on polars older than
             1.43.2, for one with an Array column, or Array in a List, Array or
-            Struct.
+            Struct. Also raised for a pandas DataFrame with a column or index
+            whose Arrow type is or nests a view type (string_view, binary_view,
+            list_view or large_list_view).
         OSError: The write failed.
         Exception: `df` cannot be converted to Arrow: whatever pyarrow's
             `Table.from_pandas()` or polars' `df.to_arrow()` raises.

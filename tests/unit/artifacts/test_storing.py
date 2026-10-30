@@ -9,6 +9,7 @@ from typing import Any, Union
 
 import pandas as pd
 import polars as pl
+import pyarrow as pa
 import pytest
 
 import deepnote_toolkit
@@ -141,6 +142,23 @@ def test_empty_frame_is_stored(
 
     assert stored_table(tmp_project_root).num_rows == 0
     assert stored_manifest(tmp_project_root).rows == 0
+
+
+def test_frame_is_stored_on_pyarrow_older_than_16(
+    tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # pyarrow older than 16 has none of these.
+    for check in (
+        "is_string_view",
+        "is_binary_view",
+        "is_list_view",
+        "is_large_list_view",
+    ):
+        monkeypatch.delattr(pa.types, check)
+
+    artifacts.store_dataframe(pd.DataFrame({"a": [1], "s": ["x"]}), NAME)
+
+    assert stored_table(tmp_project_root).to_pydict() == {"a": [1], "s": ["x"]}
 
 
 def test_names_are_stored_apart(tmp_project_root: Path) -> None:
