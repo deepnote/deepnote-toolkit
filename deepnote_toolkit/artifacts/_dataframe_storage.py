@@ -7,10 +7,9 @@ import re
 import time
 import uuid
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import TYPE_CHECKING, Callable, Optional, Union
 
 import pandas as pd
-from packaging.version import Version
 from typing_extensions import TypeAlias, assert_never
 
 from deepnote_toolkit.config import resolve_notebook_root
@@ -18,16 +17,27 @@ from deepnote_toolkit.ocelots.types import PandasDF, PolarsEagerDF
 
 from ._dataframe_storage_manifest import (
     Manifest,
+    encode_manifest,
     is_frame_name,
     read_manifest,
     write_manifest,
 )
+from ._polars_compatibility_checks import (
+    refuse_arrays_on_old_polars,
+    refuse_object_columns,
+    refuse_old_polars,
+)
+
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 FRAMES_DIR = Path("deepnote_dataframes")
 STALE_FRAME_AGE_SECONDS = 24 * 60 * 60
-POLARS_BATCH_ROWS = 65_536
-POLARS_BATCH_MIN_VERSION = Version("1.37")
-POLARS_COMPAT_LEVEL_MIN_VERSION = Version("1.2.1")
+MAX_BATCH_ROWS = 65_536
+# A page spanning two batches reads at most half the reader's 32 MiB limit,
+# leaving room for dictionaries, IPC framing and uneven rows.
+TARGET_BATCH_BYTES = 8 * 1024 * 1024
+MAX_BATCH_BYTES = 12 * 1024 * 1024
 
 StorableFrame: TypeAlias = Union[PandasDF, PolarsEagerDF]
 
@@ -44,42 +54,160 @@ def resolve_project_root() -> Path:
     return resolve_notebook_root()
 
 
-def _select_compression() -> str:
-    """Return the best codec this pyarrow build has: zstd, lz4, else uncompressed."""
+def _select_compression() -> Optional[str]:
+    """Return zstd if this pyarrow build has it, else None for uncompressed.
+
+    Never lz4: Deepnote Cloud doesn't support it yet.
+    """
     import pyarrow as pa
 
-    for codec in ("zstd", "lz4"):
-        if pa.Codec.is_available(codec):
-            return codec
-    return "uncompressed"
+    return "zstd" if pa.Codec.is_available("zstd") else None
 
 
-def _write_frame_file(frame: StorableFrame, path: Path, compression: str) -> None:
-    """Write the frame to `path` as an Arrow IPC file."""
+def _to_arrow_table(frame: StorableFrame) -> "pa.Table":
+    """Return the frame as an Arrow table."""
+    if isinstance(frame, pd.DataFrame):
+        import pyarrow as pa
+
+        # As write_feather does: RangeIndex to metadata, other indexes to columns.
+        return pa.Table.from_pandas(frame, preserve_index=None)
+
+    # polars is an optional dependency, so import it only for a non-pandas frame.
+    import polars
+
+    if isinstance(frame, polars.DataFrame):
+        refuse_old_polars()
+        refuse_object_columns(frame)
+        refuse_arrays_on_old_polars(frame)
+        # Pinned, though it's the default: pyarrow < 15 and apache-arrow < 21.2
+        # can't read polars' string/binary views.
+        return frame.to_arrow(compat_level=polars.CompatLevel.oldest())
+
+    assert_never(frame)
+
+
+def _contains_type(
+    data_type: "pa.DataType", matches: Callable[["pa.DataType"], bool]
+) -> bool:
+    """Return whether `matches` holds for `data_type` or any type nested in it."""
+    import pyarrow as pa
+
+    if matches(data_type):
+        return True
+    if isinstance(data_type, pa.BaseExtensionType):
+        return _contains_type(data_type.storage_type, matches)
+    if pa.types.is_dictionary(data_type):
+        return _contains_type(data_type.value_type, matches)
+    return any(
+        _contains_type(data_type.field(i).type, matches)
+        for i in range(data_type.num_fields)
+    )
+
+
+def _is_view_type(data_type: "pa.DataType") -> bool:
+    """Return whether `data_type` is string_view, binary_view or a list view."""
+    import pyarrow as pa
+
+    # pyproject allows pyarrow older than 16, which lacks these functions.
+    return any(
+        hasattr(pa.types, check) and getattr(pa.types, check)(data_type)
+        for check in (
+            "is_string_view",
+            "is_binary_view",
+            "is_list_view",
+            "is_large_list_view",
+        )
+    )
+
+
+def _refuse_view_types(table: "pa.Table") -> None:
+    """Raise TypeError naming each column whose type is or nests a view type."""
+    # IPC writes a slice of a view column with up to all of the column's data, so
+    # every batch would repeat it. pyarrow older than 24 can't measure their nbytes.
+    views = [
+        field.name
+        for field in table.schema
+        if _contains_type(field.type, _is_view_type)
+    ]
+    if views:
+        raise TypeError(f"Arrow view-type columns cannot be stored, got {views}")
+
+
+def _rows_per_batch(table: "pa.Table") -> int:
+    """Return how many rows make a batch of about TARGET_BATCH_BYTES."""
+    import pyarrow as pa
+
+    # Every batch writes its own copy of each column and chunk, as nbytes counts
+    # them, even where they share buffers. A dictionary is the exception: the file
+    # holds it once, while nbytes counts it once per chunk that shares it.
+    # get_total_buffer_size() counts it once, but counts a slice's whole buffer.
+    nbytes = sum(
+        (
+            min(column.nbytes, column.get_total_buffer_size())
+            if _contains_type(column.type, pa.types.is_dictionary)
+            else column.nbytes
+        )
+        for column in table.columns
+    )
+    if table.num_rows == 0 or nbytes == 0:
+        return MAX_BATCH_ROWS
+    row_bytes = nbytes / table.num_rows
+    return max(1, min(MAX_BATCH_ROWS, int(TARGET_BATCH_BYTES // row_bytes)))
+
+
+def _split_oversized(batch: "pa.RecordBatch") -> list["pa.RecordBatch"]:
+    """Split `batch` into parts of at most MAX_BATCH_BYTES, or one row each.
+
+    Each part but the last is the longest prefix that fits, so long rows don't
+    leave a trail of small batches that one page would have to span.
+    """
+    import pyarrow as pa
+
+    parts = []
+    while batch.num_rows > 1 and pa.ipc.get_record_batch_size(batch) > MAX_BATCH_BYTES:
+        fits, too_many = 1, batch.num_rows
+        while too_many - fits > 1:
+            middle = (fits + too_many) // 2
+            if pa.ipc.get_record_batch_size(batch.slice(0, middle)) <= MAX_BATCH_BYTES:
+                fits = middle
+            else:
+                too_many = middle
+        parts.append(batch.slice(0, fits))
+        batch = batch.slice(fits)
+    parts.append(batch)
+    return parts
+
+
+def _write_frame_file(
+    frame: StorableFrame, path: Path, compression: Optional[str]
+) -> list[int]:
+    """Write the frame to `path` as an Arrow IPC file; return its batches' row counts.
+
+    The dataframe reader needs every record batch's row count, so the batches are
+    cut here rather than by pyarrow.
+    """
+    import pyarrow as pa
+
     with path.open("wb") as sink:
-        if isinstance(frame, pd.DataFrame):
-            from pyarrow import feather
-
-            # pandas < 2.1's to_feather needs a default index and string column names.
-            feather.write_feather(frame, sink, compression=compression)
-            return
-
-        # polars is an optional dependency, so import it only for a non-pandas frame.
-        import polars
-
-        if isinstance(frame, polars.DataFrame):
-            polars_version = Version(polars.__version__)
-            options: dict[str, Any] = {}
-            # Cap batches like write_feather so a page read stays cheap.
-            if polars_version >= POLARS_BATCH_MIN_VERSION:
-                options["record_batch_size"] = POLARS_BATCH_ROWS
-            # pyarrow < 15, apache-arrow < 21.2 can't read 1.0+'s string/binary views.
-            if polars_version >= POLARS_COMPAT_LEVEL_MIN_VERSION:
-                options["compat_level"] = polars.CompatLevel.oldest()
-            frame.write_ipc(sink, compression=compression, **options)
-            return
-
-        assert_never(frame)
+        table = _to_arrow_table(frame)
+        _refuse_view_types(table)
+        # A file with more than one dictionary for a column is refused by pyarrow.
+        table = table.unify_dictionaries()
+        rows_per_batch = _rows_per_batch(table)
+        options = pa.ipc.IpcWriteOptions(compression=compression, allow_64bit=True)
+        batch_rows: list[int] = []
+        with pa.ipc.new_file(sink, table.schema, options=options) as writer:
+            for offset in range(0, table.num_rows, rows_per_batch):
+                # slice() does not clamp the length of a table without columns.
+                length = min(rows_per_batch, table.num_rows - offset)
+                # to_batches() alone never merges chunks, so small chunks would
+                # make small batches; combining a slice copies at most one batch.
+                batch_table = table.slice(offset, length).combine_chunks()
+                for batch in batch_table.to_batches():
+                    for part in _split_oversized(batch):
+                        writer.write_batch(part)
+                        batch_rows.append(part.num_rows)
+    return batch_rows
 
 
 def _delete_replaced_frames(
@@ -125,8 +253,11 @@ def store_frame(frame: StorableFrame, name: str, root: Path) -> Optional[str]:
     new_file = f"{reference_id}.arrow"
     try:
         directory.mkdir(parents=True, exist_ok=True)
-        _write_frame_file(frame, directory / new_file, _select_compression())
+        batch_rows = _write_frame_file(
+            frame, directory / new_file, _select_compression()
+        )
         old = read_manifest(directory)
+        manifest = encode_manifest(new_file, old.file if old else None, batch_rows)
     except BaseException as exc:
         with contextlib.suppress(OSError):
             (directory / new_file).unlink(missing_ok=True)
@@ -134,6 +265,6 @@ def store_frame(frame: StorableFrame, name: str, root: Path) -> Optional[str]:
             return None
         raise
 
-    write_manifest(directory, new_file, old.file if old else None, len(frame))
+    write_manifest(directory, manifest)
     _delete_replaced_frames(directory, old, new_file)
     return reference_id
