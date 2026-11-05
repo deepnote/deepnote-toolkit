@@ -86,6 +86,20 @@ class VirtualEnvironment:
 
         return server_proc
 
+    @property
+    def _pth_file_path(self) -> str:
+        """Path to the .pth file that imports package bundles into the venv."""
+        return os.path.join(self._site_packages_path, "deepnote.pth")
+
+    def clear_package_bundles(self) -> None:
+        """
+        Remove all previously imported package bundles.
+
+        A reused virtual environment keeps its .pth file, so call this before
+        importing bundles to avoid stale or duplicated entries.
+        """
+        Path(self._pth_file_path).unlink(missing_ok=True)
+
     def import_package_bundle(
         self,
         bundle_site_package_path: str,
@@ -112,21 +126,20 @@ class VirtualEnvironment:
                 "specify only one of them"
             )
 
-        pth_file_path = os.path.join(self._site_packages_path, "deepnote.pth")
         # Insert right after the venv's own site-packages, so packages the user
         # installs into the venv (e.g. an upgraded pip) are not shadowed.
         venv_site_packages = os.path.abspath(self._site_packages_path)
         insert_index = (
-            f"(sys.path.index('{venv_site_packages}') + 1 "
-            f"if '{venv_site_packages}' in sys.path else 0)"
+            f"(sys.path.index({venv_site_packages!r}) + 1 "
+            f"if {venv_site_packages!r} in sys.path else 0)"
         )
 
-        with open(pth_file_path, "a+", encoding="utf-8") as pth_file:
+        with open(self._pth_file_path, "a+", encoding="utf-8") as pth_file:
             if condition_env:
                 # Write conditional import that checks environment variable
                 pth_content = (
                     f"import os, sys; "
-                    f"sys.path.insert({insert_index}, '{bundle_site_package_path}') "
+                    f"sys.path.insert({insert_index}, {bundle_site_package_path!r}) "
                     f"if os.environ.get('{condition_env}', '').lower() == 'true' else None"
                 )
                 pth_file.write(pth_content + "\n")
@@ -138,7 +151,7 @@ class VirtualEnvironment:
                 # Higher priority than the other bundles, lower than the venv itself
                 pth_content = (
                     f"import sys; "
-                    f"sys.path.insert({insert_index}, '{bundle_site_package_path}')"
+                    f"sys.path.insert({insert_index}, {bundle_site_package_path!r})"
                 )
                 pth_file.write(pth_content + "\n")
                 logger.info(

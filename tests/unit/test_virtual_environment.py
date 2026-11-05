@@ -115,6 +115,33 @@ class TestImportPackageBundle:
             expected.append(server_libs)
         assert sys.path == [*expected, kernel_libs]
 
+    def test_clear_package_bundles_removes_stale_entries(self, venv):
+        """Test that re-importing bundles in a reused venv drops old entries."""
+        pth_file = Path(venv.site_packages_path) / "deepnote.pth"
+        pth_file.write_text("import sys; sys.path.insert(0, '/stale')\n")
+
+        venv.clear_package_bundles()
+        venv.import_package_bundle("/kernel-libs/site-packages")
+
+        assert pth_file.read_text() == "/kernel-libs/site-packages\n"
+
+    def test_clear_package_bundles_without_pth_file(self, venv):
+        """Test that clearing works when no bundles were imported yet."""
+        venv.clear_package_bundles()
+
+        assert not (Path(venv.site_packages_path) / "deepnote.pth").exists()
+
+    def test_import_package_bundle_escapes_paths(self, venv, monkeypatch):
+        """Test that paths with quotes and backslashes are kept verbatim."""
+        bundle_path = "/odd'dir\\name/site-packages"
+        venv.import_package_bundle(bundle_path, priority=True)
+        monkeypatch.setattr("sys.path", [venv.site_packages_path])
+
+        line = (Path(venv.site_packages_path) / "deepnote.pth").read_text()
+        exec(line)  # noqa: S102 - mimics how site.py runs .pth import lines
+
+        assert sys.path == [venv.site_packages_path, bundle_path]
+
     def test_import_package_bundle_condition_env_and_priority_mutually_exclusive(
         self, venv
     ):
