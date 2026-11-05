@@ -6,7 +6,7 @@ import os
 import threading
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Iterator, List
+from typing import IO, Any, Dict, Iterator, List, Tuple
 
 import pandas as pd
 import pyarrow as pa
@@ -93,6 +93,7 @@ _VALID_MANIFEST: Dict[str, Any] = {
     "previous": FRAME_B,
     "written_at": "2026-10-15T09:30:00Z",
     "rows": 1,
+    "batch_rows": [1],
     "toolkit_version": "1.0.0",
 }
 
@@ -114,11 +115,13 @@ def _manifest_bytes(without: str = "", **fields: Any) -> bytes:
         pytest.param(_manifest_bytes(version=True), id="version-a-bool"),
         pytest.param(_manifest_bytes(without="file"), id="no-file"),
         pytest.param(_manifest_bytes(rows="1"), id="rows-a-string"),
+        pytest.param(_manifest_bytes(without="batch_rows"), id="no-batch-rows"),
+        pytest.param(_manifest_bytes(batch_rows=["1"]), id="batch-rows-strings"),
         pytest.param(
-            _manifest_bytes(pad="x" * 5000), id="oversized-truncated-mid-string"
+            _manifest_bytes(pad="x" * 70_000), id="oversized-truncated-mid-string"
         ),
         pytest.param(
-            _manifest_bytes() + b" " * 5000, id="oversized-valid-json-then-spaces"
+            _manifest_bytes().ljust(65_537), id="oversized-valid-json-then-spaces"
         ),
     ],
 )
@@ -144,7 +147,7 @@ def test_unusable_manifest_counts_as_no_manifest(
 @pytest.mark.parametrize(
     "manifest_bytes",
     [
-        pytest.param(_manifest_bytes().ljust(4096), id="exactly-4096-bytes"),
+        pytest.param(_manifest_bytes().ljust(65_536), id="exactly-64-kib"),
         pytest.param(
             _manifest_bytes(written_by_a_newer_toolkit=True), id="unknown-key"
         ),
@@ -155,7 +158,7 @@ def test_usable_manifest_is_honoured(
 ) -> None:
     directory = frame_dir(tmp_project_root)
     directory.mkdir(parents=True)
-    assert len(manifest_bytes) <= 4096
+    assert len(manifest_bytes) <= 65_536
     (directory / "manifest.json").write_bytes(manifest_bytes)
     for name in (FRAME_A, FRAME_B):
         (directory / name).write_bytes(b"named by the manifest")
@@ -165,6 +168,19 @@ def test_usable_manifest_is_honoured(
     assert stored_manifest(tmp_project_root).previous == FRAME_A
     assert (directory / FRAME_A).exists()
     assert not (directory / FRAME_B).exists()
+
+
+def test_manifest_is_written_up_to_the_size_the_reader_accepts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # written_at has a fixed width, so the manifest's size does not change.
+    size = len(_dataframe_storage_manifest.encode_manifest(FRAME_A, None, [1]))
+
+    monkeypatch.setattr(_dataframe_storage_manifest, "MANIFEST_MAX_BYTES", size)
+    _dataframe_storage_manifest.encode_manifest(FRAME_A, None, [1])
+    monkeypatch.setattr(_dataframe_storage_manifest, "MANIFEST_MAX_BYTES", size - 1)
+    with pytest.raises(ValueError):
+        _dataframe_storage_manifest.encode_manifest(FRAME_A, None, [1])
 
 
 @pytest.mark.parametrize("absolute", [False, True], ids=["relative", "absolute"])
@@ -187,7 +203,7 @@ def test_previous_in_a_parent_directory_is_not_deleted(
 def test_manifest_nested_too_deeply_to_parse_counts_as_no_manifest(
     tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Before 3.12, json raises RecursionError on the nesting 4 KiB allows."""
+    """json raises RecursionError on the nesting 64 KiB allows."""
     artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
     def too_deep(raw: bytes) -> Any:
@@ -208,21 +224,22 @@ def test_manifest_nested_too_deeply_to_parse_counts_as_no_manifest(
 
 
 def test_manifest_is_written_after_the_frame_file_is_complete(
-    tmp_project_root: Path, arrow_sinks: List[Any], monkeypatch: pytest.MonkeyPatch
+    tmp_project_root: Path, arrow_sinks: List[IO[Any]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    seen: List[Dict[str, Any]] = []
+    seen: List[Tuple[bool, int]] = []
     original = _dataframe_storage.write_manifest
 
-    def spy(directory: Path, new_file: str, *args: Any) -> None:
+    def spy(directory: Path, encoded: str) -> None:
+        new_file = json.loads(encoded)["file"]
         table = pa.ipc.open_file(directory / new_file).read_all()
-        seen.append({"closed": arrow_sinks[0].closed, "rows": table.num_rows})
-        original(directory, new_file, *args)
+        seen.append((arrow_sinks[0].closed, table.num_rows))
+        original(directory, encoded)
 
     monkeypatch.setattr(_dataframe_storage, "write_manifest", spy)
 
     artifacts.store_dataframe(pd.DataFrame({"a": [1, 2, 3]}), NAME)
 
-    assert seen == [{"closed": True, "rows": 3}]
+    assert seen == [(True, 3)]
 
 
 def test_concurrent_writers_leave_a_complete_current_frame(
