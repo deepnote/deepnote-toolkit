@@ -128,18 +128,21 @@ class VirtualEnvironment:
 
         # Insert right after the venv's own site-packages, so packages the user
         # installs into the venv (e.g. an upgraded pip) are not shadowed.
-        venv_site_packages = os.path.abspath(self._site_packages_path)
+        # Paths are compared resolved, since the venv may be reached via symlinks,
+        # and written with ascii() as site.py may decode .pth files as ASCII.
+        venv_site_packages = os.path.realpath(self._site_packages_path)
         insert_index = (
-            f"(sys.path.index({venv_site_packages!r}) + 1 "
-            f"if {venv_site_packages!r} in sys.path else 0)"
+            "next((i + 1 for i, p in enumerate(sys.path) "
+            f"if os.path.realpath(p) == {ascii(venv_site_packages)}), 0)"
         )
+        bundle_literal = ascii(bundle_site_package_path)
 
         with open(self._pth_file_path, "a+", encoding="utf-8") as pth_file:
             if condition_env:
                 # Write conditional import that checks environment variable
                 pth_content = (
                     f"import os, sys; "
-                    f"sys.path.insert({insert_index}, {bundle_site_package_path!r}) "
+                    f"sys.path.insert({insert_index}, {bundle_literal}) "
                     f"if os.environ.get('{condition_env}', '').lower() == 'true' else None"
                 )
                 pth_file.write(pth_content + "\n")
@@ -150,8 +153,8 @@ class VirtualEnvironment:
             elif priority:
                 # Higher priority than the other bundles, lower than the venv itself
                 pth_content = (
-                    f"import sys; "
-                    f"sys.path.insert({insert_index}, {bundle_site_package_path!r})"
+                    f"import os, sys; "
+                    f"sys.path.insert({insert_index}, {bundle_literal})"
                 )
                 pth_file.write(pth_content + "\n")
                 logger.info(

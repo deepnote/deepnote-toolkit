@@ -1,5 +1,6 @@
 """Tests for VirtualEnvironment class."""
 
+import os
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -47,7 +48,7 @@ class TestImportPackageBundle:
         content = pth_file.read_text()
 
         assert "import os, sys" in content
-        assert f"sys.path.index('{venv.site_packages_path}') + 1" in content
+        assert f"== {ascii(os.path.realpath(venv.site_packages_path))}" in content
         assert f"'{bundle_path}')" in content
         assert f"os.environ.get('{condition_env}', '').lower() == 'true'" in content
 
@@ -60,8 +61,8 @@ class TestImportPackageBundle:
         pth_file = Path(venv.site_packages_path) / "deepnote.pth"
         content = pth_file.read_text()
 
-        assert "import sys" in content
-        assert f"sys.path.index('{venv.site_packages_path}') + 1" in content
+        assert "import os, sys" in content
+        assert f"== {ascii(os.path.realpath(venv.site_packages_path))}" in content
         assert f"'{bundle_path}')" in content
         assert "os.environ.get" not in content
 
@@ -141,6 +142,32 @@ class TestImportPackageBundle:
         exec(line)  # noqa: S102 - mimics how site.py runs .pth import lines
 
         assert sys.path == [venv.site_packages_path, bundle_path]
+
+    def test_import_package_bundle_writes_ascii_only(self, venv):
+        """Test that non-ASCII paths are escaped so .pth decodes as ASCII."""
+        bundle_path = "/bündle/site-packages"
+
+        venv.import_package_bundle(bundle_path, priority=True)
+
+        raw = (Path(venv.site_packages_path) / "deepnote.pth").read_bytes()
+        assert raw.isascii()
+
+    def test_import_package_bundle_matches_venv_through_symlink(
+        self, venv, tmp_path, monkeypatch
+    ):
+        """Test the bundle lands after the venv when sys.path uses a symlink."""
+        bundle_path = "/usr/local/lib/python3.11/site-packages"
+        venv.import_package_bundle(bundle_path, priority=True)
+        link = tmp_path / "venv-link"
+        link.symlink_to(Path(venv.path), target_is_directory=True)
+        linked_site = str(link / "lib" / "python3.11" / "site-packages")
+        stdlib = "/usr/local/lib/python3.11"
+        monkeypatch.setattr("sys.path", [stdlib, linked_site])
+
+        line = (Path(venv.site_packages_path) / "deepnote.pth").read_text()
+        exec(line)  # noqa: S102 - mimics how site.py runs .pth import lines
+
+        assert sys.path == [stdlib, linked_site, bundle_path]
 
     def test_import_package_bundle_condition_env_and_priority_mutually_exclusive(
         self, venv
