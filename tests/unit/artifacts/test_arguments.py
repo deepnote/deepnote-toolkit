@@ -2,12 +2,10 @@
 
 from pathlib import Path
 from typing import Any, Callable
-from unittest import mock
 
 import pandas as pd
 import polars as pl
 import pytest
-from pyarrow import feather
 
 from deepnote_toolkit import artifacts
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
@@ -46,12 +44,10 @@ INVALID_NAMES = [
 def test_invalid_name_raises_before_anything_is_written(
     tmp_project_root: Path, name: Any
 ) -> None:
-    with mock.patch.object(feather, "write_feather", autospec=True) as write:
-        with pytest.raises(ValueError) as raised:
-            artifacts.store_dataframe(pd.DataFrame({"a": [1]}), name)
+    with pytest.raises(ValueError) as raised:
+        artifacts.store_dataframe(pd.DataFrame({"a": [1]}), name)
 
     assert str(raised.value).endswith(f"got {name!r}")
-    write.assert_not_called()
     assert list(tmp_project_root.iterdir()) == []
 
 
@@ -93,7 +89,7 @@ def test_unsupported_value_raises_type_error(
 
 @pytest.mark.parametrize("make_preview", QUERY_PREVIEWS)
 def test_query_preview_raises_type_error(
-    tmp_project_root: Path, make_preview: Callable[[], Any]
+    tmp_project_root: Path, make_preview: Callable[[], DeepnoteQueryPreview]
 ) -> None:
     with pytest.raises(TypeError, match="SQL query preview"):
         artifacts.store_dataframe(make_preview(), NAME)

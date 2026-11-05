@@ -1,7 +1,6 @@
 """Helpers shared by the DataFrame storage tests."""
 
 import errno
-import io
 import json
 import os
 import time
@@ -10,7 +9,6 @@ from typing import Any, List, Optional
 
 import pyarrow as pa
 import pytest
-from pyarrow import feather
 
 from deepnote_core.pydantic_compat_helpers import model_validate_compat
 from deepnote_toolkit.artifacts._dataframe_storage_manifest import Manifest
@@ -80,7 +78,7 @@ def read_only(monkeypatch: pytest.MonkeyPatch) -> None:
 def probe_failure(frame: Any) -> Optional[type]:
     """The exception type pyarrow itself raises for this frame, if any."""
     try:
-        feather.write_feather(frame, io.BytesIO())
+        pa.Table.from_pandas(frame, preserve_index=None)
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return type(exc)
     return None

@@ -5,10 +5,11 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Union
 
 import pandas as pd
 import polars as pl
+import pyarrow as pa
 import pytest
 
 import deepnote_toolkit
@@ -40,11 +41,19 @@ def test_stores_pandas_frame_and_manifest(tmp_project_root: Path) -> None:
     }
     # Manifest ignores unknown keys and defaults previous, so the keys are checked raw.
     written = json.loads((frame_dir(tmp_project_root) / "manifest.json").read_text())
-    assert set(written) == {"version", "file", "written_at", "rows", "toolkit_version"}
+    assert set(written) == {
+        "version",
+        "file",
+        "written_at",
+        "rows",
+        "batch_rows",
+        "toolkit_version",
+    }
     manifest = stored_manifest(tmp_project_root)
     assert manifest.version == 1
     assert manifest.file == f"{reference_id}.arrow"
     assert manifest.rows == 3
+    assert manifest.batch_rows == [3]
     assert manifest.toolkit_version == deepnote_toolkit.__version__
     assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", manifest.written_at)
 
@@ -126,11 +135,30 @@ def test_transposed_frame_is_stored_with_string_names(tmp_project_root: Path) ->
     [pd.DataFrame({"a": []}), pl.DataFrame({"a": []})],
     ids=["pandas", "polars"],
 )
-def test_empty_frame_is_stored(tmp_project_root: Path, frame: Any) -> None:
+def test_empty_frame_is_stored(
+    tmp_project_root: Path, frame: Union[pd.DataFrame, pl.DataFrame]
+) -> None:
     artifacts.store_dataframe(frame, NAME)
 
     assert stored_table(tmp_project_root).num_rows == 0
     assert stored_manifest(tmp_project_root).rows == 0
+
+
+def test_frame_is_stored_on_pyarrow_older_than_16(
+    tmp_project_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # pyarrow older than 16 has none of these.
+    for check in (
+        "is_string_view",
+        "is_binary_view",
+        "is_list_view",
+        "is_large_list_view",
+    ):
+        monkeypatch.delattr(pa.types, check)
+
+    artifacts.store_dataframe(pd.DataFrame({"a": [1], "s": ["x"]}), NAME)
+
+    assert stored_table(tmp_project_root).to_pydict() == {"a": [1], "s": ["x"]}
 
 
 def test_names_are_stored_apart(tmp_project_root: Path) -> None:

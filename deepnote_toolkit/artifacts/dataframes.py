@@ -24,7 +24,7 @@ def store_dataframe(df: Any, name: str) -> Optional[str]:
     """Store `df` as the current frame under `name`, replacing the one stored before.
 
     Args:
-        df: A pandas or polars DataFrame, written whole with no row or size limit.
+        df: A pandas or polars DataFrame, written whole.
         name: The frame's name, unique within the project, and its directory
             under `deepnote_dataframes/`. Must match `[A-Za-z0-9_-]{1,128}`.
 
@@ -33,13 +33,21 @@ def store_dataframe(df: Any, name: str) -> Optional[str]:
         read-only, in which case nothing is stored.
 
     Raises:
-        ValueError: `name` is not valid.
+        ValueError: `name` is not valid, or `df` needs more record batches than
+            its manifest can list, which takes some 600M rows or 70 GiB of Arrow
+            data.
         TypeError: `df` is a SQL query preview or a frame derived from one, or is
             not a pandas or polars DataFrame. That includes PySpark and
-            pandas-on-Spark DataFrames and polars LazyFrames.
+            pandas-on-Spark DataFrames and polars LazyFrames. Also raised for any
+            polars DataFrame on polars older than 1.35.1; for one with an Object
+            column, or Object in a List, Array or Struct; and, on polars older than
+            1.43.2, for one with an Array column, or Array in a List, Array or
+            Struct. Also raised for a pandas DataFrame with a column or index
+            whose Arrow type is or nests a view type (string_view, binary_view,
+            list_view or large_list_view).
         OSError: The write failed.
-        Exception: `df` cannot be serialized to Arrow: whatever pyarrow's
-            `write_feather()` or polars' `df.write_ipc()` raises.
+        Exception: `df` cannot be converted to Arrow: whatever pyarrow's
+            `Table.from_pandas()` or polars' `df.to_arrow()` raises.
 
     A failed or interrupted call leaves the name's previous frame current, unless
     it stops after the manifest names the new frame: an interrupt can arrive then,

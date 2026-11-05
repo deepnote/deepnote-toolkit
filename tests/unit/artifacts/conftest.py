@@ -54,12 +54,14 @@ def spark_without_ansi_mode(spark: SparkSession) -> Iterator[SparkSession]:
 
 
 @pytest.fixture
-def arrow_sinks(monkeypatch: pytest.MonkeyPatch) -> List[Any]:
+def arrow_sinks(monkeypatch: pytest.MonkeyPatch) -> List[IO[Any]]:
     """Every file object opened for writing a frame, in order."""
-    sinks: List[Any] = []
+    sinks: List[IO[Any]] = []
     real_open = Path.open
 
-    def open_and_record(self: Path, mode: str = "r", *args: Any, **kwargs: Any) -> Any:
+    def open_and_record(
+        self: Path, mode: str = "r", *args: Any, **kwargs: Any
+    ) -> IO[Any]:
         handle = real_open(self, mode, *args, **kwargs)
         if self.suffix == ".arrow" and "w" in mode:
             sinks.append(handle)
