@@ -100,8 +100,10 @@ class VirtualEnvironment:
         :param condition_env: Optional environment variable name. If provided, the bundle
                         will only be loaded when this env var is set to 'true'.
                         Cannot be combined with priority.
-        :param priority: If True, insert at front of sys.path to override other bundles.
-                        Cannot be combined with condition_env.
+        :param priority: If True, insert right after the venv's site-packages to
+                        override other bundles, while packages installed into
+                        the venv keep precedence. Cannot be combined with
+                        condition_env.
         :raises ValueError: If both condition_env and priority are specified.
         """
         if condition_env and priority:
@@ -111,13 +113,20 @@ class VirtualEnvironment:
             )
 
         pth_file_path = os.path.join(self._site_packages_path, "deepnote.pth")
+        # Insert right after the venv's own site-packages, so packages the user
+        # installs into the venv (e.g. an upgraded pip) are not shadowed.
+        venv_site_packages = os.path.abspath(self._site_packages_path)
+        insert_index = (
+            f"(sys.path.index('{venv_site_packages}') + 1 "
+            f"if '{venv_site_packages}' in sys.path else 0)"
+        )
 
         with open(pth_file_path, "a+", encoding="utf-8") as pth_file:
             if condition_env:
                 # Write conditional import that checks environment variable
                 pth_content = (
                     f"import os, sys; "
-                    f"sys.path.insert(0, '{bundle_site_package_path}') "
+                    f"sys.path.insert({insert_index}, '{bundle_site_package_path}') "
                     f"if os.environ.get('{condition_env}', '').lower() == 'true' else None"
                 )
                 pth_file.write(pth_content + "\n")
@@ -126,9 +135,10 @@ class VirtualEnvironment:
                     f"(loads when {condition_env}=true)."
                 )
             elif priority:
-                # Insert at front of sys.path for higher priority (overrides other bundles)
+                # Higher priority than the other bundles, lower than the venv itself
                 pth_content = (
-                    f"import sys; sys.path.insert(0, '{bundle_site_package_path}')"
+                    f"import sys; "
+                    f"sys.path.insert({insert_index}, '{bundle_site_package_path}')"
                 )
                 pth_file.write(pth_content + "\n")
                 logger.info(

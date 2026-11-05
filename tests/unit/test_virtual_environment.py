@@ -1,5 +1,6 @@
 """Tests for VirtualEnvironment class."""
 
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -36,7 +37,7 @@ class TestImportPackageBundle:
         assert content == f"{bundle_path}\n"
 
     def test_import_package_bundle_with_condition_env(self, venv):
-        """Test that conditional import uses sys.path.insert(0, ...)."""
+        """Test that conditional import is inserted after the venv's site-packages."""
         bundle_path = "/server/libs/site-packages"
         condition_env = "DEEPNOTE_INCLUDE_SERVER_PACKAGES"
 
@@ -46,11 +47,12 @@ class TestImportPackageBundle:
         content = pth_file.read_text()
 
         assert "import os, sys" in content
-        assert f"sys.path.insert(0, '{bundle_path}')" in content
+        assert f"sys.path.index('{venv.site_packages_path}') + 1" in content
+        assert f"'{bundle_path}')" in content
         assert f"os.environ.get('{condition_env}', '').lower() == 'true'" in content
 
     def test_import_package_bundle_with_priority(self, venv):
-        """Test that priority=True uses sys.path.insert(0, ...)."""
+        """Test that priority=True is inserted after the venv's site-packages."""
         bundle_path = "/usr/local/lib/python3.11/site-packages"
 
         venv.import_package_bundle(bundle_path, priority=True)
@@ -59,7 +61,8 @@ class TestImportPackageBundle:
         content = pth_file.read_text()
 
         assert "import sys" in content
-        assert f"sys.path.insert(0, '{bundle_path}')" in content
+        assert f"sys.path.index('{venv.site_packages_path}') + 1" in content
+        assert f"'{bundle_path}')" in content
         assert "os.environ.get" not in content
 
     def test_import_package_bundle_ordering(self, venv):
@@ -80,11 +83,37 @@ class TestImportPackageBundle:
         assert len(lines) == 3
         # Line 1: server-libs conditional
         assert "DEEPNOTE_INCLUDE_SERVER_PACKAGES" in lines[0]
-        assert f"sys.path.insert(0, '{server_libs}')" in lines[0]
+        assert f"'{server_libs}')" in lines[0]
         # Line 2: system with priority
-        assert f"sys.path.insert(0, '{system_site}')" in lines[1]
+        assert f"'{system_site}')" in lines[1]
         # Line 3: kernel plain path
         assert lines[2].strip() == kernel_libs
+
+    @pytest.mark.parametrize("include_server_packages", ["true", "false"])
+    def test_import_package_bundle_resulting_sys_path_order(
+        self, venv, monkeypatch, include_server_packages
+    ):
+        """Test venv site-packages take precedence over system site-packages."""
+        server_libs = "/server-libs/site-packages"
+        system_site = "/usr/local/lib/python3.11/site-packages"
+        kernel_libs = "/kernel-libs/site-packages"
+        venv.import_package_bundle(
+            server_libs, condition_env="DEEPNOTE_INCLUDE_SERVER_PACKAGES"
+        )
+        venv.import_package_bundle(system_site, priority=True)
+        monkeypatch.setenv("DEEPNOTE_INCLUDE_SERVER_PACKAGES", include_server_packages)
+        stdlib = "/usr/local/lib/python3.11"
+        monkeypatch.setattr("sys.path", [stdlib, venv.site_packages_path])
+
+        lines = (Path(venv.site_packages_path) / "deepnote.pth").read_text()
+        for line in lines.splitlines():
+            exec(line)  # noqa: S102 - mimics how site.py runs .pth import lines
+        sys.path.append(kernel_libs)
+
+        expected = [stdlib, venv.site_packages_path, system_site]
+        if include_server_packages == "true":
+            expected.append(server_libs)
+        assert sys.path == [*expected, kernel_libs]
 
     def test_import_package_bundle_condition_env_and_priority_mutually_exclusive(
         self, venv
