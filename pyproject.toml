@@ -163,7 +163,7 @@ dependencies = [
     "ujson>=5.13.0,<6",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/58
     "idna>=3.15,<4",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/59
     "click>=8.3.3,<9",
-    "pyasn1>=0.6.4,<0.7",
+    "pyasn1>=0.6.5,<0.7",  # 0.6.5 fixes CVE-2026-119194, CVE-2026-119195, CVE-2026-119196, CVE-2026-119197 (transitive via google-auth)
     "soupsieve>=2.8.4,<3",
 
     # Config dependencies - they need to be declared both in main and server extras, keep them in sync
