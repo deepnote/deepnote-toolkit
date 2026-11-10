@@ -382,13 +382,11 @@ jobs:
           key: ${{ github.event.pull_request.head.repo.full_name || github.repository }}-poetry-${{ runner.os }}-${{ runner.arch }}-py${{ steps.setup-python.outputs.python-version }}-poetry${{ env.POETRY_VERSION }}
 
       - name: Install Poetry
-        uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1
         if: steps.cached-poetry.outputs.cache-hit != 'true'
-        with:
-          version: ${{ env.POETRY_VERSION }}
-          virtualenvs-create: ${{ env.POETRY_VIRTUALENVS_CREATE }}
-          virtualenvs-in-project: ${{ env.POETRY_VIRTUALENVS_IN_PROJECT }}
-          installer-parallel: ${{ env.POETRY_INSTALLER_PARALLEL }}
+        # The runner image points pipx at /opt; install under ~/.local so the cache above saves Poetry.
+        run: |
+          export PIPX_HOME="$HOME/.local/share/pipx" PIPX_BIN_DIR="$HOME/.local/bin"
+          pipx install --python "$(command -v python)" "poetry==${POETRY_VERSION}"
 
       - name: Build wheel package
         id: build
