@@ -86,6 +86,20 @@ class VirtualEnvironment:
 
         return server_proc
 
+    @property
+    def _pth_file_path(self) -> str:
+        """Path to the .pth file that imports package bundles into the venv."""
+        return os.path.join(self._site_packages_path, "deepnote.pth")
+
+    def clear_package_bundles(self) -> None:
+        """
+        Remove all previously imported package bundles.
+
+        A reused virtual environment keeps its .pth file, so call this before
+        importing bundles to avoid stale or duplicated entries.
+        """
+        Path(self._pth_file_path).unlink(missing_ok=True)
+
     def import_package_bundle(
         self,
         bundle_site_package_path: str,
@@ -100,8 +114,10 @@ class VirtualEnvironment:
         :param condition_env: Optional environment variable name. If provided, the bundle
                         will only be loaded when this env var is set to 'true'.
                         Cannot be combined with priority.
-        :param priority: If True, insert at front of sys.path to override other bundles.
-                        Cannot be combined with condition_env.
+        :param priority: If True, insert right after the venv's site-packages to
+                        override other bundles, while packages installed into
+                        the venv keep precedence. Cannot be combined with
+                        condition_env.
         :raises ValueError: If both condition_env and priority are specified.
         """
         if condition_env and priority:
@@ -110,14 +126,23 @@ class VirtualEnvironment:
                 "specify only one of them"
             )
 
-        pth_file_path = os.path.join(self._site_packages_path, "deepnote.pth")
+        # Insert right after the venv's own site-packages, so packages the user
+        # installs into the venv (e.g. an upgraded pip) are not shadowed.
+        # Paths are compared resolved, since the venv may be reached via symlinks,
+        # and written with ascii() as site.py may decode .pth files as ASCII.
+        venv_site_packages = os.path.realpath(self._site_packages_path)
+        insert_index = (
+            "next((i + 1 for i, p in enumerate(sys.path) "
+            f"if os.path.realpath(p) == {ascii(venv_site_packages)}), 0)"
+        )
+        bundle_literal = ascii(bundle_site_package_path)
 
-        with open(pth_file_path, "a+", encoding="utf-8") as pth_file:
+        with open(self._pth_file_path, "a+", encoding="utf-8") as pth_file:
             if condition_env:
                 # Write conditional import that checks environment variable
                 pth_content = (
                     f"import os, sys; "
-                    f"sys.path.insert(0, '{bundle_site_package_path}') "
+                    f"sys.path.insert({insert_index}, {bundle_literal}) "
                     f"if os.environ.get('{condition_env}', '').lower() == 'true' else None"
                 )
                 pth_file.write(pth_content + "\n")
@@ -126,9 +151,10 @@ class VirtualEnvironment:
                     f"(loads when {condition_env}=true)."
                 )
             elif priority:
-                # Insert at front of sys.path for higher priority (overrides other bundles)
+                # Higher priority than the other bundles, lower than the venv itself
                 pth_content = (
-                    f"import sys; sys.path.insert(0, '{bundle_site_package_path}')"
+                    f"import os, sys; "
+                    f"sys.path.insert({insert_index}, {bundle_literal})"
                 )
                 pth_file.write(pth_content + "\n")
                 logger.info(
