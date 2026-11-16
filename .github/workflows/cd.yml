@@ -55,22 +55,22 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        uses: actions/checkout@v4.3.0
         with:
           persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
+        uses: docker/setup-buildx-action@v3.11.1
 
       - name: Login to Docker Hub
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        uses: docker/login-action@v3.6.0
         with:
           username: deepnotebot
           password: ${{ secrets.DOCKERHUB_PASS }}
 
       - name: Export version
         id: version
-        uses: ./.github/actions/export-version
+        uses: $/.github/actions/export-version
 
       - name: Validate tag format
         if: startsWith(github.ref, 'refs/tags/')
@@ -87,7 +87,7 @@ jobs:
           echo "✓ Tag format is valid"
 
       - name: Cache pip and poetry
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@v4.3.0
         with:
           path: |
             ~/.cache/pip/http
@@ -122,7 +122,7 @@ jobs:
 
       # STAGING UPLOAD
       - name: Upload to staging
-        uses: ./.github/actions/upload-bundle-artifacts
+        uses: $/.github/actions/upload-bundle-artifacts
         with:
           python_version: ${{ matrix.python_version }}
           toolkit_version: ${{ steps.version.outputs.VERSION }}
@@ -132,7 +132,7 @@ jobs:
       # PRODUCTION UPLOADS (only on tags)
       - name: Upload to production (versioned)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: ./.github/actions/upload-bundle-artifacts
+        uses: $/.github/actions/upload-bundle-artifacts
         with:
           python_version: ${{ matrix.python_version }}
           toolkit_version: ${{ steps.version.outputs.VERSION }}
@@ -141,7 +141,7 @@ jobs:
 
       - name: Upload to production (latest)
         if: startsWith(github.ref, 'refs/tags/')
-        uses: ./.github/actions/upload-bundle-artifacts
+        uses: $/.github/actions/upload-bundle-artifacts
         with:
           python_version: ${{ matrix.python_version }}
           toolkit_version: latest
@@ -150,7 +150,7 @@ jobs:
 
       # OCI ARTIFACT UPLOADS
       - name: Push toolkit bundle OCI zstd artifact
-        uses: ./.github/actions/push-oci-artifact
+        uses: $/.github/actions/push-oci-artifact
         with:
           artifact_ref: docker.io/deepnote/toolkit-bundle:${{ steps.version.outputs.VERSION }}-python${{ matrix.python_version }}-tar-zst
           artifact_type: application/vnd.deepnote.toolkit.bundle.v1
@@ -163,7 +163,7 @@ jobs:
 
       - name: Push toolkit installer OCI artifact
         if: matrix.python_version == '3.10'
-        uses: ./.github/actions/push-oci-artifact
+        uses: $/.github/actions/push-oci-artifact
         with:
           artifact_ref: docker.io/deepnote/toolkit-installer:${{ steps.version.outputs.VERSION }}
           artifact_type: application/vnd.deepnote.toolkit.installer.v1
@@ -171,7 +171,7 @@ jobs:
           toolkit_version: ${{ steps.version.outputs.VERSION }}
 
       - name: Upload toolkit bundle artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: toolkit-bundle-${{ steps.version.outputs.VERSION }}-python${{ matrix.python_version }}
           path: dist/python${{ matrix.python_version }}.tar
@@ -179,7 +179,7 @@ jobs:
           retention-days: 1
 
       - name: Upload toolkit constraints artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@v4.6.2
         with:
           name: toolkit-constraints-${{ steps.version.outputs.VERSION }}-python${{ matrix.python_version }}
           path: dist/constraints${{ matrix.python_version }}.txt
@@ -199,22 +199,22 @@ jobs:
       PYTHON_VERSIONS: ${{ needs.define-toolkit-python-versions.outputs.python_versions }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        uses: actions/checkout@v4.3.0
         with:
           persist-credentials: false
 
       - name: Login to Docker Hub
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        uses: docker/login-action@v3.6.0
         with:
           username: deepnotebot
           password: ${{ secrets.DOCKERHUB_PASS }}
 
       - name: Export version
         id: version
-        uses: ./.github/actions/export-version
+        uses: $/.github/actions/export-version
 
       - name: Download toolkit bundle artifacts
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4
+        uses: actions/download-artifact@v4.1.8
         with:
           pattern: toolkit-bundle-${{ steps.version.outputs.VERSION }}-python*
           path: dist/
@@ -252,7 +252,7 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
       - name: Push full toolkit bundle OCI artifact
-        uses: ./.github/actions/push-oci-artifact
+        uses: $/.github/actions/push-oci-artifact
         with:
           artifact_ref: docker.io/deepnote/toolkit-bundle:${{ steps.version.outputs.VERSION }}-full
           artifact_type: application/vnd.deepnote.toolkit.bundle.v1
@@ -270,22 +270,22 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        uses: actions/checkout@v4.3.0
         with:
           persist-credentials: false
 
       - name: Login to Docker Hub
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        uses: docker/login-action@v3.6.0
         with:
           username: deepnotebot
           password: ${{ secrets.DOCKERHUB_PASS }}
 
       - name: Export version
         id: version
-        uses: ./.github/actions/export-version
+        uses: $/.github/actions/export-version
 
       - name: Download toolkit constraints artifacts
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4
+        uses: actions/download-artifact@v4.1.8
         with:
           pattern: toolkit-constraints-${{ steps.version.outputs.VERSION }}-python*
           path: dist/
@@ -314,7 +314,7 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
       - name: Push toolkit constraints OCI artifact
-        uses: ./.github/actions/push-oci-artifact
+        uses: $/.github/actions/push-oci-artifact
         with:
           artifact_ref: docker.io/deepnote/toolkit-constraints:${{ steps.version.outputs.VERSION }}
           artifact_type: application/vnd.deepnote.toolkit.constraints.v1
@@ -363,7 +363,7 @@ jobs:
       id-token: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+      - uses: actions/checkout@v4.3.0
         with:
           fetch-depth: 0
           fetch-tags: true
@@ -376,7 +376,7 @@ jobs:
 
       - name: Load cached Poetry installation
         id: cached-poetry
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache@v4.3.0
         with:
           path: ~/.local
           key: ${{ github.event.pull_request.head.repo.full_name || github.repository }}-poetry-${{ runner.os }}-${{ runner.arch }}-py${{ steps.setup-python.outputs.python-version }}-poetry${{ env.POETRY_VERSION }}
@@ -390,10 +390,10 @@ jobs:
 
       - name: Build wheel package
         id: build
-        uses: ./.github/actions/build-wheel
+        uses: $/.github/actions/build-wheel
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
+        uses: aws-actions/configure-aws-credentials@v4.3.1
         with:
           role-to-assume: ${{ secrets.AWS_STAGING_ROLE_ARN }}
           role-session-name: github-actions-session
@@ -438,7 +438,7 @@ jobs:
 
       - name: PR comment
         if: github.event_name == 'pull_request'
-        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        uses: actions/github-script@v7.1.0
         env:
           PKG_VERSION: ${{ steps.build.outputs.version }}
           PKG_WHEEL: ${{ steps.build.outputs.wheel-name }}
@@ -482,7 +482,7 @@ jobs:
               });
             }
 
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      - uses: actions/upload-artifact@v4.6.2
         if: always()
         with:
           name: python-package-${{ steps.build.outputs.version || 'unknown' }}
@@ -502,13 +502,13 @@ jobs:
       url: https://pypi.org/project/deepnote-toolkit/
     steps:
       - name: Download artifact
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4
+        uses: actions/download-artifact@v4.1.8
         with:
           name: python-package-${{ needs.publish-python-package.outputs.version }}
           path: dist/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+        uses: pypa/gh-action-pypi-publish@v1.13.0
         with:
           verbose: false
 
@@ -520,13 +520,13 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
     steps:
       - name: Checkout code
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        uses: actions/checkout@v4.3.0
         with:
           persist-credentials: false
 
       - name: Export version
         id: version
-        uses: ./.github/actions/export-version
+        uses: $/.github/actions/export-version
 
       - name: Trigger GitHub Action for review app config
         env:
@@ -568,25 +568,25 @@ jobs:
       contents: read
     steps:
       - name: Checkout code
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        uses: actions/checkout@v4.3.0
         with:
           persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
+        uses: docker/setup-buildx-action@v3.11.1
 
       - name: Login to Docker Hub
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        uses: docker/login-action@v3.6.0
         with:
           username: deepnotebot
           password: ${{ secrets.DOCKERHUB_PASS }}
 
       - name: Export version
         id: version
-        uses: ./.github/actions/export-version
+        uses: $/.github/actions/export-version
 
       - name: Configure AWS
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a
+        uses: aws-actions/configure-aws-credentials@v4.3.1
         with:
           role-to-assume: ${{ secrets.AWS_STAGING_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -624,22 +624,22 @@ jobs:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Checkout code
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        uses: actions/checkout@v4.3.0
         with:
           persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3
+        uses: docker/setup-buildx-action@v3.11.1
 
       - name: Login to Docker Hub
-        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
+        uses: docker/login-action@v3.6.0
         with:
           username: deepnotebot
           password: ${{ secrets.DOCKERHUB_PASS }}
 
       - name: Export version
         id: version
-        uses: ./.github/actions/export-version
+        uses: $/.github/actions/export-version
 
       - name: Build toolkit-cache docker image
         env:
@@ -668,16 +668,16 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Checkout code
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        uses: actions/checkout@v4.3.0
         with:
           persist-credentials: false
 
       - name: Export version
         id: version
-        uses: ./.github/actions/export-version
+        uses: $/.github/actions/export-version
 
       - name: Update ops repo single-tenant staging version
-        uses: ./.github/actions/update-config-version
+        uses: $/.github/actions/update-config-version
         with:
           env: staging
           versions: |
@@ -688,7 +688,7 @@ jobs:
           github_token: ${{ secrets.DEEPNOTE_BOT_USER_TOKEN }}
 
       - name: Update app-config repo multi-tenant staging version
-        uses: ./.github/actions/update-config-version
+        uses: $/.github/actions/update-config-version
         with:
           env: staging
           versions: |
@@ -708,17 +708,17 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Checkout code
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
+        uses: actions/checkout@v4.3.0
         with:
           persist-credentials: false
 
       - name: Export version
         id: version
-        uses: ./.github/actions/export-version
+        uses: $/.github/actions/export-version
 
       - name: Update production version
         id: update-ops
-        uses: ./.github/actions/update-config-version
+        uses: $/.github/actions/update-config-version
         with:
           env: production
           versions: |
@@ -730,7 +730,7 @@ jobs:
 
       - name: Notify Slack - ops production PR created
         if: always() && steps.update-ops.outcome == 'success' && steps.update-ops.outputs.pr_url != ''
-        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        uses: slackapi/slack-github-action@v2.1.1
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_PRODUCTION }}
           webhook-type: incoming-webhook
@@ -742,7 +742,7 @@ jobs:
 
       - name: Notify Slack - ops production PR failed
         if: always() && steps.update-ops.outcome == 'failure'
-        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        uses: slackapi/slack-github-action@v2.1.1
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_PRODUCTION }}
           webhook-type: incoming-webhook
@@ -754,7 +754,7 @@ jobs:
 
       - name: Update app-config repo multi-tenant production version
         id: update-app-config
-        uses: ./.github/actions/update-config-version
+        uses: $/.github/actions/update-config-version
         with:
           env: production
           versions: |
@@ -768,7 +768,7 @@ jobs:
 
       - name: Notify Slack - app-config production PR created
         if: always() && steps.update-app-config.outcome == 'success' && steps.update-app-config.outputs.pr_url != ''
-        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        uses: slackapi/slack-github-action@v2.1.1
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_PRODUCTION }}
           webhook-type: incoming-webhook
@@ -780,7 +780,7 @@ jobs:
 
       - name: Notify Slack - app-config production PR failed
         if: always() && steps.update-app-config.outcome == 'failure'
-        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2.1.1
+        uses: slackapi/slack-github-action@v2.1.1
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_PRODUCTION }}
           webhook-type: incoming-webhook
