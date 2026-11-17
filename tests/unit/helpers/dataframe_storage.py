@@ -12,6 +12,7 @@ import pytest
 
 from deepnote_core.pydantic_compat_helpers import model_validate_compat
 from deepnote_toolkit.artifacts._dataframe_storage_manifest import Manifest
+from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
 
 NAME = "revenue"
 DAY = 24 * 60 * 60
@@ -33,15 +34,23 @@ def non_arrow_files(root: Path) -> List[str]:
     )
 
 
-def stored_manifest(root: Path, name: str = NAME) -> Manifest:
-    raw = json.loads((frame_dir(root, name) / "manifest.json").read_text())
+def manifest_in(directory: Path) -> Manifest:
+    raw = json.loads((directory / "manifest.json").read_text())
     return model_validate_compat(Manifest, raw)
 
 
-def stored_table(root: Path, name: str = NAME) -> pa.Table:
-    """The frame the name's manifest currently names."""
-    path = frame_dir(root, name) / stored_manifest(root, name).file
+def table_in(directory: Path) -> pa.Table:
+    """The frame the directory's manifest currently names."""
+    path = directory / manifest_in(directory).file
     return pa.ipc.open_file(path).read_all()
+
+
+def stored_manifest(root: Path, name: str = NAME) -> Manifest:
+    return manifest_in(frame_dir(root, name))
+
+
+def stored_table(root: Path, name: str = NAME) -> pa.Table:
+    return table_in(frame_dir(root, name))
 
 
 def backdate(path: Path, age_seconds: float) -> None:
@@ -82,3 +91,14 @@ def probe_failure(frame: Any) -> Optional[type]:
     except Exception as exc:  # pylint: disable=broad-exception-caught
         return type(exc)
     return None
+
+
+def query_preview() -> DeepnoteQueryPreview:
+    return DeepnoteQueryPreview({"a": [1]}, deepnote_query="select 1")
+
+
+def cleared_query_preview() -> DeepnoteQueryPreview:
+    preview = query_preview()
+    # Mutating the frame clears its attached SQL query metadata.
+    preview["b"] = 2
+    return preview

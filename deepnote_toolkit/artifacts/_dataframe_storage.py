@@ -10,10 +10,15 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional, Union
 
 import pandas as pd
-from typing_extensions import TypeAlias, assert_never
+from typing_extensions import TypeAlias, TypeGuard, assert_never
 
 from deepnote_toolkit.config import resolve_notebook_root
 from deepnote_toolkit.ocelots.types import PandasDF, PolarsEagerDF
+from deepnote_toolkit.ocelots.utils import (
+    is_pandas_dataframe,
+    is_polars_eager_dataframe,
+)
+from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
 
 from ._dataframe_storage_manifest import (
     Manifest,
@@ -44,9 +49,16 @@ StorableFrame: TypeAlias = Union[PandasDF, PolarsEagerDF]
 _SAFE_ID_REGEX = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 
-def is_safe_id(value: object) -> bool:
+def is_safe_id(value: object) -> TypeGuard[str]:
     """Return whether `value` can be used as a single path segment."""
     return isinstance(value, str) and _SAFE_ID_REGEX.fullmatch(value) is not None
+
+
+def is_storable_frame(value: object) -> TypeGuard[StorableFrame]:
+    """Return whether `value` is a pandas or polars DataFrame, not a query preview."""
+    if isinstance(value, DeepnoteQueryPreview):
+        return False
+    return is_pandas_dataframe(value) or is_polars_eager_dataframe(value)
 
 
 def resolve_project_root() -> Path:
@@ -242,13 +254,12 @@ def _delete_replaced_frames(
                     (directory / entry.name).unlink()
 
 
-def store_frame(frame: StorableFrame, name: str, root: Path) -> Optional[str]:
-    """Store the frame as the current one under `name` and return its reference ID.
+def store_frame(frame: StorableFrame, directory: Path) -> Optional[str]:
+    """Store the frame as the current one in `directory` and return its reference ID.
 
     Returns None, having stored nothing, if the filesystem is read-only. EROFS from
     the manifest step on raises like any other error: the new frame may be current.
     """
-    directory = root / FRAMES_DIR / name
     reference_id = str(uuid.uuid4())
     new_file = f"{reference_id}.arrow"
     try:
