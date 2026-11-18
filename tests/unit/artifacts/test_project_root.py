@@ -127,6 +127,9 @@ def test_store_writes_under_the_artifacts_root_not_the_notebook_root(
     reference_id = artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
 
     assert list(notebook_root.iterdir()) == []
+    assert arrow_files(artifacts_root) == [
+        frame_dir(artifacts_root) / f"{reference_id}.arrow"
+    ]
     assert stored_manifest(artifacts_root).file == f"{reference_id}.arrow"
 
 
