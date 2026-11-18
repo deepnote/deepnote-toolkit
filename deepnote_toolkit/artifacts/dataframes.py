@@ -68,7 +68,7 @@ def store_dataframe(df: Any, name: str) -> Optional[str]:
             f"got {type(df).__qualname__}"
         )
 
-    root = _dataframe_storage.resolve_project_root()
+    root = _dataframe_storage.resolve_artifacts_root()
     return _dataframe_storage.store_frame(df, name, root)
 
 
@@ -85,7 +85,7 @@ def delete_dataframe(name: str) -> bool:
             files. A symbolic link in place of the name's directory raises too.
     """
     _check_name(name)
-    root = _dataframe_storage.resolve_project_root()
+    root = _dataframe_storage.resolve_artifacts_root()
     directory = root / _dataframe_storage.FRAMES_DIR / name
     if not directory.is_dir():
         return False

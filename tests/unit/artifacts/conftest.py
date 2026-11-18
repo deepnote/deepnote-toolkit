@@ -16,7 +16,7 @@ def tmp_project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     project_root = tmp_path / "project"
     project_root.mkdir()
     monkeypatch.setattr(
-        _dataframe_storage, "resolve_project_root", lambda: project_root
+        _dataframe_storage, "resolve_artifacts_root", lambda: project_root
     )
     return project_root
 
@@ -114,6 +114,7 @@ def close_upload_error(monkeypatch: pytest.MonkeyPatch) -> Dict[str, Optional[OS
 @pytest.fixture
 def no_root_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     for name in (
+        "DEEPNOTE_ARTIFACTS_ROOT",
         "DEEPNOTE_PATHS__NOTEBOOK_ROOT",
         "DEEPNOTE_PATHS__HOME_DIR",
         "DEEPNOTE_HOME_DIR",
