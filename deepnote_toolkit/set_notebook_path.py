@@ -15,12 +15,36 @@ def set_notebook_path() -> None:
     """Set the notebook path and working directory based on the Jupyter session.
 
     This function:
-    - Determines the notebook root directory from config or environment
-    - Finds the current notebook's path using the Jupyter API
+    - Sets DEEPNOTE_PROJECT_ID from runtime.project_id in detached or dev mode
+    - Returns early in detached mode outside dev mode when neither
+      paths.notebook_root nor paths.home_dir is set
+    - Otherwise determines the notebook root directory from config or environment
+    - Finds the current notebook's path using the Jupyter API; in detached or
+      dev mode, parses DEEPNOTE_PROJECT_ID from the session name if still unset
     - Updates sys.path to include the notebook's directory
     - Changes the working directory to the notebook's directory
-    - Sets DEEPNOTE_PROJECT_ID in detached mode
     """
+    try:
+        cfg = get_config()
+        rt = cfg.runtime
+        _detached = bool(rt.running_in_detached_mode or rt.dev_mode)
+        project_id = rt.project_id
+        # runtime-core starts Jupyter and the kernel in the directory it was given:
+        # the .deepnote file's folder, or the deepnote CLI's --cwd
+        _keep_kernel_cwd = (
+            rt.running_in_detached_mode
+            and not rt.dev_mode
+            and not cfg.paths.notebook_root
+            and not cfg.paths.home_dir
+        )
+    except Exception:
+        _detached, _keep_kernel_cwd, project_id = False, False, None
+
+    if _detached and project_id:
+        env.set_env("DEEPNOTE_PROJECT_ID", project_id)
+    if _keep_kernel_cwd:
+        return
+
     root_path = resolve_notebook_root()
 
     try:
@@ -48,14 +72,8 @@ def set_notebook_path() -> None:
             if session["kernel"]["id"] == kernel_id
         )
 
-        # If not provided as an environmental variable, use projectId parsed from session name
         # ProjectID is used for integration functionality
         # Expected session name format: "{schema_version}:{type}:{project_id}:{...additional segments}"
-        try:
-            rt = get_config().runtime
-            _detached = bool(rt.running_in_detached_mode or rt.dev_mode)
-        except Exception:
-            _detached = False
         if _detached and not env.has_env("DEEPNOTE_PROJECT_ID"):
             env.set_env("DEEPNOTE_PROJECT_ID", session["name"].split(":")[2])
 
