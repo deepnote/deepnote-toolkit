@@ -33,7 +33,7 @@ def _broken_config() -> Any:
 
 
 @pytest.mark.usefixtures("no_root_settings")
-class TestProjectRoot:
+class TestResolveArtifactsRoot:
     """resolve_artifacts_root() prefers DEEPNOTE_ARTIFACTS_ROOT, then follows the
     precedence of set_notebook_path()."""
 

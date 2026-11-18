@@ -56,13 +56,13 @@ def resolve_artifacts_root() -> Path:
 
     That is `DEEPNOTE_ARTIFACTS_ROOT` when it is non-empty, otherwise the notebook root.
     """
-    override = env.get_env(ARTIFACTS_ROOT_ENV)
-    if not override:
+    artifacts_root = env.get_env(ARTIFACTS_ROOT_ENV)
+    if not artifacts_root:
         return resolve_notebook_root()
-    root = Path(override).expanduser()
+    root = Path(artifacts_root).expanduser()
     if not root.is_absolute():
         raise ValueError(
-            f"{ARTIFACTS_ROOT_ENV} must be an absolute path, got {override!r}"
+            f"{ARTIFACTS_ROOT_ENV} must be an absolute path, got {artifacts_root!r}"
         )
     return root
 
