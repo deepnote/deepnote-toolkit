@@ -33,9 +33,9 @@ def store_dataframe(df: Any, name: str) -> Optional[str]:
         read-only, in which case nothing is stored.
 
     Raises:
-        ValueError: `name` is not valid, or `df` needs more record batches than
-            its manifest can list, which takes some 600M rows or 70 GiB of Arrow
-            data.
+        ValueError: `name` is not valid, `DEEPNOTE_ARTIFACTS_ROOT` is set to a
+            relative path, or `df` needs more record batches than its manifest can
+            list, which takes some 600M rows or 70 GiB of Arrow data.
         TypeError: `df` is a SQL query preview or a frame derived from one, or is
             not a pandas or polars DataFrame. That includes PySpark and
             pandas-on-Spark DataFrames and polars LazyFrames. Also raised for any
@@ -80,7 +80,8 @@ def delete_dataframe(name: str) -> bool:
         nothing is deleted.
 
     Raises:
-        ValueError: `name` is not valid.
+        ValueError: `name` is not valid, or `DEEPNOTE_ARTIFACTS_ROOT` is set to a
+            relative path.
         OSError: The delete failed, possibly part-way, leaving some of the name's
             files. A symbolic link in place of the name's directory raises too.
     """

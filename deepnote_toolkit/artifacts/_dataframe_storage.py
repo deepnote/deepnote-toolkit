@@ -57,9 +57,14 @@ def resolve_artifacts_root() -> Path:
     That is `DEEPNOTE_ARTIFACTS_ROOT` when it is non-empty, otherwise the notebook root.
     """
     override = env.get_env(ARTIFACTS_ROOT_ENV)
-    if override:
-        return Path(override).expanduser()
-    return resolve_notebook_root()
+    if not override:
+        return resolve_notebook_root()
+    root = Path(override).expanduser()
+    if not root.is_absolute():
+        raise ValueError(
+            f"{ARTIFACTS_ROOT_ENV} must be an absolute path, got {override!r}"
+        )
+    return root
 
 
 def _select_compression() -> Optional[str]:

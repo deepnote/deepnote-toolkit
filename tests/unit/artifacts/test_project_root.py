@@ -143,6 +143,35 @@ def test_delete_removes_the_frames_under_the_artifacts_root(
     assert not frame_dir(artifacts_root).exists()
 
 
+@pytest.mark.usefixtures("no_root_settings")
+def test_store_refuses_a_relative_artifacts_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DEEPNOTE_ARTIFACTS_ROOT", "artifacts")
+    monkeypatch.setenv("DEEPNOTE_PATHS__NOTEBOOK_ROOT", str(tmp_path / "notebooks"))
+
+    with pytest.raises(ValueError, match="DEEPNOTE_ARTIFACTS_ROOT"):
+        artifacts.store_dataframe(pd.DataFrame({"a": [1]}), NAME)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.usefixtures("no_root_settings")
+def test_delete_refuses_a_relative_artifacts_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    frame_dir(tmp_path / "artifacts").mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("DEEPNOTE_ARTIFACTS_ROOT", "artifacts")
+    monkeypatch.setenv("DEEPNOTE_PATHS__NOTEBOOK_ROOT", str(tmp_path / "notebooks"))
+
+    with pytest.raises(ValueError, match="DEEPNOTE_ARTIFACTS_ROOT"):
+        artifacts.delete_dataframe(NAME)
+
+    assert frame_dir(tmp_path / "artifacts").is_dir()
+
+
 def test_delete_returns_false_when_the_project_root_is_missing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

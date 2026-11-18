@@ -100,7 +100,7 @@ Legacy variables are still accepted as input aliases (not precedence), e.g.:
 `DEEPNOTE_ARTIFACTS_ROOT` sets where stored DataFrames go:
 
 - When it is set, `store_dataframe` writes to `<value>/deepnote_dataframes/<name>/` instead of under the notebook root, and `delete_dataframe` deletes from there.
-- The value must be an absolute path. A leading `~` is expanded.
+- The value must be an absolute path after a leading `~` is expanded. Otherwise `store_dataframe` and `delete_dataframe` raise `ValueError`.
 - The toolkit reads it from the environment only. Config files don't set it.
 - When it is unset or empty, frames stay under the notebook root.
 
