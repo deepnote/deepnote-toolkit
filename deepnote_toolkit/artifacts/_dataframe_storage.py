@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Callable, Optional, Union
 import pandas as pd
 from typing_extensions import TypeAlias, assert_never
 
+from deepnote_toolkit import env
 from deepnote_toolkit.config import resolve_notebook_root
 from deepnote_toolkit.ocelots.types import PandasDF, PolarsEagerDF
 
@@ -31,6 +32,7 @@ from ._polars_compatibility_checks import (
 if TYPE_CHECKING:
     import pyarrow as pa
 
+ARTIFACTS_ROOT_ENV = "DEEPNOTE_ARTIFACTS_ROOT"
 FRAMES_DIR = Path("deepnote_dataframes")
 STALE_FRAME_AGE_SECONDS = 24 * 60 * 60
 MAX_BATCH_ROWS = 65_536
@@ -49,9 +51,20 @@ def is_safe_id(value: object) -> bool:
     return isinstance(value, str) and _SAFE_ID_REGEX.fullmatch(value) is not None
 
 
-def resolve_project_root() -> Path:
-    """Return the project's root directory, the one set_notebook_path() uses."""
-    return resolve_notebook_root()
+def resolve_artifacts_root() -> Path:
+    """Return the root that stored DataFrames live under.
+
+    That is `DEEPNOTE_ARTIFACTS_ROOT` when it is non-empty, otherwise the notebook root.
+    """
+    artifacts_root = env.get_env(ARTIFACTS_ROOT_ENV)
+    if not artifacts_root:
+        return resolve_notebook_root()
+    root = Path(artifacts_root).expanduser()
+    if not root.is_absolute():
+        raise ValueError(
+            f"{ARTIFACTS_ROOT_ENV} must be an absolute path, got {artifacts_root!r}"
+        )
+    return root
 
 
 def _select_compression() -> Optional[str]:
