@@ -88,7 +88,7 @@ dependencies = [
     "sqlparse>=0.6.0,<0.7",
     "pymysql>=1.1.1,<1.2",
     "pymongo>=4.18.3,<5",  # 4.18.3 fixes CVE-2026-106435
-    "dnspython>=2.9.0,<3.0; python_version >= '3.11'",  # 2.9.0 fixes CVE-2026-114605 (transitive via pymongo)
+    "dnspython>=2.9.2,<3.0; python_version >= '3.11'",  # 2.9.2 fixes CVE-2026-128089 (transitive via pymongo)
     "dnspython>=2.7.0,<3.0; python_version < '3.11'",  # dnspython 2.9.0 requires Python 3.11
     "paramiko>=5.0.0,<6",
     "sqlalchemy<2; python_version <= '3.11'",
@@ -143,7 +143,7 @@ dependencies = [
     "cryptography>=50.0.0,<51",
     "protobuf>=5.29.6,<6",
     "requests>=2.32.4,<3",
-    "tornado>=6.6,<7; python_version >= '3.11'",  # 6.6 fixes CVE-2026-115927, CVE-2026-116577, CVE-2026-116578
+    "tornado>=6.6.1,<7; python_version >= '3.11'",  # 6.6.1 fixes CVE-2026-126347
     "tornado>=6.5.9,<7; python_version < '3.11'",  # tornado 6.6 requires Python 3.11
     "filelock>=4.2.1,<5; python_version >= '3.11'",  # 4.2.1 fixes CVE-2026-112907, CVE-2026-112913, CVE-2026-112940
     "filelock==3.20.3; python_version < '3.11'",  # 3.20.4 through 4.2.0 carry those advisories, and 4.2.1 requires Python 3.11
@@ -163,7 +163,8 @@ dependencies = [
     "idna>=3.15,<4",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/59
     "click>=8.3.3,<9",
     "pyasn1>=0.6.5,<0.7",  # 0.6.5 fixes CVE-2026-119194, CVE-2026-119195, CVE-2026-119196, CVE-2026-119197 (transitive via google-auth)
-    "soupsieve>=2.8.4,<3",
+    "soupsieve>=4.1.2,<5; python_version >= '3.12'",  # 4.1.2 fixes CVE-2026-126189..126193 and 4 advisories published only in soupsieve's repo, such as GHSA-gcq2-p324-qj2v (transitive via beautifulsoup4)
+    "soupsieve>=2.10,<3; python_version < '3.12'",  # 2.10 fixes CVE-2026-126192; soupsieve 3.0.2+ requires Python 3.11.5, which the 3.11 kernel bundle can't guarantee
 
     # Config dependencies - they need to be declared both in main and server extras, keep them in sync
     "pydantic>=1.10.0,<3; python_version < '3.13'",

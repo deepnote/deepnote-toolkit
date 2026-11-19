@@ -499,6 +499,12 @@ jobs:
           # * false positive for Python: advisory says RecordBatchFileReader::PreBufferMetadata is not exposed in Python bindings
           # * this repo uses PyArrow through pandas parquet IO and Arrow table construction, not IPC file pre-buffering
           # * databricks-sqlalchemy 1.x caps pyarrow<17, but upgrading requires SQLAlchemy 2.x (which is not possible for some Python versions)
+          # CVE-2026-126190, CVE-2026-126191, CVE-2026-126193 (soupsieve 2.10 selector denial of service on Python < 3.12)
+          # * fixed only in soupsieve 3.0.2+ (4.0+ for CVE-2026-126190), which requires Python 3.11.5 and fails every CSS selector on older 3.11 releases
+          # * the 3.11 kernel bundle is frozen on the builder's latest 3.11 but installed on any 3.11 patch release, so 3.11 stays on soupsieve 2.x
           ignore-vulns: |
             PYSEC-2024-161
             PYSEC-2026-113
+            CVE-2026-126190
+            CVE-2026-126191
+            CVE-2026-126193
