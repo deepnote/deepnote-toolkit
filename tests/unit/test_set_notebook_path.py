@@ -15,7 +15,9 @@ def _cfg(jupyter_port=9999, notebook_root: str = "/tmp", detached=True, dev=Fals
     return types.SimpleNamespace(
         server=types.SimpleNamespace(jupyter_port=jupyter_port),
         paths=types.SimpleNamespace(notebook_root=notebook_root, home_dir=None),
-        runtime=types.SimpleNamespace(running_in_detached_mode=detached, dev_mode=dev),
+        runtime=types.SimpleNamespace(
+            running_in_detached_mode=detached, dev_mode=dev, project_id=None
+        ),
     )
 
 
