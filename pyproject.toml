@@ -163,8 +163,8 @@ dependencies = [
     "idna>=3.15,<4",  # https://github.com/deepnote/deepnote-toolkit/security/dependabot/59
     "click>=8.3.3,<9",
     "pyasn1>=0.6.5,<0.7",  # 0.6.5 fixes CVE-2026-119194, CVE-2026-119195, CVE-2026-119196, CVE-2026-119197 (transitive via google-auth)
-    "soupsieve>=4.1.2,<5; python_version >= '3.12'",  # 4.1.2 fixes CVE-2026-126189..126193 and 4 advisories published only in soupsieve's repo, such as GHSA-gcq2-p324-qj2v (transitive via beautifulsoup4)
-    "soupsieve>=2.10,<3; python_version < '3.12'",  # 2.10 fixes CVE-2026-126192; soupsieve 3.0.2+ requires Python 3.11.5, which the 3.11 kernel bundle can't guarantee
+    "soupsieve>=4.1.2,<5; python_full_version >= '3.11.5'",  # 4.1.2 fixes CVE-2026-126189..126193 and 4 newer advisories, such as GHSA-gcq2-p324-qj2v (transitive via beautifulsoup4)
+    "soupsieve>=2.10,<3; python_full_version < '3.11.5'",  # 2.10 fixes CVE-2026-126192; soupsieve 3.0.2+ requires Python 3.11.5
 
     # Config dependencies - they need to be declared both in main and server extras, keep them in sync
     "pydantic>=1.10.0,<3; python_version < '3.13'",
