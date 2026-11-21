@@ -5,6 +5,30 @@ from sqlparse.tokens import Keyword
 from deepnote_toolkit.sql.query_preview import DeepnoteQueryPreview
 from deepnote_toolkit.sql.sql_utils import is_single_select_query
 
+# Maps a SQL block's result variable name to the source query that produced it.
+# deepnote-internal calls register_sql_query after a dataframe-mode SQL block
+# runs, so that subsequent SQL blocks can reference the variable as a table and
+# have it expanded into a CTE. This is the same chaining DeepnoteQueryPreview
+# enables for query-preview-mode blocks, but without changing the result type
+# (which would show a preview banner and limit the row count).
+_sql_query_registry: dict = {}
+
+
+def register_sql_query(variable_name, query):
+    """Register a SQL block's source query so downstream blocks can chain on it.
+
+    Only single SELECT statements can be expanded into a CTE, so anything else
+    (or an empty query) clears any previous entry for the variable rather than
+    storing it.
+    """
+    if variable_name is None:
+        return
+
+    if query is not None and is_single_select_query(query):
+        _sql_query_registry[variable_name] = query
+    else:
+        _sql_query_registry.pop(variable_name, None)
+
 
 def add_limit_clause(query: str, limit: int = 100):
     class ExecuteSqlError(Exception):
@@ -137,16 +161,33 @@ def find_query_preview_references(
 
     # Check each table reference
     for table_reference in table_references:
-        # Check if the reference exists in the main module
+        variable_name = table_reference
+
+        # Skip references we've already resolved (dedupe + cycle guard by name)
+        if variable_name in query_preview_references:
+            continue
+
+        # 1) Dataframe-mode chaining. deepnote-internal registers a block's
+        #    source query keyed by its result variable name. We only trust the
+        #    entry while the variable is still bound in __main__, so a deleted or
+        #    rebound variable doesn't produce a stale CTE expansion.
+        if variable_name in _sql_query_registry and hasattr(__main__, variable_name):
+            registered_source = _sql_query_registry[variable_name]
+            if registered_source:
+                query_preview_references[variable_name] = registered_source
+                # Recursively resolve the registered query's own references
+                find_query_preview_references(
+                    registered_source,
+                    query_preview_references,
+                    processed_queries,
+                )
+            continue
+
+        # 2) Query-preview-mode chaining. The variable itself is a
+        #    DeepnoteQueryPreview that carries its source query.
         if hasattr(__main__, table_reference):
-            variable_name = table_reference
             variable = getattr(__main__, table_reference)
-            # If it's a QueryPreview object and not already in our list
-            # Use any() with a generator expression to check if the variable is already in the list
-            # This avoids using the pandas object in a boolean context
-            if isinstance(variable, DeepnoteQueryPreview) and not any(
-                id(variable) == id(ref) for ref in query_preview_references
-            ):
+            if isinstance(variable, DeepnoteQueryPreview):
                 # Add it to our list
                 query_preview_source = variable._deepnote_query
                 query_preview_references[variable_name] = query_preview_source
