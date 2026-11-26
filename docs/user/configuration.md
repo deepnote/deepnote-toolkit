@@ -145,11 +145,11 @@ At runtime, the Toolkit automatically loads `DEEPNOTE_CONFIG_FILE` if present.
 - `installation.index_url`: base index URL for bundles
 - `installation.bundle_path`: local bundle dir
 - `installation.cache_path`: cache dir
-- `runtime.running_in_detached_mode`: detached/direct mode toggle
+- `runtime.running_in_detached_mode`: detached/direct mode toggle. Outside dev mode and without `paths.notebook_root` or `paths.home_dir`, kernels keep the working directory and `sys.path` they start with
 - `runtime.dev_mode`: local dev toggles (e.g., default notebook root `/work`)
 - `runtime.ci`: CI toggle for logging behavior
 - `runtime.webapp_url`: base webapp URL (used in detached/dev mode)
-- `runtime.project_id`: runtime UUID/project identifier
+- `runtime.project_id`: runtime UUID/project identifier; in detached or dev mode, kernels see it as `DEEPNOTE_PROJECT_ID`
 - `runtime.coerce_float`: controls pandas `read_sql_query(coerce_float=...)`
 - `runtime.env_integration_enabled`: enables variable injection from integrations
 
