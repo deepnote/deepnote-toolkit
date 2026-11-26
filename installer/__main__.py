@@ -270,6 +270,7 @@ def bootstrap():
     server_site_packages_path = get_server_site_package_path(toolkit_bundle_path)
     kernel_site_package_path = get_kernel_site_package_path(toolkit_bundle_path)
 
+    venv.clear_package_bundles()
     venv.import_package_bundle(
         server_site_packages_path, condition_env="DEEPNOTE_INCLUDE_SERVER_PACKAGES"
     )
